@@ -1,0 +1,1748 @@
+
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Board Testing System </title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f0f2f5;
+            color: #1c1e21;
+        }
+
+        .sidebar {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 260px;
+            height: 100vh;
+            background: #1e293b;
+            padding: 20px 0;
+            z-index: 100;
+        }
+
+        .logo {
+            padding: 0 20px 30px;
+            border-bottom: 1px solid #334155;
+            margin-bottom: 20px;
+        }
+
+        .logo h2 {
+            color: white;
+            font-size: 20px;
+            margin-bottom: 4px;
+        }
+
+        .logo p {
+            color: #94a3b8;
+            font-size: 13px;
+        }
+
+        .nav-item {
+            padding: 12px 20px;
+            color: #cbd5e1;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 14px;
+        }
+
+        .nav-item:hover {
+            background: #334155;
+            color: white;
+        }
+
+        .nav-item.active {
+            background: #3b82f6;
+            color: white;
+            border-right: 4px solid #60a5fa;
+        }
+
+        .nav-icon {
+            font-size: 18px;
+            width: 24px;
+            text-align: center;
+        }
+
+        .main-content {
+            margin-left: 260px;
+            padding: 30px;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 16px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 40px rgba(59, 130, 246, 0.2);
+        }
+
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            opacity: 0.95;
+            font-size: 15px;
+        }
+
+        .page {
+            display: none;
+        }
+
+        .page.active {
+            display: block;
+            animation: fadeIn 0.3s;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Dashboard Stats */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            transition: transform 0.2s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+        }
+
+        .stat-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 16px;
+        }
+
+        .stat-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+        }
+
+        .stat-icon.blue { background: #dbeafe; }
+        .stat-icon.green { background: #d1fae5; }
+        .stat-icon.yellow { background: #fef3c7; }
+        .stat-icon.red { background: #fee2e2; }
+
+        .stat-value {
+            font-size: 36px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .stat-label {
+            font-size: 13px;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stat-detail {
+            font-size: 13px;
+            color: #475569;
+            margin-top: 8px;
+            padding-top: 12px;
+            border-top: 1px solid #e2e8f0;
+        }
+
+        /* Storage Bar */
+        .storage-info {
+            margin-top: 12px;
+        }
+
+        .storage-bar {
+            height: 8px;
+            background: #e2e8f0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 8px;
+        }
+
+        .storage-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3b82f6, #2563eb);
+            transition: width 0.5s;
+        }
+
+        .storage-fill.warning {
+            background: linear-gradient(90deg, #f59e0b, #d97706);
+        }
+
+        .storage-fill.danger {
+            background: linear-gradient(90deg, #ef4444, #dc2626);
+        }
+
+        /* Card */
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 2px solid #f1f5f9;
+        }
+
+        .card-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: #0f172a;
+        }
+
+        /* Batch Job Item */
+        .batch-item {
+            background: #f8fafc;
+            border: 2px solid #e2e8f0;
+            border-left: 5px solid #3b82f6;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 16px;
+            transition: all 0.2s;
+        }
+
+        .batch-item:hover {
+            background: white;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            transform: translateX(4px);
+        }
+
+        .batch-item.my-job {
+            border-left-color: #8b5cf6;
+            background: #faf5ff;
+        }
+
+        .batch-item.running {
+            border-left-color: #3b82f6;
+        }
+
+        .batch-item.completed {
+            border-left-color: #10b981;
+        }
+
+        .batch-item.error {
+            border-left-color: #ef4444;
+        }
+
+        .batch-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .batch-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #0f172a;
+        }
+
+        .badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .badge.running {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        .badge.completed {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .badge.error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .badge.my-job {
+            background: #ede9fe;
+            color: #5b21b6;
+        }
+
+        .batch-info {
+            font-size: 14px;
+            color: #475569;
+            margin-bottom: 12px;
+        }
+
+        .progress-section {
+            margin: 12px 0;
+        }
+
+        .progress-text {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            color: #64748b;
+            margin-bottom: 6px;
+        }
+
+        .progress-bar {
+            height: 10px;
+            background: #e2e8f0;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3b82f6, #2563eb);
+            transition: width 0.5s;
+            position: relative;
+        }
+
+        .progress-fill::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+            animation: shimmer 2s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        .batch-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-primary {
+            background: #3b82f6;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2563eb;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+        }
+
+        .btn-secondary {
+            background: #e2e8f0;
+            color: #334155;
+        }
+
+        .btn-secondary:hover {
+            background: #cbd5e0;
+        }
+
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+
+        .btn-success {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #059669;
+        }
+
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+
+        /* Notification */
+        .notification-item {
+            padding: 16px;
+            border-bottom: 1px solid #e2e8f0;
+            transition: background 0.2s;
+            cursor: pointer;
+        }
+
+        .notification-item:hover {
+            background: #f8fafc;
+        }
+
+        .notification-item:last-child {
+            border-bottom: none;
+        }
+
+        .notification-item.unread {
+            background: #f0f9ff;
+            border-left: 3px solid #3b82f6;
+        }
+
+        .notification-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 6px;
+        }
+
+        .notification-title {
+            font-weight: 600;
+            font-size: 14px;
+            color: #0f172a;
+        }
+
+        .notification-time {
+            font-size: 12px;
+            color: #94a3b8;
+        }
+
+        .notification-content {
+            font-size: 13px;
+            color: #475569;
+        }
+
+        /* Upload Area */
+        .upload-zone {
+            border: 3px dashed #cbd5e0;
+            border-radius: 12px;
+            padding: 50px;
+            text-align: center;
+            background: #f8fafc;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 24px;
+        }
+
+        .upload-zone:hover {
+            border-color: #3b82f6;
+            background: #f0f9ff;
+        }
+
+        .upload-zone.dragover {
+            border-color: #3b82f6;
+            background: #dbeafe;
+        }
+
+        .upload-icon {
+            font-size: 64px;
+            margin-bottom: 16px;
+        }
+
+        /* File Manager */
+        .file-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .file-card {
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 16px;
+            cursor: move;
+            transition: all 0.2s;
+        }
+
+        .file-card:hover {
+            border-color: #3b82f6;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+            transform: translateY(-2px);
+        }
+
+        .file-card.selected {
+            border-color: #3b82f6;
+            background: #f0f9ff;
+        }
+
+        .file-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .file-type-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+
+        .file-type-icon.vcd {
+            background: #dbeafe;
+        }
+
+        .file-type-icon.firmware {
+            background: #fef3c7;
+        }
+
+        .file-info h4 {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            color: #0f172a;
+        }
+
+        .file-info p {
+            font-size: 12px;
+            color: #64748b;
+        }
+
+        .file-actions {
+            display: flex;
+            gap: 6px;
+            margin-top: 12px;
+        }
+
+        /* Test Case Config */
+        .config-section {
+            background: #f8fafc;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .config-header {
+            font-size: 15px;
+            font-weight: 600;
+            color: #0f172a;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            font-weight: 500;
+            font-size: 14px;
+            color: #334155;
+            margin-bottom: 8px;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 10px 14px;
+            border: 2px solid #e2e8f0;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+        }
+
+        /* Group Manager */
+        .group-item {
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 12px;
+        }
+
+        .group-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .group-name {
+            font-weight: 600;
+            font-size: 15px;
+            color: #0f172a;
+        }
+
+        .group-count {
+            background: #e2e8f0;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #475569;
+        }
+
+        .group-files {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .group-file-tag {
+            background: #f1f5f9;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            color: #475569;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .remove-tag {
+            cursor: pointer;
+            color: #94a3b8;
+            font-weight: bold;
+        }
+
+        .remove-tag:hover {
+            color: #ef4444;
+        }
+
+        /* Job Queue */
+        .queue-item {
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-left: 5px solid #94a3b8;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .queue-number {
+            font-size: 24px;
+            font-weight: 700;
+            color: #94a3b8;
+            min-width: 50px;
+            text-align: center;
+        }
+
+        .queue-content {
+            flex: 1;
+        }
+
+        .queue-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.6);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 16px;
+            padding: 32px;
+            max-width: 700px;
+            width: 90%;
+            max-height: 85vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            margin-bottom: 24px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        .modal-title {
+            font-size: 24px;
+            font-weight: 700;
+            color: #0f172a;
+        }
+
+        .modal-footer {
+            margin-top: 28px;
+            padding-top: 24px;
+            border-top: 2px solid #e2e8f0;
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+        }
+
+        /* Filter Toggle */
+        .filter-toggle {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+
+        .filter-btn {
+            padding: 8px 16px;
+            border: 2px solid #e2e8f0;
+            background: white;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .filter-btn:hover {
+            border-color: #3b82f6;
+            color: #3b82f6;
+        }
+
+        .filter-btn.active {
+            background: #3b82f6;
+            color: white;
+            border-color: #3b82f6;
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <div class="logo">
+            <h2>Board Testing</h2>
+            <p></p>
+        </div>
+        <div class="nav-item active" onclick="showPage('dashboard')">
+            <span class="nav-icon"></span>
+            <span>Dashboard</span>
+        </div>
+        <div class="nav-item" onclick="showPage('setup')">
+            <span class="nav-icon"></span>
+            <span>Test Case Setup</span>
+        </div>
+        <div class="nav-item" onclick="showPage('jobs')">
+            <span class="nav-icon"></span>
+            <span>Job Management</span>
+        </div>
+        <div class="nav-item" onclick="showPage('boards')">
+            <span class="nav-icon"></span>
+            <span>Board Status</span>
+        </div>
+        <div class="nav-item" onclick="showPage('history')">
+            <span class="nav-icon"></span>
+            <span>Test History</span>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <!-- Dashboard Page -->
+        <div id="dashboard" class="page active">
+            <div class="header">
+                <h1>Dashboard</h1>
+                <p>Overview of the system and job progress</p>
+            </div>
+
+            <!-- System Health Summary -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <div>
+                            <div class="stat-value" style="color: #10b981;">8</div>
+                            <div class="stat-label">Online Boards</div>
+                        </div>
+                        <div class="stat-icon green">✅</div>
+                    </div>
+                    <div class="stat-detail">
+                        Total: 12 boards | Busy: 3 | Idle: 5
+                    </div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <div>
+                            <div class="stat-value" style="color: #3b82f6;">3</div>
+                            <div class="stat-label">Busy Boards</div>
+                        </div>
+                        <div class="stat-icon blue">⚡</div>
+                    </div>
+                    <div class="stat-detail">
+                        Running tests on Board #1, #3, #7
+                    </div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <div>
+                            <div class="stat-value" style="color: #ef4444;">1</div>
+                            <div class="stat-label">Error Boards</div>
+                        </div>
+                        <div class="stat-icon red">⚠️</div>
+                    </div>
+                    <div class="stat-detail">
+                        Board #9: Connection timeout
+                    </div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <div>
+                            <div class="stat-value" style="color: #f59e0b;">68%</div>
+                            <div class="stat-label">Storage Status</div>
+                        </div>
+                        <div class="stat-icon yellow">💾</div>
+                    </div>
+                    <div class="storage-info">
+                        <div class="storage-bar">
+                            <div class="storage-fill warning" style="width: 68%"></div>
+                        </div>
+                        <div class="stat-detail">
+                            Used: 6.8 TB / 10 TB available
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Active Campaigns Widget -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Active Campaigns</h2>
+                    <div class="filter-toggle">
+                        <button class="filter-btn active" onclick="toggleFilter('all')">All Jobs</button>
+                        <button class="filter-btn" onclick="toggleFilter('my')">My Jobs Only</button>
+                    </div>
+                </div>
+
+                <div class="batch-item running my-job">
+                    <div class="batch-header">
+                        <div>
+                            <div class="batch-title">Batch #2024-001 - ERQM Regression Test</div>
+                            <div style="display: flex; gap: 8px; margin-top: 6px;">
+                                <span class="badge running">Running</span>
+                                <span class="badge my-job">My Job</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="batch-info">
+                         20 Test Files | Firmware: ERQM_v2.3.bin | Board: #1, #3
+                    </div>
+                    <div class="progress-section">
+                        <div class="progress-text">
+                            <span><strong>Progress:</strong> 15/20 files completed</span>
+                            <span><strong>75%</strong></span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: 75%"></div>
+                        </div>
+                    </div>
+                    <div class="batch-info" style="font-size: 12px; color: #64748b; margin-top: 8px;">
+                        ⏱ Started: 2026-01-13 10:30 | ETA: ~25 min
+                    </div>
+                    <div class="batch-actions">
+                        <button class="btn btn-sm btn-secondary" onclick="showBatchDetails()">View Details</button>
+                        <button class="btn btn-sm btn-danger">⏸️ Pause</button>
+                        <button class="btn btn-sm btn-danger">⏹️ Stop</button>
+                    </div>
+                </div>
+
+                <div class="batch-item running">
+                    <div class="batch-header">
+                        <div>
+                            <div class="batch-title">Batch #2024-002 - ULP Power Test</div>
+                            <div style="display: flex; gap: 8px; margin-top: 6px;">
+                                <span class="badge running">Running</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="batch-info">
+                        10 Test Files |  Firmware: ULP_v1.5.bin |  Board: #7
+                    </div>
+                    <div class="progress-section">
+                        <div class="progress-text">
+                            <span><strong>Progress:</strong> 3/10 files completed</span>
+                            <span><strong>30%</strong></span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: 30%"></div>
+                        </div>
+                    </div>
+                    <div class="batch-info" style="font-size: 12px; color: #64748b; margin-top: 8px;">
+                        ⏱ Started: 2026-01-13 11:15 | ETA: ~45 min
+                    </div>
+                    <div class="batch-actions">
+                        <button class="btn btn-sm btn-secondary"> View Details</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Notification Center -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">🔔 Notification Center</h2>
+                    <button class="btn btn-sm btn-secondary">Mark All as Read</button>
+                </div>
+
+                <div class="notification-item unread">
+                    <div class="notification-header">
+                        <div class="notification-title">✅ Batch #2024-001 Completed</div>
+                        <div class="notification-time">5 min ago</div>
+                    </div>
+                    <div class="notification-content">
+                        All 20 test files completed successfully. Success rate: 100%
+                    </div>
+                </div>
+
+                <div class="notification-item unread">
+                    <div class="notification-header">
+                        <div class="notification-title">⚠️ Board #9 Connection Lost</div>
+                        <div class="notification-time">15 min ago</div>
+                    </div>
+                    <div class="notification-content">
+                        Board #9 lost connection during test. Job #J-045 has been paused.
+                    </div>
+                </div>
+
+                <div class="notification-item">
+                    <div class="notification-header">
+                        <div class="notification-title"> Weekly Test Report Ready</div>
+                        <div class="notification-time">2 hours ago</div>
+                    </div>
+                    <div class="notification-content">
+                        Your weekly testing report is ready for download.
+                    </div>
+                </div>
+
+                <div class="notification-item">
+                    <div class="notification-header">
+                        <div class="notification-title">✅ Batch #2023-998 Completed</div>
+                        <div class="notification-time">3 hours ago</div>
+                    </div>
+                    <div class="notification-content">
+                        Regression test batch completed. Success rate: 95% (19/20 files passed)
+                    </div>
+                </div>
+
+                <div class="notification-item">
+                    <div class="notification-header">
+                        <div class="notification-title"> Storage Warning</div>
+                        <div class="notification-time">Yesterday</div>
+                    </div>
+                    <div class="notification-content">
+                        Server storage is at 68%. Consider archiving old test results.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Test Case Setup Page -->
+        <div id="setup" class="page">
+            <div class="header">
+                <h1>Test Case Setup</h1>
+                <p>Upload VCD, Firmware and Create Test Configuration</p>
+            </div>
+
+            <!-- Upload Section -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title"> Upload Files</h2>
+                    <button class="btn btn-primary" onclick="showUploadModal()">
+                        📤 Upload New Files
+                    </button>
+                </div>
+
+                <div class="upload-zone" id="dropZone">
+                    <div class="upload-icon">📁</div>
+                    <h3 style="margin-bottom: 10px; color: #475569;">Drag & Drop Files Here</h3>
+                    <p style="color: #64748b; margin-bottom: 20px;">or click to browse files</p>
+                    <button class="btn btn-primary">Choose Files</button>
+                    <p style="font-size: 13px; color: #94a3b8; margin-top: 16px;">
+                        Supported: .vcd, .bin, .hex | Max 50MB per file
+                    </p>
+                </div>
+
+                <!-- File Manager -->
+                <div style="margin-bottom: 24px;">
+                    <h3 style="font-size: 16px; margin-bottom: 16px; color: #0f172a;">📄 VCD Files (12 files)</h3>
+                    <div class="file-grid">
+                        <div class="file-card">
+                            <div class="file-header">
+                                <div class="file-type-icon vcd">📄</div>
+                                <div class="file-info">
+                                    <h4>test_case_001.vcd</h4>
+                                    <p>2.4 MB • Uploaded 2h ago</p>
+                                </div>
+                            </div>
+                            <div class="file-actions">
+                                <button class="btn btn-sm btn-secondary">Preview</button>
+                                <button class="btn btn-sm btn-danger">Delete</button>
+                            </div>
+                        </div>
+
+                        <div class="file-card">
+                            <div class="file-header">
+                                <div class="file-type-icon vcd">📄</div>
+                                <div class="file-info">
+                                    <h4>test_case_002.vcd</h4>
+                                    <p>1.8 MB • Uploaded 3h ago</p>
+                                </div>
+                            </div>
+                            <div class="file-actions">
+                                <button class="btn btn-sm btn-secondary">Preview</button>
+                                <button class="btn btn-sm btn-danger"> Delete</button>
+                            </div>
+                        </div>
+
+                        <div class="file-card">
+                            <div class="file-header">
+                                <div class="file-type-icon vcd">📄</div>
+                                <div class="file-info">
+                                    <h4>regression_test.vcd</h4>
+                                    <p>3.1 MB • Uploaded 1d ago</p>
+                                </div>
+                            </div>
+                            <div class="file-actions">
+                                <button class="btn btn-sm btn-secondary"> Preview</button>
+                                <button class="btn btn-sm btn-danger"> Delete</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin-bottom: 24px;">
+                    <h3 style="font-size: 16px; margin-bottom: 16px; color: #0f172a;">⚡ Firmware Files (5 files)</h3>
+                    <div class="file-grid">
+                        <div class="file-card">
+                            <div class="file-header">
+                                <div class="file-type-icon firmware">💾</div>
+                                <div class="file-info">
+                                    <h4>ERQM_v2.3.bin</h4>
+                                    <p>512 KB • Type: ERQM</p>
+                                </div>
+                            </div>
+                            <div class="file-actions">
+                                <button class="btn btn-sm btn-secondary">Info</button>
+                                <button class="btn btn-sm btn-danger"> Delete</button>
+                            </div>
+                        </div>
+
+                        <div class="file-card">
+                            <div class="file-header">
+                                <div class="file-type-icon firmware">💾</div>
+                                <div class="file-info">
+                                    <h4>ULP_v1.5.bin</h4>
+                                    <p>256 KB • Type: ULP</p>
+                                </div>
+                            </div>
+                            <div class="file-actions">
+                                <button class="btn btn-sm btn-secondary">Info</button>
+                                <button class="btn btn-sm btn-danger"> Delete</button>
+                            </div>
+                        </div>
+
+                        <div class="file-card">
+                            <div class="file-header">
+                                <div class="file-type-icon firmware">💾</div>
+                                <div class="file-info">
+                                    <h4>ERQM_v2.2.bin</h4>
+                                    <p>508 KB • Type: ERQM</p>
+                                </div>
+                            </div>
+                            <div class="file-actions">
+                                <button class="btn btn-sm btn-secondary"> Info</button>
+                                <button class="btn btn-sm btn-danger"> Delete</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Test Case Configuration -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title"> Create Test Case Configuration</h2>
+                    <div style="display: flex; gap: 10px;">
+                        <button class="btn btn-secondary"> Load JSON</button>
+                        <button class="btn btn-primary" onclick="showConfigModal()">➕ New Configuration</button>
+                    </div>
+                </div>
+
+                <div class="config-section">
+                    <div class="config-header"> Test Configuration #1</div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Configuration Name</label>
+                            <input type="text" class="form-control" value="ERQM Regression Test">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Test Type</label>
+                            <select class="form-control">
+                                <option>Regression Test</option>
+                                <option>Smoke Test</option>
+                                <option>Performance Test</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Select Firmware</label>
+                        <select class="form-control">
+                            <option>ERQM_v2.3.bin</option>
+                            <option>ERQM_v2.2.bin</option>
+                            <option>ULP_v1.5.bin</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Number of Iterations per File</label>
+                        <input type="number" class="form-control" value="5" min="1" max="100">
+                    </div>
+
+                    <div style="display: flex; gap: 10px; margin-top: 20px;">
+                        <button class="btn btn-success"> Save Configuration</button>
+                        <button class="btn btn-secondary"> Export JSON</button>
+                        <button class="btn btn-danger"> Delete</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- File Grouping -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title"> VCD File Grouping</h2>
+                    <button class="btn btn-primary">➕ Create New Group</button>
+                </div>
+
+                <div class="group-item">
+                    <div class="group-header">
+                        <div class="group-name"> Group: Regression Tests</div>
+                        <div class="group-count">8 files</div>
+                    </div>
+                    <div class="group-files">
+                        <div class="group-file-tag">
+                            test_case_001.vcd
+                            <span class="remove-tag">×</span>
+                        </div>
+                        <div class="group-file-tag">
+                            test_case_002.vcd
+                            <span class="remove-tag">×</span>
+                        </div>
+                        <div class="group-file-tag">
+                            test_case_003.vcd
+                            <span class="remove-tag">×</span>
+                        </div>
+                        <div class="group-file-tag">
+                            regression_test.vcd
+                            <span class="remove-tag">×</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="group-item">
+                    <div class="group-header">
+                        <div class="group-name"> Group: Performance Tests</div>
+                        <div class="group-count">4 files</div>
+                    </div>
+                    <div class="group-files">
+                        <div class="group-file-tag">
+                            perf_test_001.vcd
+                            <span class="remove-tag">×</span>
+                        </div>
+                        <div class="group-file-tag">
+                            perf_test_002.vcd
+                            <span class="remove-tag">×</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 20px; padding: 16px; background: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 8px;">
+                    <strong style="color: #92400e;">⚠️ Duplicate Filename Handling:</strong>
+                    <p style="font-size: 14px; color: #78350f; margin-top: 8px;">
+                        When dragging files with duplicate names, the system will automatically:
+                        <br>• Add timestamp suffix (e.g., test_001_20260113_1430.vcd)
+                        <br>• Prompt to replace existing file or keep both
+                        <br>• Group duplicates in separate folder for review
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Job Management Page -->
+        <div id="jobs" class="page">
+            <div class="header">
+                <h1>Job Management</h1>
+                <p></p>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">⚡ Quick Actions</h2>
+                    <div style="display: flex; gap: 10px;">
+                        <button class="btn btn-primary" onclick="showRunModal()">▶️ Run Single Test</button>
+                        <button class="btn btn-success" onclick="showBatchModal()">📦 Run Batch</button>
+                        <button class="btn btn-danger">⏹️ Stop All Jobs</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Job Queue -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title"> Job Queue (5 jobs)</h2>
+                    <button class="btn btn-secondary">🔄 Refresh</button>
+                </div>
+
+                <div class="queue-item" style="border-left-color: #3b82f6;">
+                    <div class="queue-number">#1</div>
+                    <div class="queue-content">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                            <h3 style="font-size: 16px; font-weight: 600;">Batch #2024-001 - ERQM Test</h3>
+                            <span class="badge running">Running</span>
+                        </div>
+                        <p style="font-size: 14px; color: #64748b; margin-bottom: 8px;">
+                             20 files | 🔧 ERQM_v2.3.bin | 🖥️ Board: #1, #3 | Progress: 15/20
+                        </p>
+                        <div class="progress-bar" style="height: 6px;">
+                            <div class="progress-fill" style="width: 75%"></div>
+                        </div>
+                    </div>
+                    <div class="queue-actions">
+                        <button class="btn btn-sm btn-secondary">📊 Details</button>
+                        <button class="btn btn-sm btn-danger">⏸️ Pause</button>
+                    </div>
+                </div>
+
+                <div class="queue-item" style="border-left-color: #10b981;">
+                    <div class="queue-number">#2</div>
+                    <div class="queue-content">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                            <h3 style="font-size: 16px; font-weight: 600;">Single Test - test_case_045.vcd</h3>
+                            <span class="badge" style="background: #d1fae5; color: #065f46;">Queued</span>
+                        </div>
+                        <p style="font-size: 14px; color: #64748b;">
+                            ULP_v1.5.bin | Board: Auto-assign | ETA: Start in ~10 min
+                        </p>
+                    </div>
+                    <div class="queue-actions">
+                        <button class="btn btn-sm btn-secondary">⬆️ Move Up</button>
+                        <button class="btn btn-sm btn-secondary">✏️ Edit</button>
+                        <button class="btn btn-sm btn-danger">❌ Cancel</button>
+                    </div>
+                </div>
+
+                <div class="queue-item" style="border-left-color: #10b981;">
+                    <div class="queue-number">#3</div>
+                    <div class="queue-content">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                            <h3 style="font-size: 16px; font-weight: 600;">Batch #2024-003 - Performance Test</h3>
+                            <span class="badge" style="background: #d1fae5; color: #065f46;">Queued</span>
+                        </div>
+                        <p style="font-size: 14px; color: #64748b;">
+                            15 files | ERQM_v2.2.bin | Board: Auto-assign | ETA: Start in ~35 min
+                        </p>
+                    </div>
+                    <div class="queue-actions">
+                        <button class="btn btn-sm btn-secondary">⬆️ </button>
+                        <button class="btn btn-sm btn-secondary">⬇️ </button>
+                        <button class="btn btn-sm btn-secondary">✏️</button>
+                        <button class="btn btn-sm btn-danger">❌</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Board Assignment -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Board Assignment Strategy</h2>
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px;">
+                    <div style="padding: 20px; background: #f0f9ff; border: 2px solid #3b82f6; border-radius: 10px;">
+                        <h3 style="font-size: 15px; margin-bottom: 12px; color: #1e40af;">
+                            Auto Assignment (Recommended)
+                        </h3>
+                        <p style="font-size: 13px; color: #1e3a8a;">
+                            Automatically assigns jobs to available boards based on load balancing
+                        </p>
+                    </div>
+
+                    <div style="padding: 20px; background: #fef3c7; border: 2px solid #f59e0b; border-radius: 10px;">
+                        <h3 style="font-size: 15px; margin-bottom: 12px; color: #92400e;">
+                            Manual Assignment
+                        </h3>
+                        <p style="font-size: 13px; color: #78350f;">
+                            Select specific boards for testing (useful for debugging)
+                        </p>
+                    </div>
+
+                    <div style="padding: 20px; background: #d1fae5; border: 2px solid #10b981; border-radius: 10px;">
+                        <h3 style="font-size: 15px; margin-bottom: 12px; color: #065f46;">
+                            Priority Queue
+                        </h3>
+                        <p style="font-size: 13px; color: #064e3b;">
+                            High-priority jobs get next available board automatically
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Board Status Page -->
+        <div id="boards" class="page">
+            <div class="header">
+                <h1>Board Status</h1>
+                <p></p>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <div>
+                            <div class="stat-value" style="color: #10b981;">8/12</div>
+                            <div class="stat-label">Online Boards</div>
+                        </div>
+                        <div class="stat-icon green"></div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <div>
+                            <div class="stat-value" style="color: #3b82f6;">3</div>
+                            <div class="stat-label">Currently Busy</div>
+                        </div>
+                        <div class="stat-icon blue"></div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <div>
+                            <div class="stat-value" style="color: #10b981;">5</div>
+                            <div class="stat-label">Idle & Ready</div>
+                        </div>
+                        <div class="stat-icon green"></div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <div>
+                            <div class="stat-value" style="color: #ef4444;">1</div>
+                            <div class="stat-label">Error / Offline</div>
+                        </div>
+                        <div class="stat-icon red">⚠️</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Board Details</h2>
+                </div>
+
+                <div style="display: grid; gap: 16px;">
+                    <div style="padding: 20px; background: #dbeafe; border-left: 5px solid #3b82f6; border-radius: 8px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
+                            <h3 style="font-size: 16px; font-weight: 600;">Board #1</h3>
+                            <span class="badge running">Busy</span>
+                        </div>
+                        <p style="font-size: 14px; color: #1e40af; margin-bottom: 8px;">
+                            Current Job: Batch #2024-001 (File 15/20)<br>
+                            ⏱Running Time: 45 minutes<br>
+                            Utilization: 85%
+                        </p>
+                    </div>
+
+                    <div style="padding: 20px; background: #d1fae5; border-left: 5px solid #10b981; border-radius: 8px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
+                            <h3 style="font-size: 16px; font-weight: 600;">Board #2</h3>
+                            <span class="badge" style="background: #d1fae5; color: #065f46;">Idle</span>
+                        </div>
+                        <p style="font-size: 14px; color: #065f46;">
+                            Ready for new job<br>
+                            Utilization: 0%
+                        </p>
+                    </div>
+
+                    <div style="padding: 20px; background: #fee2e2; border-left: 5px solid #ef4444; border-radius: 8px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
+                            <h3 style="font-size: 16px; font-weight: 600;">Board #9</h3>
+                            <span class="badge error">Error</span>
+                        </div>
+                        <p style="font-size: 14px; color: #991b1b;">
+                             Connection timeout<br>
+                             Last seen: 15 minutes ago<br>
+                             Action required: Check hardware connection
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Test History Page -->
+        <div id="history" class="page">
+            <div class="header">
+                <h1>Test History</h1>
+                <p></p>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Recent Test Results</h2>
+                    <button class="btn btn-primary">📥 Export Report</button>
+                </div>
+
+                <div class="batch-item completed">
+                    <div class="batch-header">
+                        <div>
+                            <div class="batch-title">Batch #2023-999 - ERQM Full Test</div>
+                            <span class="badge completed">Completed</span>
+                        </div>
+                    </div>
+                    <div class="batch-info">
+                        20 files tested | ✅ Pass: 20/20 (100%) | ⏱️ Duration: 1h 25min
+                    </div>
+                    <div class="batch-info" style="font-size: 12px; color: #64748b;">
+                        Completed: 2026-01-12 16:45 | Board: #1, #3, #5
+                    </div>
+                    <div class="batch-actions">
+                        <button class="btn btn-sm btn-primary">View Report</button>
+                        <button class="btn btn-sm btn-secondary">Download Results</button>
+                        <button class="btn btn-sm btn-secondary">Re-run</button>
+                    </div>
+                </div>
+
+                <div class="batch-item error">
+                    <div class="batch-header">
+                        <div>
+                            <div class="batch-title">Batch #2023-998 - ULP Stress Test</div>
+                            <span class="badge" style="background: #fef3c7; color: #92400e;">Partial</span>
+                        </div>
+                    </div>
+                    <div class="batch-info">
+                         15 files tested | ✅ Pass: 13/15 (87%) | ❌ Fail: 2 | ⏱️ Duration: 52min
+                    </div>
+                    <div class="batch-info" style="font-size: 12px; color: #64748b;">
+                        Completed: 2026-01-12 14:20 | Board: #2, #7
+                    </div>
+                    <div class="batch-actions">
+                        <button class="btn btn-sm btn-primary">View Report</button>
+                        <button class="btn btn-sm btn-secondary">Debug Failed Tests</button>
+                        <button class="btn btn-sm btn-secondary">🔄 Retry Failed</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Batch Details Modal -->
+    <div id="batchDetailsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Batch #2024-001 - Detailed Progress</h2>
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <div class="progress-text">
+                    <span><strong>Overall Progress:</strong> 15/20 files completed</span>
+                    <span><strong>75%</strong></span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: 75%"></div>
+                </div>
+            </div>
+
+            <h3 style="font-size: 16px; margin-bottom: 12px;">File Status:</h3>
+            <div style="max-height: 300px; overflow-y: auto;">
+                <div style="padding: 12px; background: #d1fae5; border-radius: 6px; margin-bottom: 8px;">
+                    <strong>✅ test_case_001.vcd</strong> - Completed (5/5 iterations)
+                </div>
+                <div style="padding: 12px; background: #d1fae5; border-radius: 6px; margin-bottom: 8px;">
+                    <strong>✅ test_case_002.vcd</strong> - Completed (5/5 iterations)
+                </div>
+                <div style="padding: 12px; background: #dbeafe; border-radius: 6px; margin-bottom: 8px;">
+                    <strong>⏳ test_case_016.vcd</strong> - Running (3/5 iterations)
+                </div>
+                <div style="padding: 12px; background: #f1f5f9; border-radius: 6px; margin-bottom: 8px;">
+                    <strong>⏸️ test_case_017.vcd</strong> - Queued
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('batchDetailsModal')">Close</button>
+                <button class="btn btn-primary">📥 Export Details</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Run Single Test Modal -->
+    <div id="runModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">▶️ Run Single Test</h2>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Select VCD File</label>
+                <select class="form-control">
+                    <option>test_case_001.vcd</option>
+                    <option>test_case_002.vcd</option>
+                    <option>regression_test.vcd</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Select Firmware</label>
+                <select class="form-control">
+                    <option>ERQM_v2.3.bin</option>
+                    <option>ULP_v1.5.bin</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Number of Iterations</label>
+                <input type="number" class="form-control" value="5" min="1" max="100">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Board Assignment</label>
+                <select class="form-control">
+                    <option>Auto-assign (Recommended)</option>
+                    <option>Board #1</option>
+                    <option>Board #2</option>
+                    <option>Board #3</option>
+                </select>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('runModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="alert('Test started!'); closeModal('runModal')">▶️ Start Test</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Run Batch Modal -->
+    <div id="batchModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Run Batch Test</h2>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Select Configuration</label>
+                <select class="form-control">
+                    <option>Config #1 - ERQM Regression Test</option>
+                    <option>Config #2 - ULP Performance Test</option>
+                    <option>Custom Configuration</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Select VCD Group</label>
+                <select class="form-control">
+                    <option>Group: Regression Tests (8 files)</option>
+                    <option>Group: Performance Tests (4 files)</option>
+                    <option>All VCD Files (12 files)</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Board Assignment Strategy</label>
+                <select class="form-control">
+                    <option>Auto Load Balancing</option>
+                    <option>Specific Boards</option>
+                    <option>Priority Queue</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Priority Level</label>
+                <select class="form-control">
+                    <option>Normal</option>
+                    <option>High</option>
+                    <option>Low</option>
+                </select>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('batchModal')">Cancel</button>
+                <button class="btn btn-success" onclick="alert('Batch test started!'); closeModal('batchModal')">📦 Start Batch</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Page Navigation
+        function showPage(pageId) {
+            // Hide all pages
+            document.querySelectorAll('.page').forEach(page => {
+                page.classList.remove('active');
+            });
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.classList.remove('active');
+            });
+
+            // Show selected page
+            document.getElementById(pageId).classList.add('active');
+            event.target.closest('.nav-item').classList.add('active');
+        }
+
+        // Modal Functions
+        function showBatchDetails() {
+            document.getElementById('batchDetailsModal').classList.add('active');
+        }
+
+        function showUploadModal() {
+            alert('Upload modal would open here');
+        }
+
+        function showConfigModal() {
+            alert('Configuration modal would open here');
+        }
+
+        function showRunModal() {
+            document.getElementById('runModal').classList.add('active');
+        }
+
+        function showBatchModal() {
+            document.getElementById('batchModal').classList.add('active');
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.remove('active');
+        }
+
+        // Filter Toggle
+        let currentFilter = 'all';
+        function toggleFilter(filter) {
+            currentFilter = filter;
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+
+            // In real implementation, would filter the batch items
+            if (filter === 'my') {
+                alert('Filtering to show only your jobs');
+            } else {
+                alert('Showing all jobs');
+            }
+        }
+
+        // Close modal on background click
+        document.querySelectorAll('.modal').forEach(modal => {
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    modal.classList.remove('active');
+                }
+            });
+        });
+
+        // Drag and Drop
+        const dropZone = document.getElementById('dropZone');
+
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => {
+                dropZone.classList.add('dragover');
+            }, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => {
+                dropZone.classList.remove('dragover');
+            }, false);
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            const files = e.dataTransfer.files;
+            alert(`Dropped ${files.length} file(s)`);
+        }, false);
+
+        // Simulate real-time updates
+        setInterval(() => {
+            // Update progress bars
+            document.querySelectorAll('.progress-fill').forEach(bar => {
+                const currentWidth = parseFloat(bar.style.width);
+                if (currentWidth < 100 && currentWidth > 0) {
+                    bar.style.width = (currentWidth + 1) + '%';
+                }
+            });
+        }, 3000);
+    </script>
+</body>
+</html>

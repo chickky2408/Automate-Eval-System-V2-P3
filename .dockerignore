@@ -1,0 +1,15 @@
+.git
+.gitignore
+# macOS (smaller build context; avoids odd tar errors on .DS_Store)
+.DS_Store
+**/.DS_Store
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+frontend/node_modules
+node_modules
+*.db
+.env
+.env.*
+docs
+*.md

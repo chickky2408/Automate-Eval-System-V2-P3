@@ -1,0 +1,2 @@
+# MDI test file for TC0003
+COMMAND: RUN TC0003

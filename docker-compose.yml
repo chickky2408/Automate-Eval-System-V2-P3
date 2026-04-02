@@ -1,0 +1,16 @@
+# Eval System V2 — run: docker compose up --build
+# Open http://localhost:8000 (or http://<server-ip>:8000 for your team).
+#
+# Optional: persist SQLite — create an empty file first, then uncomment:
+#   touch ./data/eval_system_demo.db
+#   (and uncomment the volumes line below)
+
+services:
+  eval:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      USE_SQLITE_DEMO: "1"
+    # volumes:
+    #   - ./data/eval_system_demo.db:/app/eval_system_demo.db

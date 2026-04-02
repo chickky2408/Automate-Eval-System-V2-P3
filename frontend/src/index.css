@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Smooth horizontal scroll for wide tables */
+.overflow-x-auto.table-scroll-smooth {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+.overflow-x-auto.table-scroll-smooth::-webkit-scrollbar {
+  height: 8px;
+}
+.overflow-x-auto.table-scroll-smooth::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+.dark .overflow-x-auto.table-scroll-smooth::-webkit-scrollbar-track {
+  background: #1e293b;
+}
+.overflow-x-auto.table-scroll-smooth::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+.dark .overflow-x-auto.table-scroll-smooth::-webkit-scrollbar-thumb {
+  background: #475569;
+}

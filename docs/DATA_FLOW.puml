@@ -1,0 +1,235 @@
+@startuml DATA_FLOW_OVERVIEW
+!theme plain
+title Data Flow — Overview (Storage & Sources)
+
+skinparam componentStyle rectangle
+skinparam defaultFontSize 11
+
+package "Frontend" {
+  component [Zustand Store\n(useTestStore)] as Store
+  component [savedTestCases\n(table rows)] as TC
+  component [savedTestCaseSets\n(sets)] as Sets
+  component [uploadedFiles\njobs, boards, notifications] as APIState
+  component [localStorage] as LS
+
+  Store --> TC : read/write
+  Store --> Sets : read/write
+  Store --> APIState : read/write
+  TC --> LS : saveProfile (on change)
+  Sets --> LS : saveProfile (on change)
+}
+
+package "Backend API" {
+  component [GET/POST/DELETE /files] as FilesAPI
+  component [POST /sets/:id/files/save\nGET /sets/:id/files\nPOST restore-to-library\nDELETE /sets/:id] as SetsAPI
+  component [CRUD /jobs\n/boards, /notifications] as OtherAPI
+}
+
+APIState --> FilesAPI : refreshFiles, upload, delete
+Store --> SetsAPI : saveSetFiles, deleteSet, restoreToLibrary
+Store --> OtherAPI : getJobs, createJob, getBoards, ...
+
+note right of LS
+  Profile data only.
+  No sync with backend.
+end note
+
+note bottom of FilesAPI
+  Files stored in DB + disk.
+  Set-scoped files by set_id.
+end note
+
+@enduml
+
+
+@startuml SEQUENCE_SAVE_SET
+!theme plain
+title Sequence: Save Set (Test Cases page)
+
+actor User
+participant "Test Cases\nPage" as UI
+participant "useTestStore" as Store
+participant "localStorage" as LS
+participant "api" as API
+participant "Backend" as BE
+
+User -> UI : Click Save (set name + table)
+UI -> Store : addSavedTestCaseSet(name, sourceList, { fileLibrarySnapshot })
+Store -> Store : normalize items, new set id
+Store -> LS : saveSavedTestCaseSets(next)
+Store --> UI : set added
+
+alt has file IDs from fileLibrarySnapshot
+  UI -> Store : getState().savedTestCaseSets (newSetId)
+  UI -> API : saveSetFiles(newSetId, fileIds)
+  API -> BE : POST /sets/:id/files/save { file_ids }
+  BE --> API : ok
+  API --> UI : ok
+end
+
+UI -> User : toast "Saved set and N file(s)"
+
+@enduml
+
+
+@startuml SEQUENCE_LOAD_APPEND_SET
+!theme plain
+title Sequence: Load Set / Append Set
+
+actor User
+participant "Run Set / Test Cases" as UI
+participant "useTestStore" as Store
+participant "localStorage" as LS
+
+User -> UI : Click Load (or Append) on a set
+UI -> Store : applySavedTestCaseSet(id) **or** appendSavedTestCaseSet(id)
+
+alt Load (Apply)
+  Store -> Store : replace savedTestCases with set.items (new ids, unique names)
+else Append
+  Store -> Store : append set.items to savedTestCases (unique names)
+end
+
+Store -> LS : saveSavedTestCases(list)
+Store --> UI : state updated
+UI --> User : table updated (Load replaces, Append adds rows)
+
+@enduml
+
+
+@startuml SEQUENCE_FILES
+!theme plain
+title Sequence: Files (Library & Set-scoped)
+
+actor User
+participant "UI (Library / Test Cases)" as UI
+participant "useTestStore" as Store
+participant "api" as API
+participant "Backend" as BE
+
+== Load Library Files ==
+User -> UI : Open Library or app load
+UI -> Store : refreshFiles()
+Store -> API : getFiles()
+API -> BE : GET /files
+BE --> API : file list
+API --> Store : data
+Store -> Store : set uploadedFiles, vcdFiles, firmwareFiles
+
+== Upload File ==
+User -> UI : Select file
+UI -> Store : addUploadedFile(file)
+Store -> API : uploadFile(file)
+API -> BE : POST /files/upload
+BE --> API : { id, name, size, ... }
+API --> Store : mapped file
+Store -> Store : push to uploadedFiles
+
+== Save Set (with files) ==
+UI -> API : saveSetFiles(setId, fileIds)
+API -> BE : POST /sets/:setId/files/save { file_ids }
+BE -> BE : copy files to set_id storage
+BE --> API : ok
+
+== Delete Set (incl. backend files) ==
+UI -> API : deleteSet(setId)
+API -> BE : DELETE /sets/:setId
+BE -> BE : delete files by set_id (DB + disk)
+BE --> API : { deleted: N }
+API --> UI : ok
+UI -> Store : removeSavedTestCaseSet(setId)
+
+@enduml
+
+
+@startuml SEQUENCE_RUN_JOB
+!theme plain
+title Sequence: Run Set — Create Job
+
+actor User
+participant "Run Set Page" as UI
+participant "useTestStore" as Store
+participant "api" as API
+participant "Backend" as BE
+
+User -> UI : Select set(s) or Browse test cases, then Run
+UI -> UI : build payload (name, tag, boardIds, test cases / pairs, clientId)
+UI -> Store : createJob(payload, { startImmediately: true })
+Store -> API : createJob(payload)
+API -> BE : POST /jobs { ... }
+BE --> API : { id, ... }
+API --> Store : created
+
+opt startImmediately
+  Store -> API : startJob(created.id)
+  API -> BE : POST /jobs/:id/start
+  BE --> API : ok
+end
+
+Store -> Store : refreshJobs()
+Store -> API : getJobs()
+API -> BE : GET /jobs
+BE --> API : job list
+API --> Store : jobs
+Store --> UI : state updated
+UI --> User : toast / redirect
+
+@enduml
+
+
+@startuml COMPONENT_STORAGE
+!theme plain
+title Component: Where Data Lives
+
+package "Browser (Frontend)" {
+  storage "localStorage" as LS {
+    [app_profiles_list]
+    [app_active_profile_id]
+    [app_profile_<id>\n├ savedTestCases\n└ savedTestCaseSets]
+  }
+  component [Zustand Store] as Z {
+    [savedTestCases] as STC
+    [savedTestCaseSets] as STS
+    [uploadedFiles] as UF
+    [jobs, boards, notifications] as REST
+  }
+  LS --> STC : load on init\nsave on change
+  LS --> STS : load on init\nsave on change
+  UF --> REST : from API
+}
+
+package "Backend (API + DB)" {
+  database "DB + Disk" as DB
+  component [Files API\n/sets API] as FA
+  component [Jobs, Boards\nNotifications API] as JA
+  FA --> DB : files, set-scoped files
+  JA --> DB : jobs, boards, etc.
+}
+
+Z -down-> FA : refreshFiles, upload, saveSetFiles, deleteSet
+Z -down-> JA : getJobs, createJob, getBoards, ...
+
+@enduml
+
+
+@startuml RAW_TEST_CASES_VIEW
+!theme plain
+title Raw Test Cases View — Data Source (deduped)
+
+component "Library Page\n(Raw Test Cases tab)" as View
+
+storage "savedTestCases\n(current table)" as STC
+storage "savedTestCaseSets\n[].items" as STS
+
+View --> STC : fromCurrent (all rows)
+View --> STS : fromSets (all set items)
+
+note right of View
+  libraryRawRows =
+  fromCurrent
+  + fromSets filtered by contentKey
+    (name, vcdName, binName, linName)
+  → no duplicate rows after Save
+end note
+
+@enduml
