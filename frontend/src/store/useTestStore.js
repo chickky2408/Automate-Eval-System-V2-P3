@@ -632,6 +632,82 @@ const getTestCaseFilesKey = (tc) => {
   return [vcd, bin, lin, ...extraPairs].join('\0');
 };
 
+/** Same logical identity as FileLibraryPage `tcSignatureKeyForDedupe` (VCD/ERoM/ULP + extra erom/ulp/mdi + MDI commands). */
+const getExtendedTestCaseKey = (tc) => {
+  if (!tc || typeof tc !== 'object') return '';
+  const vcd = normalizeFilenameForKey(tc.vcdName);
+  const bin = normalizeFilenameForKey(tc.binName);
+  const lin = normalizeFilenameForKey(tc.linName);
+  const ex = tc.extraColumns && typeof tc.extraColumns === 'object' ? tc.extraColumns : {};
+  const extraPairs = Object.keys(ex)
+    .filter((k) => /^(erom|ulp|mdi)\d+$/i.test(String(k)))
+    .map((k) => {
+      const vv = normalizeFilenameForKey(ex[k]);
+      return vv ? `${String(k).toUpperCase()}=${vv}` : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => String(a).localeCompare(String(b)));
+  const mdiCmds = (tc.commands || [])
+    .filter((c) => c && c.type === 'mdi' && String(c.file || '').trim())
+    .map((c) => normalizeFilenameForKey(c.file))
+    .sort()
+    .join('\0');
+  const base = [vcd, bin, lin, ...extraPairs].join('\0');
+  return mdiCmds ? `${base}\0mdi:${mdiCmds}` : base;
+};
+
+/** Lets a set copy reuse the same display name as the library TC with identical file bundle (different id). */
+function subtractNamesFromSharedTestCaseSignature(used, tc, state) {
+  const k = getExtendedTestCaseKey(tc);
+  if (!k) return;
+  const walk = (row) => {
+    if (!row) return;
+    if (getExtendedTestCaseKey(row) !== k) return;
+    const n = normalizeTestCaseName(row.name);
+    if (n) used.delete(n);
+  };
+  (state.savedTestCases || []).forEach(walk);
+  (state.savedTestCaseSets || []).forEach((set) => (set.items || []).forEach(walk));
+  (state.loadedSetTable || []).forEach(walk);
+  (state.workingTestCases || []).forEach(walk);
+  const cache = state.sharedProfileDataCache || {};
+  Object.values(cache).forEach((data) => {
+    if (!data) return;
+    (data.savedTestCases || []).forEach(walk);
+    (data.savedTestCaseSets || []).forEach((set) => (set.items || []).forEach(walk));
+  });
+  const activeId = state.activeProfileId;
+  for (const p of loadProfilesList()) {
+    const prof =
+      p.id === activeId
+        ? { savedTestCases: state.savedTestCases, savedTestCaseSets: state.savedTestCaseSets }
+        : loadProfile(p.id);
+    if (!prof) continue;
+    (prof.savedTestCases || []).forEach(walk);
+    (prof.savedTestCaseSets || []).forEach((set) => (set.items || []).forEach(walk));
+  }
+}
+
+function collectFileNamesFromTestCaseForSetSnapshot(tc) {
+  const names = new Set();
+  const add = (n) => {
+    const s = (n ?? '').toString().trim();
+    if (s) names.add(s);
+  };
+  if (!tc || typeof tc !== 'object') return [];
+  add(tc.vcdName);
+  add(tc.binName);
+  add(tc.linName);
+  (tc.commands || []).forEach((c) => {
+    if (c?.file) add(c.file);
+  });
+  const ex = tc.extraColumns || {};
+  Object.keys(ex).forEach((k) => {
+    if (/^(VCD|ERoM|ULP)\d+$/i.test(k)) add(ex[k]);
+  });
+  return [...names];
+}
+
 /**
  * All in-use test case names across every local profile, shared profile cache, loaded set, working list, and optional extra rows (e.g. drafts).
  * @param excludeId — test case id to ignore (when renaming that row)
@@ -682,6 +758,81 @@ const pickUniqueTestCaseName = (desired, usedSet) => {
 };
 
 export const useTestStore = create((set, get) => {
+  const beginFilePending = (fileId, kind) => {
+    if (!fileId) return false;
+    const cur = get().filePendingById || {};
+    if (cur[fileId]) {
+      get().addToast({
+        type: 'info',
+        message: 'Please wait for the current action to finish before changing this file.',
+        duration: 2800,
+      });
+      return false;
+    }
+    set((s) => ({ filePendingById: { ...(s.filePendingById || {}), [fileId]: kind } }));
+    return true;
+  };
+  const endFilePending = (fileId) => {
+    if (!fileId) return;
+    set((s) => {
+      const next = { ...(s.filePendingById || {}) };
+      delete next[fileId];
+      return { filePendingById: next };
+    });
+  };
+
+  const beginTestCasePending = (tcId, kind) => {
+    if (tcId == null || tcId === '') return false;
+    const key = String(tcId);
+    const cur = get().testCasePendingById || {};
+    if (cur[key]) {
+      get().addToast({
+        type: 'info',
+        message: 'Please wait for the current action to finish before changing this test case.',
+        duration: 2800,
+      });
+      return false;
+    }
+    set((s) => ({ testCasePendingById: { ...(s.testCasePendingById || {}), [key]: kind } }));
+    return true;
+  };
+  const endTestCasePending = (tcId) => {
+    if (tcId == null || tcId === '') return;
+    const key = String(tcId);
+    set((s) => {
+      const next = { ...(s.testCasePendingById || {}) };
+      delete next[key];
+      return { testCasePendingById: next };
+    });
+  };
+
+  const beginSavedTestCaseSetPending = (setId, kind) => {
+    if (setId == null || setId === '') return false;
+    const key = String(setId);
+    const cur = get().savedTestCaseSetPendingById || {};
+    if (cur[key]) {
+      get().addToast({
+        type: 'info',
+        message: 'Please wait for the current action to finish before changing this set.',
+        duration: 2800,
+      });
+      return false;
+    }
+    set((s) => ({
+      savedTestCaseSetPendingById: { ...(s.savedTestCaseSetPendingById || {}), [key]: kind },
+    }));
+    return true;
+  };
+  const endSavedTestCaseSetPending = (setId) => {
+    if (setId == null || setId === '') return;
+    const key = String(setId);
+    set((s) => {
+      const next = { ...(s.savedTestCaseSetPendingById || {}) };
+      delete next[key];
+      return { savedTestCaseSetPendingById: next };
+    });
+  };
+
   scheduleGlobalTestCaseDataRefresh = () => {
     if (globalTestCaseDataRefreshTimer) clearTimeout(globalTestCaseDataRefreshTimer);
     globalTestCaseDataRefreshTimer = setTimeout(() => {
@@ -739,6 +890,12 @@ export const useTestStore = create((set, get) => {
   fileDisplayNames: (() => loadFileDisplayNames())(),
   /** { [fileId]: 'open' | 'close' } — UI lock for select-all / jump-select; persisted */
   fileVisById: (() => loadFileVisById())(),
+  /** One in-flight server mutation per file: delete vs tag PATCH */
+  filePendingById: {},
+  /** One discrete mutation per saved TC id (delete / duplicate / reorder) — not used for inline edits */
+  testCasePendingById: {},
+  /** One discrete mutation per saved set id — not used for updateSavedTestCaseSet (rename / item saves / job patches) */
+  savedTestCaseSetPendingById: {},
   setFileVisById: (updater) =>
     set((state) => {
       const prev = state.fileVisById || {};
@@ -971,86 +1128,96 @@ export const useTestStore = create((set, get) => {
   addFirmwareFile: (file) => set((state) => ({ firmwareFiles: [...state.firmwareFiles, file] })),
   setFileTag: async (fileId, tag) => {
     if (!fileId) return false;
-    const value = (tag || '').trim();
-    const state = get();
-    const payload = { tags: value };
-    const col = state.fileTagColors?.[fileId];
-    if (col) payload.tagColor = col;
-
-    // Optimistic update so tags disappear immediately (no flicker / snap-back)
-    let prevSnapshot = null;
-    set((s) => {
-      const current = s.fileTags || {};
-      prevSnapshot = { ...current };
-      const next = { ...current };
-      if (!value) delete next[fileId];
-      else next[fileId] = value;
-      saveFileTags(next);
-      return { fileTags: next };
-    });
-
+    if (!beginFilePending(fileId, 'tags')) return false;
     try {
-      await api.patchFileLibraryTags(fileId, payload);
-      const ts = new Date().toISOString();
+      const value = (tag || '').trim();
+      const state = get();
+      const payload = { tags: value };
+      const col = state.fileTagColors?.[fileId];
+      if (col) payload.tagColor = col;
+
+      // Optimistic update so tags disappear immediately (no flicker / snap-back)
+      let prevSnapshot = null;
       set((s) => {
-        const bump = (arr) =>
-          Array.isArray(arr)
-            ? arr.map((f) => (f && f.id === fileId ? { ...f, updatedAt: ts } : f))
-            : arr;
-        return {
-          uploadedFiles: bump(s.uploadedFiles),
-          vcdFiles: bump(s.vcdFiles),
-          firmwareFiles: bump(s.firmwareFiles),
-        };
+        const current = s.fileTags || {};
+        prevSnapshot = { ...current };
+        const next = { ...current };
+        if (!value) delete next[fileId];
+        else next[fileId] = value;
+        saveFileTags(next);
+        return { fileTags: next };
       });
-      return true;
-    } catch (e) {
-      console.error('Failed to save file tags', e);
-      if (prevSnapshot) {
-        set({ fileTags: prevSnapshot });
-        saveFileTags(prevSnapshot);
+
+      try {
+        await api.patchFileLibraryTags(fileId, payload);
+        const ts = new Date().toISOString();
+        set((s) => {
+          const bump = (arr) =>
+            Array.isArray(arr)
+              ? arr.map((f) => (f && f.id === fileId ? { ...f, updatedAt: ts } : f))
+              : arr;
+          return {
+            uploadedFiles: bump(s.uploadedFiles),
+            vcdFiles: bump(s.vcdFiles),
+            firmwareFiles: bump(s.firmwareFiles),
+          };
+        });
+        return true;
+      } catch (e) {
+        console.error('Failed to save file tags', e);
+        if (prevSnapshot) {
+          set({ fileTags: prevSnapshot });
+          saveFileTags(prevSnapshot);
+        }
+        return false;
       }
-      return false;
+    } finally {
+      endFilePending(fileId);
     }
   },
   setFileTagColor: async (fileId, colorKey) => {
     if (!fileId) return false;
-    const k = String(colorKey || '').trim();
-    const normalized = isValidPaletteKey(k) ? k : null;
-    const tags = (get().fileTags || {})[fileId] || '';
-    const prevSnapshot = { ...(get().fileTagColors || {}) };
-    set((s) => {
-      const next = { ...(s.fileTagColors || {}) };
-      if (!normalized) delete next[fileId];
-      else next[fileId] = normalized;
-      saveFileTagColors(next);
-      return { fileTagColors: next };
-    });
+    if (!beginFilePending(fileId, 'tags')) return false;
     try {
-      await api.patchFileLibraryTags(fileId, {
-        tags,
-        tagColor: normalized || '',
-      });
-      const ts = new Date().toISOString();
+      const k = String(colorKey || '').trim();
+      const normalized = isValidPaletteKey(k) ? k : null;
+      const tags = (get().fileTags || {})[fileId] || '';
+      const prevSnapshot = { ...(get().fileTagColors || {}) };
       set((s) => {
-        const bump = (arr) =>
-          Array.isArray(arr)
-            ? arr.map((f) => (f && f.id === fileId ? { ...f, updatedAt: ts } : f))
-            : arr;
-        return {
-          uploadedFiles: bump(s.uploadedFiles),
-          vcdFiles: bump(s.vcdFiles),
-          firmwareFiles: bump(s.firmwareFiles),
-        };
+        const next = { ...(s.fileTagColors || {}) };
+        if (!normalized) delete next[fileId];
+        else next[fileId] = normalized;
+        saveFileTagColors(next);
+        return { fileTagColors: next };
       });
-      return true;
-    } catch (e) {
-      console.error('Failed to save file tag color', e);
-      set(() => {
-        saveFileTagColors(prevSnapshot);
-        return { fileTagColors: prevSnapshot };
-      });
-      return false;
+      try {
+        await api.patchFileLibraryTags(fileId, {
+          tags,
+          tagColor: normalized || '',
+        });
+        const ts = new Date().toISOString();
+        set((s) => {
+          const bump = (arr) =>
+            Array.isArray(arr)
+              ? arr.map((f) => (f && f.id === fileId ? { ...f, updatedAt: ts } : f))
+              : arr;
+          return {
+            uploadedFiles: bump(s.uploadedFiles),
+            vcdFiles: bump(s.vcdFiles),
+            firmwareFiles: bump(s.firmwareFiles),
+          };
+        });
+        return true;
+      } catch (e) {
+        console.error('Failed to save file tag color', e);
+        set(() => {
+          saveFileTagColors(prevSnapshot);
+          return { fileTagColors: prevSnapshot };
+        });
+        return false;
+      }
+    } finally {
+      endFilePending(fileId);
     }
   },
   setFileDisplayName: (fileId, name) => {
@@ -1239,6 +1406,7 @@ export const useTestStore = create((set, get) => {
     }
   },
   removeUploadedFile: async (id) => {
+    if (!beginFilePending(id, 'delete')) return false;
     try {
       const stateBefore = get();
       const target = (stateBefore.uploadedFiles || []).find((f) => f.id === id);
@@ -1309,7 +1477,10 @@ export const useTestStore = create((set, get) => {
       });
       return true;
     } catch (error) {
-      if (error?.status === 409) {
+      if (error?.status === 404) {
+        get().addToast({ type: 'info', message: 'File was already removed.' });
+        void get().refreshFiles();
+      } else if (error?.status === 409) {
         get().addToast({
           type: 'warning',
           message: error?.detail || 'File is in use by a running or pending set. Wait for the set to finish or remove the set first.',
@@ -1319,6 +1490,8 @@ export const useTestStore = create((set, get) => {
         get().addToast({ type: 'error', message: 'Failed to delete file.' });
       }
       return false;
+    } finally {
+      endFilePending(id);
     }
   },
 
@@ -1419,108 +1592,161 @@ export const useTestStore = create((set, get) => {
     saveSavedTestCases(next);
     return { savedTestCases: next };
   }),
-  removeSavedTestCase: (id) => set((state) => {
-    const idStr = id == null ? '' : String(id);
-    const matchId = (t) => String(t.id) === idStr;
-    // ถ้ากำลังแก้ไข Set อยู่ ให้ลบเฉพาะจาก table ชั่วคราวของ Set นั้น
-    if (state.loadedSetId) {
-      const next = (state.loadedSetTable || []).filter((t) => !matchId(t));
-      return { loadedSetTable: next };
-    }
+  removeSavedTestCase: (id) => {
+    if (id == null || id === '') return;
+    if (!beginTestCasePending(id, 'delete')) return;
+    try {
+      set((state) => {
+        const idStr = id == null ? '' : String(id);
+        const matchId = (t) => String(t.id) === idStr;
+        // ถ้ากำลังแก้ไข Set อยู่ ให้ลบเฉพาะจาก table ชั่วคราวของ Set นั้น
+        if (state.loadedSetId) {
+          const next = (state.loadedSetTable || []).filter((t) => !matchId(t));
+          return { loadedSetTable: next };
+        }
 
-    const target = (state.savedTestCases || []).find((t) => matchId(t));
-    const nextCases = (state.savedTestCases || []).filter((t) => !matchId(t));
+        const target = (state.savedTestCases || []).find((t) => matchId(t));
+        const nextCases = (state.savedTestCases || []).filter((t) => !matchId(t));
 
-    // ลบ test case ที่มี content ตรงกันออกจากทุก Saved Set ด้วย
-    let nextSets = state.savedTestCaseSets || [];
-    if (target) {
-      const sameContent = (item) =>
-        (item.name || '').trim() === (target.name || '').trim() &&
-        (item.vcdName || '').trim() === (target.vcdName || '').trim() &&
-        (item.binName || '').trim() === (target.binName || '').trim() &&
-        (item.linName || '').trim() === (target.linName || '').trim();
+        // ลบ test case ที่มี content ตรงกันออกจากทุก Saved Set ด้วย
+        let nextSets = state.savedTestCaseSets || [];
+        if (target) {
+          const sameContent = (item) =>
+            (item.name || '').trim() === (target.name || '').trim() &&
+            (item.vcdName || '').trim() === (target.vcdName || '').trim() &&
+            (item.binName || '').trim() === (target.binName || '').trim() &&
+            (item.linName || '').trim() === (target.linName || '').trim();
 
-      nextSets = (state.savedTestCaseSets || [])
-        .map((set) => ({
-          ...set,
-          items: Array.isArray(set.items) ? set.items.filter((item) => !sameContent(item)) : set.items,
-        }))
-        // ถ้า source ใน set ถูกลบจนไม่เหลือ test case แล้ว ให้ลบ set นั้นออกเลย
-        .filter((set) => Array.isArray(set.items) && set.items.length > 0);
-      saveSavedTestCaseSets(nextSets);
-    }
+          nextSets = (state.savedTestCaseSets || [])
+            .map((set) => ({
+              ...set,
+              items: Array.isArray(set.items) ? set.items.filter((item) => !sameContent(item)) : set.items,
+            }))
+            // ถ้า source ใน set ถูกลบจนไม่เหลือ test case แล้ว ให้ลบ set นั้นออกเลย
+            .filter((set) => Array.isArray(set.items) && set.items.length > 0);
+          saveSavedTestCaseSets(nextSets);
+        }
 
-    saveSavedTestCases(nextCases);
-    return { savedTestCases: nextCases, savedTestCaseSets: nextSets };
-  }),
-  moveSavedTestCaseUp: (id) => set((state) => {
-    const list = state.loadedSetId ? (state.loadedSetTable || []) : state.savedTestCases;
-    const i = list.findIndex((t) => t.id === id);
-    if (i <= 0) return state;
-    const now = testCaseNowIso();
-    const next = [...list];
-    [next[i - 1], next[i]] = [next[i], next[i - 1]];
-    next[i - 1] = { ...next[i - 1], updatedAt: now };
-    next[i] = { ...next[i], updatedAt: now };
-    if (state.loadedSetId) return { loadedSetTable: next };
-    saveSavedTestCases(next);
-    return { savedTestCases: next };
-  }),
-  moveSavedTestCaseDown: (id) => set((state) => {
-    const list = state.loadedSetId ? (state.loadedSetTable || []) : state.savedTestCases;
-    const i = list.findIndex((t) => t.id === id);
-    if (i < 0 || i >= list.length - 1) return state;
-    const now = testCaseNowIso();
-    const next = [...list];
-    [next[i], next[i + 1]] = [next[i + 1], next[i]];
-    next[i] = { ...next[i], updatedAt: now };
-    next[i + 1] = { ...next[i + 1], updatedAt: now };
-    if (state.loadedSetId) return { loadedSetTable: next };
-    saveSavedTestCases(next);
-    return { savedTestCases: next };
-  }),
-  reorderSavedTestCases: (fromIndex, toIndex) => set((state) => {
-    const list = state.loadedSetId ? (state.loadedSetTable || []) : state.savedTestCases;
-    const arr = [...list];
-    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= arr.length || toIndex >= arr.length) return state;
-    const [item] = arr.splice(fromIndex, 1);
-    const insertAt = fromIndex < toIndex ? toIndex - 1 : toIndex;
-    arr.splice(insertAt, 0, item);
-    const ts = testCaseNowIso();
-    const arrBumped = arr.map((t) => (t.id === item.id ? { ...t, updatedAt: ts } : t));
-    if (state.loadedSetId) return { loadedSetTable: arrBumped };
-    saveSavedTestCases(arrBumped);
-    return { savedTestCases: arrBumped };
-  }),
-  duplicateSavedTestCase: (id, overrides = {}) => set((state) => {
-    const list = state.loadedSetId ? (state.loadedSetTable || []) : state.savedTestCases;
-    const tc = list.find((t) => t.id === id);
-    if (!tc) return state;
-    const newId = `tc-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-    const commands = (Array.isArray(tc.commands) ? tc.commands : []).map((c, i) => ({
-      ...c,
-      id: `cmd-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 9)}`,
-    }));
-    const used = buildGlobalTestCaseNameSet(state, null, []);
-    const baseName = normalizeTestCaseName(overrides.name != null ? overrides.name : tc.name) || 'Test case';
-    const uniqueName = pickUniqueTestCaseName(baseName, used);
-    if (uniqueName !== baseName) {
-      queueMicrotask(() => {
-        get().addToast({
-          type: 'info',
-          message: `ชื่อ "${baseName}" ถูกใช้แล้ว — ใช้ "${uniqueName}" สำหรับสำเนา`,
-        });
+        saveSavedTestCases(nextCases);
+        return { savedTestCases: nextCases, savedTestCaseSets: nextSets };
       });
+    } finally {
+      queueMicrotask(() => endTestCasePending(id));
     }
-    const tsDup = testCaseNowIso();
-    const newTc = { ...tc, id: newId, commands, createdAt: tsDup, updatedAt: tsDup, ...overrides, name: uniqueName };
+  },
+  moveSavedTestCaseUp: (id) => {
+    const stateBefore = get();
+    const list = stateBefore.loadedSetId ? (stateBefore.loadedSetTable || []) : stateBefore.savedTestCases;
     const i = list.findIndex((t) => t.id === id);
-    const next = [...list];
-    next.splice(i + 1, 0, newTc);
-    if (state.loadedSetId) return { loadedSetTable: next };
-    saveSavedTestCases(next);
-    return { savedTestCases: next };
-  }),
+    if (i <= 0) return;
+    if (!beginTestCasePending(id, 'move')) return;
+    try {
+      set((state) => {
+        const list2 = state.loadedSetId ? (state.loadedSetTable || []) : state.savedTestCases;
+        const j = list2.findIndex((t) => t.id === id);
+        if (j <= 0) return state;
+        const now = testCaseNowIso();
+        const next = [...list2];
+        [next[j - 1], next[j]] = [next[j], next[j - 1]];
+        next[j - 1] = { ...next[j - 1], updatedAt: now };
+        next[j] = { ...next[j], updatedAt: now };
+        if (state.loadedSetId) return { loadedSetTable: next };
+        saveSavedTestCases(next);
+        return { savedTestCases: next };
+      });
+    } finally {
+      queueMicrotask(() => endTestCasePending(id));
+    }
+  },
+  moveSavedTestCaseDown: (id) => {
+    const stateBefore = get();
+    const list = stateBefore.loadedSetId ? (stateBefore.loadedSetTable || []) : stateBefore.savedTestCases;
+    const i = list.findIndex((t) => t.id === id);
+    if (i < 0 || i >= list.length - 1) return;
+    if (!beginTestCasePending(id, 'move')) return;
+    try {
+      set((state) => {
+        const list2 = state.loadedSetId ? (state.loadedSetTable || []) : state.savedTestCases;
+        const j = list2.findIndex((t) => t.id === id);
+        if (j < 0 || j >= list2.length - 1) return state;
+        const now = testCaseNowIso();
+        const next = [...list2];
+        [next[j], next[j + 1]] = [next[j + 1], next[j]];
+        next[j] = { ...next[j], updatedAt: now };
+        next[j + 1] = { ...next[j + 1], updatedAt: now };
+        if (state.loadedSetId) return { loadedSetTable: next };
+        saveSavedTestCases(next);
+        return { savedTestCases: next };
+      });
+    } finally {
+      queueMicrotask(() => endTestCasePending(id));
+    }
+  },
+  reorderSavedTestCases: (fromIndex, toIndex) => {
+    const stateBefore = get();
+    const list = stateBefore.loadedSetId ? (stateBefore.loadedSetTable || []) : stateBefore.savedTestCases;
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= list.length || toIndex >= list.length) return;
+    const movedItem = list[fromIndex];
+    const id = movedItem?.id;
+    if (!id || !beginTestCasePending(id, 'move')) return;
+    try {
+      set((state) => {
+        const list2 = state.loadedSetId ? (state.loadedSetTable || []) : state.savedTestCases;
+        const arr = [...list2];
+        if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= arr.length || toIndex >= arr.length) return state;
+        const [item] = arr.splice(fromIndex, 1);
+        const insertAt = fromIndex < toIndex ? toIndex - 1 : toIndex;
+        arr.splice(insertAt, 0, item);
+        const ts = testCaseNowIso();
+        const arrBumped = arr.map((t) => (t.id === item.id ? { ...t, updatedAt: ts } : t));
+        if (state.loadedSetId) return { loadedSetTable: arrBumped };
+        saveSavedTestCases(arrBumped);
+        return { savedTestCases: arrBumped };
+      });
+    } finally {
+      queueMicrotask(() => endTestCasePending(id));
+    }
+  },
+  duplicateSavedTestCase: (id, overrides = {}) => {
+    const stateBefore = get();
+    const list = stateBefore.loadedSetId ? (stateBefore.loadedSetTable || []) : stateBefore.savedTestCases;
+    const tc0 = list.find((t) => t.id === id);
+    if (!tc0) return;
+    if (!beginTestCasePending(id, 'duplicate')) return;
+    try {
+      set((state) => {
+        const list2 = state.loadedSetId ? (state.loadedSetTable || []) : state.savedTestCases;
+        const tc = list2.find((t) => t.id === id);
+        if (!tc) return state;
+        const newId = `tc-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        const commands = (Array.isArray(tc.commands) ? tc.commands : []).map((c, i) => ({
+          ...c,
+          id: `cmd-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 9)}`,
+        }));
+        const used = buildGlobalTestCaseNameSet(state, null, []);
+        const baseName = normalizeTestCaseName(overrides.name != null ? overrides.name : tc.name) || 'Test case';
+        const uniqueName = pickUniqueTestCaseName(baseName, used);
+        if (uniqueName !== baseName) {
+          queueMicrotask(() => {
+            get().addToast({
+              type: 'info',
+              message: `ชื่อ "${baseName}" ถูกใช้แล้ว — ใช้ "${uniqueName}" สำหรับสำเนา`,
+            });
+          });
+        }
+        const tsDup = testCaseNowIso();
+        const newTc = { ...tc, id: newId, commands, createdAt: tsDup, updatedAt: tsDup, ...overrides, name: uniqueName };
+        const i = list2.findIndex((t) => t.id === id);
+        const next = [...list2];
+        next.splice(i + 1, 0, newTc);
+        if (state.loadedSetId) return { loadedSetTable: next };
+        saveSavedTestCases(next);
+        return { savedTestCases: next };
+      });
+    } finally {
+      queueMicrotask(() => endTestCasePending(id));
+    }
+  },
   setSavedTestCases: (list) => set((state) => {
     const next = Array.isArray(list) ? list : [];
     if (state.loadedSetId) return { loadedSetTable: next };
@@ -1676,48 +1902,55 @@ export const useTestStore = create((set, get) => {
   }),
 
   // Saved Test Case Sets (collections) — เก็บ items + fileLibrarySnapshot (รายชื่อไฟล์ที่ Set ใช้)
-  addSavedTestCaseSet: (name, items, options = {}) => set((state) => {
+  addSavedTestCaseSet: (name, items, options = {}) => {
     const id = `tcs-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-    const now = new Date().toISOString();
-    const usedInSet = new Set();
-    let renamedInSet = false;
-    const normalizedItems = (items || []).map((t, idx) => {
-      const itemId = t.id || `tc-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 9)}`;
-      const base = normalizeTestCaseName(t.name) || `Test case ${idx + 1}`;
-      const finalName = pickUniqueTestCaseName(base, usedInSet);
-      if (finalName !== base) renamedInSet = true;
-      usedInSet.add(finalName);
-      return {
-        id: itemId,
-        name: finalName,
-        vcdName: t.vcdName || '',
-        binName: t.binName || '',
-        linName: t.linName || '',
-        boardId: t.boardId || '',
-        tryCount: typeof t.tryCount === 'number' && t.tryCount > 0 ? t.tryCount : 1,
-        extraColumns: t.extraColumns && typeof t.extraColumns === 'object' ? { ...t.extraColumns } : {},
-        createdAt: t.createdAt || now,
-      };
-    });
-    if (renamedInSet) {
-      get().addToast({ type: 'info', message: 'พบชื่อซ้ำใน set เดียวกัน — ปรับชื่ออัตโนมัติใน set นี้เท่านั้น' });
+    if (!beginSavedTestCaseSetPending(id, 'add')) return;
+    try {
+      set((state) => {
+        const now = new Date().toISOString();
+        const usedInSet = new Set();
+        let renamedInSet = false;
+        const normalizedItems = (items || []).map((t, idx) => {
+          const itemId = t.id || `tc-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 9)}`;
+          const base = normalizeTestCaseName(t.name) || `Test case ${idx + 1}`;
+          const finalName = pickUniqueTestCaseName(base, usedInSet);
+          if (finalName !== base) renamedInSet = true;
+          usedInSet.add(finalName);
+          return {
+            id: itemId,
+            name: finalName,
+            vcdName: t.vcdName || '',
+            binName: t.binName || '',
+            linName: t.linName || '',
+            boardId: t.boardId || '',
+            tryCount: typeof t.tryCount === 'number' && t.tryCount > 0 ? t.tryCount : 1,
+            extraColumns: t.extraColumns && typeof t.extraColumns === 'object' ? { ...t.extraColumns } : {},
+            createdAt: t.createdAt || now,
+          };
+        });
+        if (renamedInSet) {
+          get().addToast({ type: 'info', message: 'พบชื่อซ้ำใน set เดียวกัน — ปรับชื่ออัตโนมัติใน set นี้เท่านั้น' });
+        }
+        const fileLibrarySnapshot = options.fileLibrarySnapshot || [];
+        const entry = { id, name: name || 'Unnamed Set', createdAt: now, updatedAt: now, items: normalizedItems, fileLibrarySnapshot };
+        const tagTrim = typeof options.tag === 'string' ? options.tag.trim() : '';
+        if (tagTrim) {
+          const colorKey = options.tagColor && TAG_PALETTE_MAP[options.tagColor] ? options.tagColor : 'mint';
+          entry.tag = tagTrim;
+          entry.tagColor = colorKey;
+          const parts = splitTagsComma(tagTrim);
+          if (parts.length > 0) {
+            entry.tagColorList = parts.map(() => colorKey);
+          }
+        }
+        const next = [...state.savedTestCaseSets, entry];
+        saveSavedTestCaseSets(next);
+        return { savedTestCaseSets: next };
+      });
+    } finally {
+      queueMicrotask(() => endSavedTestCaseSetPending(id));
     }
-    const fileLibrarySnapshot = options.fileLibrarySnapshot || [];
-    const entry = { id, name: name || 'Unnamed Set', createdAt: now, updatedAt: now, items: normalizedItems, fileLibrarySnapshot };
-    const tagTrim = typeof options.tag === 'string' ? options.tag.trim() : '';
-    if (tagTrim) {
-      const colorKey = options.tagColor && TAG_PALETTE_MAP[options.tagColor] ? options.tagColor : 'mint';
-      entry.tag = tagTrim;
-      entry.tagColor = colorKey;
-      const parts = splitTagsComma(tagTrim);
-      if (parts.length > 0) {
-        entry.tagColorList = parts.map(() => colorKey);
-      }
-    }
-    const next = [...state.savedTestCaseSets, entry];
-    saveSavedTestCaseSets(next);
-    return { savedTestCaseSets: next };
-  }),
+  },
   updateSavedTestCaseSet: (id, updates) => set((state) => {
     if (updates.items) {
       const items = updates.items;
@@ -1745,96 +1978,251 @@ export const useTestStore = create((set, get) => {
     saveSavedTestCaseSets(next);
     return { savedTestCaseSets: next };
   }),
-  removeSavedTestCaseSet: (id) => set((state) => {
-    const next = state.savedTestCaseSets.filter((s) => s.id !== id);
-    saveSavedTestCaseSets(next);
-    return { savedTestCaseSets: next };
-  }),
-  reorderSavedTestCaseSets: (fromIndex, toIndex) => set((state) => {
-    const list = [...state.savedTestCaseSets];
-    if (fromIndex < 0 || fromIndex >= list.length || toIndex < 0 || toIndex >= list.length) return state;
-    const [removed] = list.splice(fromIndex, 1);
-    list.splice(toIndex, 0, removed);
-    saveSavedTestCaseSets(list);
-    return { savedTestCaseSets: list };
-  }),
-  moveSavedTestCaseSetUp: (id) => set((state) => {
-    const list = [...state.savedTestCaseSets];
-    const idx = list.findIndex((s) => s.id === id);
-    if (idx <= 0) return state;
-    [list[idx - 1], list[idx]] = [list[idx], list[idx - 1]];
-    saveSavedTestCaseSets(list);
-    return { savedTestCaseSets: list };
-  }),
-  moveSavedTestCaseSetDown: (id) => set((state) => {
-    const list = [...state.savedTestCaseSets];
-    const idx = list.findIndex((s) => s.id === id);
-    if (idx < 0 || idx >= list.length - 1) return state;
-    [list[idx], list[idx + 1]] = [list[idx + 1], list[idx]];
-    saveSavedTestCaseSets(list);
-    return { savedTestCaseSets: list };
-  }),
-  duplicateSavedTestCaseSet: (id) => set((state) => {
-    const original = state.savedTestCaseSets.find((s) => s.id === id);
-    if (!original) return state;
-    const now = new Date().toISOString();
-    const newId = `tcs-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-    const baseName = original.name || 'Set';
-    const newName = `${baseName} (copy)`;
-    const copy = {
-      ...original,
-      id: newId,
-      name: newName,
-      createdAt: now,
-      updatedAt: now,
-    };
-    const next = [...state.savedTestCaseSets, copy];
-    saveSavedTestCaseSets(next);
-    return { savedTestCaseSets: next };
-  }),
-  applySavedTestCaseSet: (id) => set((state) => {
-    const setEntry = state.savedTestCaseSets.find((s) => s.id === id);
-    if (!setEntry) return state;
-    const used = buildGlobalTestCaseNameSet(state, null, []);
-    const list = (setEntry.items || []).map((t) => {
-      const base = normalizeTestCaseName(t.name) || 'Test case';
-      const name = pickUniqueTestCaseName(base, used);
-      used.add(name);
-      const extra = t.extraColumns && typeof t.extraColumns === 'object' ? { ...t.extraColumns } : {};
-      const commands = [];
-      ['VCD2', 'VCD3', 'VCD4', 'ERoM2', 'ERoM3', 'ULP2', 'ULP3'].forEach((col) => {
-        const v = (extra[col] ?? '').toString().trim();
-        if (v) {
-          const type = col.startsWith('VCD') ? 'vcd' : col.startsWith('ERoM') ? 'erom' : 'ulp';
-          commands.push({ id: `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`, type, file: v });
-          delete extra[col];
+  /**
+   * Append test cases to a saved set — validates **only new items** (not full re-validate of existing rows).
+   * Needed when library TCs share the same display name as set copies (different ids); full updateSavedTestCaseSet would reject the merge.
+   */
+  appendToSavedTestCaseSet: (setId, newItems, options = {}) => {
+    let ok = false;
+    set((state) => {
+      const sets = state.savedTestCaseSets || [];
+      const idx = sets.findIndex((s) => s.id === setId);
+      if (idx < 0) {
+        get().addToast({ type: 'error', message: 'ไม่พบ set' });
+        return state;
+      }
+      const list = newItems || [];
+      if (!Array.isArray(list) || list.length === 0) {
+        return state;
+      }
+      const cur = sets[idx];
+      const baseItems = Array.isArray(cur.items) ? cur.items : [];
+      const namesInSet = new Set(
+        baseItems.map((t) => normalizeTestCaseName(t.name)).filter(Boolean),
+      );
+      for (const tc of list) {
+        const n = normalizeTestCaseName(tc.name);
+        if (!n) continue;
+        if (namesInSet.has(n)) {
+          get().addToast({ type: 'warning', message: 'Test case name is duplicated in the same set — not saving' });
+          return state;
         }
-      });
-      return {
-        id: `tc-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-        name,
-        vcdName: t.vcdName || '',
-        binName: t.binName || '',
-        linName: t.linName || '',
-        boardId: t.boardId || '',
-        tryCount: typeof t.tryCount === 'number' && t.tryCount > 0 ? t.tryCount : 1,
-        extraColumns: extra,
-        commands,
-        createdAt: t.createdAt || new Date().toISOString(),
-      };
+        namesInSet.add(n);
+        const ex = tc.id;
+        const used = buildGlobalTestCaseNameSet(state, ex, []);
+        subtractNamesFromSharedTestCaseSignature(used, tc, state);
+        if (used.has(n)) {
+          get().addToast({
+            type: 'warning',
+            message: `Name "${n}" is already in use in the system (other profiles or test cases)`,
+          });
+          return state;
+        }
+      }
+      const mergedItems = [...baseItems, ...list];
+      const fileLibrarySnapshot = options.fileLibrarySnapshot;
+      const next = sets.map((s) =>
+        s.id === setId
+          ? {
+              ...s,
+              items: mergedItems,
+              updatedAt: new Date().toISOString(),
+              ...(fileLibrarySnapshot != null ? { fileLibrarySnapshot } : {}),
+            }
+          : s,
+      );
+      saveSavedTestCaseSets(next);
+      ok = true;
+      return { savedTestCaseSets: next };
     });
-    saveSavedTestCases(list);
-    return { savedTestCases: list, workingTestCases: [] };
-  }),
+    return ok;
+  },
+  /** Remove rows from one set by original item indices — no global name re-validation (does not delete library TCs). */
+  removeSavedTestCaseSetRows: (setId, indicesSet) => {
+    let ok = false;
+    set((state) => {
+      const sets = state.savedTestCaseSets || [];
+      const idx = sets.findIndex((s) => s.id === setId);
+      if (idx < 0) {
+        get().addToast({ type: 'error', message: 'ไม่พบ set' });
+        return state;
+      }
+      const rm = indicesSet instanceof Set ? indicesSet : new Set(indicesSet || []);
+      if (rm.size === 0) return state;
+      const cur = sets[idx];
+      const base = Array.isArray(cur.items) ? cur.items : [];
+      const newItems = base.filter((_, i) => !rm.has(i));
+      const allNames = new Set();
+      newItems.forEach((tc) => {
+        collectFileNamesFromTestCaseForSetSnapshot(tc).forEach((n) => allNames.add(n));
+      });
+      const fileLibrarySnapshot = [...allNames].map((n) => ({ name: n }));
+      const next = sets.map((s) =>
+        s.id === setId
+          ? {
+              ...s,
+              items: newItems,
+              fileLibrarySnapshot,
+              updatedAt: new Date().toISOString(),
+            }
+          : s,
+      );
+      saveSavedTestCaseSets(next);
+      ok = true;
+      return { savedTestCaseSets: next };
+    });
+    return ok;
+  },
+  removeSavedTestCaseSet: (id) => {
+    if (id == null || id === '') return;
+    if (!beginSavedTestCaseSetPending(id, 'delete')) return;
+    try {
+      set((state) => {
+        const next = state.savedTestCaseSets.filter((s) => s.id !== id);
+        saveSavedTestCaseSets(next);
+        return { savedTestCaseSets: next };
+      });
+    } finally {
+      queueMicrotask(() => endSavedTestCaseSetPending(id));
+    }
+  },
+  reorderSavedTestCaseSets: (fromIndex, toIndex) => {
+    const list0 = get().savedTestCaseSets || [];
+    if (fromIndex < 0 || fromIndex >= list0.length || toIndex < 0 || toIndex >= list0.length) return;
+    const moved = list0[fromIndex];
+    const sid = moved?.id;
+    if (!sid || !beginSavedTestCaseSetPending(sid, 'move')) return;
+    try {
+      set((state) => {
+        const list = [...state.savedTestCaseSets];
+        if (fromIndex < 0 || fromIndex >= list.length || toIndex < 0 || toIndex >= list.length) return state;
+        const [removed] = list.splice(fromIndex, 1);
+        list.splice(toIndex, 0, removed);
+        saveSavedTestCaseSets(list);
+        return { savedTestCaseSets: list };
+      });
+    } finally {
+      queueMicrotask(() => endSavedTestCaseSetPending(sid));
+    }
+  },
+  moveSavedTestCaseSetUp: (id) => {
+    const list0 = [...(get().savedTestCaseSets || [])];
+    const idx = list0.findIndex((s) => s.id === id);
+    if (idx <= 0) return;
+    if (!beginSavedTestCaseSetPending(id, 'move')) return;
+    try {
+      set((state) => {
+        const list = [...state.savedTestCaseSets];
+        const j = list.findIndex((s) => s.id === id);
+        if (j <= 0) return state;
+        [list[j - 1], list[j]] = [list[j], list[j - 1]];
+        saveSavedTestCaseSets(list);
+        return { savedTestCaseSets: list };
+      });
+    } finally {
+      queueMicrotask(() => endSavedTestCaseSetPending(id));
+    }
+  },
+  moveSavedTestCaseSetDown: (id) => {
+    const list0 = [...(get().savedTestCaseSets || [])];
+    const idx = list0.findIndex((s) => s.id === id);
+    if (idx < 0 || idx >= list0.length - 1) return;
+    if (!beginSavedTestCaseSetPending(id, 'move')) return;
+    try {
+      set((state) => {
+        const list = [...state.savedTestCaseSets];
+        const j = list.findIndex((s) => s.id === id);
+        if (j < 0 || j >= list.length - 1) return state;
+        [list[j], list[j + 1]] = [list[j + 1], list[j]];
+        saveSavedTestCaseSets(list);
+        return { savedTestCaseSets: list };
+      });
+    } finally {
+      queueMicrotask(() => endSavedTestCaseSetPending(id));
+    }
+  },
+  duplicateSavedTestCaseSet: (id) => {
+    const original = (get().savedTestCaseSets || []).find((s) => s.id === id);
+    if (!original) return;
+    if (!beginSavedTestCaseSetPending(id, 'duplicate')) return;
+    try {
+      set((state) => {
+        const src = state.savedTestCaseSets.find((s) => s.id === id);
+        if (!src) return state;
+        const now = new Date().toISOString();
+        const newId = `tcs-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        const baseName = src.name || 'Set';
+        const newName = `${baseName} (copy)`;
+        const copy = {
+          ...src,
+          id: newId,
+          name: newName,
+          createdAt: now,
+          updatedAt: now,
+        };
+        const next = [...state.savedTestCaseSets, copy];
+        saveSavedTestCaseSets(next);
+        return { savedTestCaseSets: next };
+      });
+    } finally {
+      queueMicrotask(() => endSavedTestCaseSetPending(id));
+    }
+  },
+  applySavedTestCaseSet: (id) => {
+    const exists = (get().savedTestCaseSets || []).some((s) => s.id === id);
+    if (!exists) return;
+    if (!beginSavedTestCaseSetPending(id, 'apply')) return;
+    try {
+      set((state) => {
+        const setEntry = state.savedTestCaseSets.find((s) => s.id === id);
+        if (!setEntry) return state;
+        const used = buildGlobalTestCaseNameSet(state, null, []);
+        const list = (setEntry.items || []).map((t) => {
+          const base = normalizeTestCaseName(t.name) || 'Test case';
+          const name = pickUniqueTestCaseName(base, used);
+          used.add(name);
+          const extra = t.extraColumns && typeof t.extraColumns === 'object' ? { ...t.extraColumns } : {};
+          const commands = [];
+          ['VCD2', 'VCD3', 'VCD4', 'ERoM2', 'ERoM3', 'ULP2', 'ULP3'].forEach((col) => {
+            const v = (extra[col] ?? '').toString().trim();
+            if (v) {
+              const type = col.startsWith('VCD') ? 'vcd' : col.startsWith('ERoM') ? 'erom' : 'ulp';
+              commands.push({ id: `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`, type, file: v });
+              delete extra[col];
+            }
+          });
+          return {
+            id: `tc-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+            name,
+            vcdName: t.vcdName || '',
+            binName: t.binName || '',
+            linName: t.linName || '',
+            boardId: t.boardId || '',
+            tryCount: typeof t.tryCount === 'number' && t.tryCount > 0 ? t.tryCount : 1,
+            extraColumns: extra,
+            commands,
+            createdAt: t.createdAt || new Date().toISOString(),
+          };
+        });
+        saveSavedTestCases(list);
+        return { savedTestCases: list, workingTestCases: [] };
+      });
+    } finally {
+      queueMicrotask(() => endSavedTestCaseSetPending(id));
+    }
+  },
   /** Load set items into table for editing. Uses loadedSetTable only — savedTestCases (library) is NOT touched. */
   loadSetForEditing: (id) => set((state) => {
     const setEntry = state.savedTestCaseSets.find((s) => s.id === id);
     if (!setEntry) return state;
-    const used = buildGlobalTestCaseNameSet(state, null, []);
+    const usedLocal = new Set();
     const list = (setEntry.items || []).map((t) => {
       const base = normalizeTestCaseName(t.name) || 'Test case';
-      const name = pickUniqueTestCaseName(base, used);
-      used.add(name);
+      let name = base;
+      if (usedLocal.has(name)) {
+        name = pickUniqueTestCaseName(base, usedLocal);
+      }
+      usedLocal.add(name);
       const extra = t.extraColumns && typeof t.extraColumns === 'object' ? { ...t.extraColumns } : {};
       const commands = [];
       ['VCD2', 'VCD3', 'VCD4', 'ERoM2', 'ERoM3', 'ULP2', 'ULP3'].forEach((col) => {
@@ -1901,9 +2289,14 @@ export const useTestStore = create((set, get) => {
     return { savedTestCases: next };
   }),
 
-  appendSavedTestCaseSet: (id) => set((state) => {
-    const setEntry = state.savedTestCaseSets.find((s) => s.id === id);
-    if (!setEntry) return state;
+  appendSavedTestCaseSet: (id) => {
+    const exists = (get().savedTestCaseSets || []).some((s) => s.id === id);
+    if (!exists) return;
+    if (!beginSavedTestCaseSetPending(id, 'append')) return;
+    try {
+      set((state) => {
+        const setEntry = state.savedTestCaseSets.find((s) => s.id === id);
+        if (!setEntry) return state;
 
     // ถ้ากำลังแก้ไข Set ใดอยู่ → append เข้า table ของ Set นั้น (loadedSetTable)
     if (state.loadedSetId) {
@@ -1994,7 +2387,11 @@ export const useTestStore = create((set, get) => {
     const next = [...baseList, ...appended];
     saveSavedTestCases(next);
     return { savedTestCases: next };
-  }),
+      });
+    } finally {
+      queueMicrotask(() => endSavedTestCaseSetPending(id));
+    }
+  },
 
   // Profile Management (no login/logout)
   createProfile: async (name) => {

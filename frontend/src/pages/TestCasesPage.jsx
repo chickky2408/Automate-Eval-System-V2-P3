@@ -295,6 +295,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
   const fileDisplayNames = useTestStore((s) => s.fileDisplayNames);
   const fileVisById = useTestStore((s) => s.fileVisById);
   const setFileVisById = useTestStore((s) => s.setFileVisById);
+  const testCasePendingById = useTestStore((s) => s.testCasePendingById);
   const jobs = useTestStore((s) => s.jobs);
   const currentClientId = useMemo(() => getClientId(), []);
   const fileNamesInUseByBatch = useMemo(() => {
@@ -583,6 +584,12 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
 
   const isDraftId = (id) =>
     (pendingDraftTestCases || []).some((t) => String(t.id) === String(id));
+  /** Saved TC row: delete/duplicate/reorder in progress (not used for inline field edits). */
+  const isTcStorePending = (tcId) =>
+    tcId != null &&
+    tcId !== '' &&
+    !isDraftId(tcId) &&
+    !!(testCasePendingById && testCasePendingById[String(tcId)]);
   useEffect(() => {
     if (!duplicateHighlightIds.length) return;
     const timer = setTimeout(() => setDuplicateHighlightIds([]), 1600);
@@ -1619,6 +1626,10 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
   };
   const handleDeleteSelectedTestCases = () => {
     if (selectedTestCaseIds.length === 0) { addToast({ type: 'warning', message: 'Select at least one test case to delete' }); return; }
+    if (selectedTestCaseIds.some((tid) => isTcStorePending(tid))) {
+      addToast({ type: 'info', message: 'Please wait for the current action to finish on the selected test case(s).' });
+      return;
+    }
     const selectedTcs = displayedSavedTestCases.filter((t) => selectedTestCaseIds.includes(t.id));
     const inUse = selectedTcs.filter((tc) => {
       const v = (tc.vcdName || '').trim();
@@ -1646,7 +1657,14 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
     next.splice(fromIndex < toIndex ? toIndex - 1 : toIndex, 0, item);
     return next;
   };
-  const handleRowDragStart = (e, index) => { draggingRowIndexRef.current = index; setDraggingRowIndex(index); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(index)); };
+  const handleRowDragStart = (e, index) => {
+    const row = displayedSavedTestCases[index];
+    if (row && isTcStorePending(row.id)) return;
+    draggingRowIndexRef.current = index;
+    setDraggingRowIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(index));
+  };
   const handleRowDragOver = (e, index) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDropTargetRowIndex(index); };
   const handleRowDrop = (e, toIndex) => {
     e.preventDefault();
@@ -2969,7 +2987,16 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                 <input type="number" min={1} value={bulkTryCount} onChange={(e) => setBulkTryCount(e.target.value)} placeholder="Try" className="w-16 px-2 py-1 text-xs border border-slate-300 dark:border-slate-500 rounded bg-white dark:bg-slate-800" onKeyDown={(e) => e.key === 'Enter' && handleBulkSetTryCount()} />
                 <button onClick={handleBulkSetTryCount} className="px-3 py-1 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700">Apply</button>
                 <span className="text-slate-300 dark:text-slate-600 mx-0.5">|</span>
-                <button onClick={handleDeleteSelectedTestCases} className="px-3 py-1 bg-red-600 text-white rounded text-xs font-semibold hover:bg-red-700 flex items-center gap-1" title="Delete selected test cases">
+                <button
+                  onClick={handleDeleteSelectedTestCases}
+                  disabled={selectedTestCaseIds.some((tid) => isTcStorePending(tid))}
+                  className="px-3 py-1 bg-red-600 text-white rounded text-xs font-semibold hover:bg-red-700 flex items-center gap-1 disabled:opacity-40 disabled:pointer-events-none"
+                  title={
+                    selectedTestCaseIds.some((tid) => isTcStorePending(tid))
+                      ? 'รอให้ action กับ test case ที่เลือกจบก่อน'
+                      : 'Delete selected test cases'
+                  }
+                >
                   <Trash2 size={12} />
                   Delete
                 </button>
@@ -3075,7 +3102,9 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                   </td>
                 </tr>
               ) : (
-                displayedSavedTestCases.map((tc, idx) => (
+                displayedSavedTestCases.map((tc, idx) => {
+                  const tcPending = isTcStorePending(tc.id);
+                  return (
                   <tr
                     key={tc.id}
                     onDragEnter={(e) => e.preventDefault()}
@@ -3087,6 +3116,8 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                       dropTargetRowIndex === idx
                         ? 'ring-1 ring-blue-400 bg-blue-50 dark:bg-blue-900/20'
                         : ''
+                    } ${
+                      tcPending ? 'ring-1 ring-amber-400/50 dark:ring-amber-500/40' : ''
                     } ${
                       selectedTestCaseIds.includes(tc.id) ? 'bg-blue-50 dark:bg-blue-900/20' : ''
                     } ${
@@ -3279,23 +3310,24 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                     </td>
                     <td className="px-2 py-1.5 flex items-center justify-center gap-0.5 relative">
                       <span
-                        draggable
+                        draggable={!tcPending}
                         onDragStart={(e) => handleRowDragStart(e, idx)}
                         onDragEnd={handleRowDragEnd}
-                        className="p-1 cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-600"
-                        title="Drag to reorder"
+                        className={`p-1 text-slate-400 hover:text-slate-600 ${tcPending ? 'opacity-40 cursor-not-allowed' : 'cursor-grab active:cursor-grabbing'}`}
+                        title={tcPending ? 'กำลังลบ/สำเนา/จัดเรียง — รอสักครู่' : 'Drag to reorder'}
                       >
                         <GripVertical size={14} />
                       </span>
                       <button
                         type="button"
+                        disabled={tcPending}
                         onClick={() => {
                           duplicateDisplayedTestCase(tc.id, {
                             name: getNextTestCaseName(),
                           });
                           addToast({ type: 'success', message: 'Saved as new test case' });
                         }}
-                        className="p-1 text-slate-500 hover:text-blue-600 rounded"
+                        className="p-1 text-slate-500 hover:text-blue-600 rounded disabled:opacity-40 disabled:pointer-events-none"
                         title="Duplicate this test case"
                       >
                         <Copy size={14} />
@@ -3361,7 +3393,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                       <button
                         type="button"
                         onClick={() => moveDisplayedTestCaseUp(tc.id)}
-                        disabled={idx === 0}
+                        disabled={idx === 0 || tcPending}
                         className="p-1 text-slate-500 hover:text-slate-700 disabled:opacity-30"
                         title="Move up"
                       >
@@ -3370,7 +3402,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                       <button
                         type="button"
                         onClick={() => moveDisplayedTestCaseDown(tc.id)}
-                        disabled={idx === displayedSavedTestCases.length - 1 || isViewingShared}
+                        disabled={idx === displayedSavedTestCases.length - 1 || isViewingShared || tcPending}
                         className="p-1 text-slate-500 hover:text-slate-700 disabled:opacity-30"
                         title="Move down"
                       >
@@ -3386,15 +3418,16 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                           removeDisplayedTestCase(tc.id, idx);
                           queueMicrotask(() => addToast({ type: 'success', message: 'Removed' }));
                         }}
-                        disabled={isTestCaseInUseByBatch(tc)}
+                        disabled={isTestCaseInUseByBatch(tc) || tcPending}
                         className="p-1 text-red-500 hover:text-red-700 rounded disabled:opacity-40 disabled:cursor-not-allowed"
-                        title={isTestCaseInUseByBatch(tc) ? 'In use by a running or pending set' : 'Delete'}
+                        title={tcPending ? 'กำลังลบ/สำเนา/จัดเรียง — รอสักครู่' : isTestCaseInUseByBatch(tc) ? 'In use by a running or pending set' : 'Delete'}
                       >
                         <Trash2 size={14} />
                       </button>
                     </td>
                   </tr>
-                ))
+                );
+                })
               )}
             </tbody>
           </table>
@@ -3407,7 +3440,9 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                 No test cases — use From Library or Add Test Case
               </div>
             ) : (
-              stepViewOrderedCases.map(({ tc, originalIndex }, displayIdx) => (
+              stepViewOrderedCases.map(({ tc, originalIndex }, displayIdx) => {
+                const tcPending = isTcStorePending(tc.id);
+                return (
                 <div
                   key={tc.id}
                   onDragEnter={(e) => e.preventDefault()}
@@ -3419,7 +3454,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                     dropTargetRowIndex === originalIndex
                       ? 'ring-2 ring-blue-400 bg-blue-50 dark:bg-blue-900/20'
                       : ''
-                  } ${selectedTestCaseIds.includes(tc.id) ? 'bg-blue-50/60 dark:bg-blue-900/20' : ''}`}
+                  } ${tcPending ? 'ring-1 ring-amber-400/50 dark:ring-amber-500/40' : ''} ${selectedTestCaseIds.includes(tc.id) ? 'bg-blue-50/60 dark:bg-blue-900/20' : ''}`}
                 >
                   {/* Test case header: checkbox + handle + name + tag + actions */}
                   <div className="flex items-start gap-2 px-3 py-2 border-b border-slate-100 dark:border-slate-700">
@@ -3435,11 +3470,11 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
 
                     {/* Drag handle */}
                     <span
-                      draggable
+                      draggable={!tcPending}
                       onDragStart={(e) => handleRowDragStart(e, originalIndex)}
                       onDragEnd={handleRowDragEnd}
-                      className="p-1 cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-600 shrink-0 mt-0.5"
-                      title="Drag to reorder"
+                      className={`p-1 shrink-0 mt-0.5 text-slate-400 hover:text-slate-600 ${tcPending ? 'opacity-40 cursor-not-allowed' : 'cursor-grab active:cursor-grabbing'}`}
+                      title={tcPending ? 'กำลังลบ/สำเนา/จัดเรียง — รอสักครู่' : 'Drag to reorder'}
                     >
                       <GripVertical size={16} />
                     </span>
@@ -3483,11 +3518,12 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                     <div className="flex items-center gap-1 shrink-0 border-l border-slate-200 dark:border-slate-700 pl-2">
                       <button
                         type="button"
+                        disabled={tcPending}
                         onClick={() => {
                           duplicateDisplayedTestCase(tc.id, { name: getNextTestCaseName() });
                           addToast({ type: 'success', message: 'Saved as new test case' });
                         }}
-                        className="p-1 text-slate-500 hover:text-blue-600 rounded"
+                        className="p-1 text-slate-500 hover:text-blue-600 rounded disabled:opacity-40 disabled:pointer-events-none"
                         title="Duplicate this test case"
                       >
                         <Copy size={14} />
@@ -3502,9 +3538,9 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                           removeDisplayedTestCase(tc.id, originalIndex);
                           queueMicrotask(() => addToast({ type: 'success', message: 'Removed' }));
                         }}
-                        disabled={isTestCaseInUseByBatch(tc)}
+                        disabled={isTestCaseInUseByBatch(tc) || tcPending}
                         className="p-1 text-red-500 hover:text-red-700 rounded disabled:opacity-40 disabled:cursor-not-allowed"
-                        title={isTestCaseInUseByBatch(tc) ? 'In use by a running or pending set' : 'Delete'}
+                        title={tcPending ? 'กำลังลบ/สำเนา/จัดเรียง — รอสักครู่' : isTestCaseInUseByBatch(tc) ? 'In use by a running or pending set' : 'Delete'}
                       >
                         <Trash2 size={14} />
                       </button>
@@ -3774,7 +3810,8 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                     ) : null}
                   </div>
                 </div>
-              ))
+              );
+              })
             )}
           </div>
         )}

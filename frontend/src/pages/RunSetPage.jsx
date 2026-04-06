@@ -45,6 +45,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
   const moveSavedTestCaseSetDown = useTestStore((s) => s.moveSavedTestCaseSetDown);
   const duplicateSavedTestCaseSet = useTestStore((s) => s.duplicateSavedTestCaseSet);
   const removeSavedTestCaseSet = useTestStore((s) => s.removeSavedTestCaseSet);
+  const savedTestCaseSetPendingById = useTestStore((s) => s.savedTestCaseSetPendingById);
   const runSetImportContext = useTestStore((s) => s.runSetImportContext);
   const clearRunSetImportContext = useTestStore((s) => s.clearRunSetImportContext);
   const addToast = useTestStore((s) => s.addToast);
@@ -810,16 +811,17 @@ const RunSetPage = ({ onNavigateJobs }) => {
                 {safeSets.map((set, index) => {
                 const status = getRunSetStatusForSet(set); // 'pending' | 'running' | null
                 const inUse = !!status;
+                const setBusy = !!(savedTestCaseSetPendingById && savedTestCaseSetPendingById[String(set.id)]);
                 return (
                   <div
                     key={set.id}
-                    className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700"
+                    className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 ${setBusy ? 'ring-1 ring-amber-400/50 dark:ring-amber-500/40' : ''}`}
                   >
                     <div className="flex flex-col gap-0 shrink-0">
                       <button
                         type="button"
                         onClick={() => moveSavedTestCaseSetUp(set.id)}
-                        disabled={index === 0}
+                        disabled={index === 0 || setBusy}
                         className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-30"
                         title="Move up"
                       >
@@ -828,7 +830,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
                       <button
                         type="button"
                         onClick={() => moveSavedTestCaseSetDown(set.id)}
-                        disabled={index === safeSets.length - 1}
+                        disabled={index === safeSets.length - 1 || setBusy}
                         className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-30"
                         title="Move down"
                       >
@@ -912,7 +914,9 @@ const RunSetPage = ({ onNavigateJobs }) => {
                     <div className="flex items-center gap-1 flex-shrink-0">
                       <button
                         type="button"
+                        disabled={setBusy}
                         onClick={() => {
+                          if (setBusy) return;
                           const items = (set.items || []).map((tc, idx) => ({
                             key: `${set.id}-${idx}-${tc.id || tc.name || tc.vcdName || ''}`,
                             setId: set.id,
@@ -924,13 +928,15 @@ const RunSetPage = ({ onNavigateJobs }) => {
                           setRunSetName(set.name || '');
                           addToast({ type: 'success', message: `Loaded set "${set.name}" for run` });
                         }}
-                        className="px-2 py-1 rounded font-semibold bg-blue-600 hover:bg-blue-700 text-white"
+                        className="px-2 py-1 rounded font-semibold bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-40 disabled:pointer-events-none"
                       >
                         Load
                       </button>
                       <button
                         type="button"
+                        disabled={setBusy}
                         onClick={() => {
+                          if (setBusy) return;
                           const start = runPreview.length;
                           const items = (set.items || []).map((tc, idx) => ({
                             key: `${set.id}-${idx}-${Date.now()}-${tc.id || tc.name || tc.vcdName || ''}`,
@@ -943,7 +949,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
                           setRunSetName((prev) => (prev ? `${prev}, ${set.name || ''}` : (set.name || '')));
                           addToast({ type: 'success', message: `Appended set "${set.name}" to run list` });
                         }}
-                        className="px-2 py-1 rounded font-semibold bg-slate-600 hover:bg-slate-700 text-white"
+                        className="px-2 py-1 rounded font-semibold bg-slate-600 hover:bg-slate-700 text-white disabled:opacity-40 disabled:pointer-events-none"
                         title="Append this set to run list (without replacing)"
                       >
                         +Append
@@ -951,6 +957,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
                       <button
                         type="button"
                         onClick={() => {
+                          if (setBusy) return;
                           if (inUse) {
                             addToast({
                               type: 'warning',
@@ -961,32 +968,37 @@ const RunSetPage = ({ onNavigateJobs }) => {
                           setEditingSetId(set.id);
                           setEditingSetName(set.name || '');
                         }}
-                        disabled={inUse}
+                        disabled={inUse || setBusy}
                         className={`p-1 rounded text-slate-500 dark:text-slate-300 ${
-                          inUse ? 'opacity-40 cursor-not-allowed' : 'hover:bg-slate-200 dark:hover:bg-slate-700'
+                          inUse || setBusy ? 'opacity-40 cursor-not-allowed' : 'hover:bg-slate-200 dark:hover:bg-slate-700'
                         }`}
                         title={
-                          inUse
-                            ? 'Set นี้กำลังอยู่ใน process แก้ไขไม่ได้ (ให้ duplicate แล้วแก้ชื่อในชุดใหม่)'
-                            : 'Rename set'
+                          setBusy
+                            ? 'กำลังลบ/สำเนา/จัดเรียง set — รอสักครู่'
+                            : inUse
+                              ? 'Set นี้กำลังอยู่ใน process แก้ไขไม่ได้ (ให้ duplicate แล้วแก้ชื่อในชุดใหม่)'
+                              : 'Rename set'
                         }
                       >
                         <Pencil size={14} />
                       </button>
                       <button
                         type="button"
+                        disabled={setBusy}
                         onClick={() => {
                           duplicateSavedTestCaseSet(set.id);
                           addToast({ type: 'success', message: `Duplicated set "${set.name}"` });
                         }}
-                        className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-300"
+                        className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-300 disabled:opacity-40 disabled:pointer-events-none"
                         title="Clone set"
                       >
                         <Copy size={14} />
                       </button>
                       <button
                         type="button"
+                        disabled={setBusy}
                         onClick={async () => {
+                          if (setBusy) return;
                           if (!window.confirm(`Delete set "${set.name}"? This will remove it from Saved sets only (test cases and files in Library will stay).`)) return;
                           try {
                             await api.deleteSet(set.id);
@@ -996,7 +1008,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
                           removeSavedTestCaseSet(set.id);
                           addToast({ type: 'success', message: `Deleted set "${set.name}"` });
                         }}
-                        className="p-1 rounded hover:bg-red-600/10 text-red-600 dark:text-red-400"
+                        className="p-1 rounded hover:bg-red-600/10 text-red-600 dark:text-red-400 disabled:opacity-40 disabled:pointer-events-none"
                         title="Delete set from Saved (ไม่ลบ test cases หรือไฟล์ใน Library)"
                       >
                         <Trash2 size={14} />
