@@ -30,6 +30,10 @@ const RunSetPage = ({ onNavigateJobs }) => {
   const savedTestCases = useTestStore((s) => s.savedTestCases);
   const uploadedFiles = useTestStore((s) => s.uploadedFiles);
   const boards = useTestStore((s) => s.boards);
+  const loading = useTestStore((s) => s.loading);
+  const errors = useTestStore((s) => s.errors);
+  const silentRefreshBoards = useTestStore((s) => s.silentRefreshBoards);
+  const refreshBoards = useTestStore((s) => s.refreshBoards);
   const jobs = useTestStore((s) => s.jobs);
   const runBoardSelection = useTestStore((s) => s.runBoardSelection);
   const setRunBoardSelection = useTestStore((s) => s.setRunBoardSelection);
@@ -48,6 +52,45 @@ const RunSetPage = ({ onNavigateJobs }) => {
   const safeCases = Array.isArray(savedTestCases) ? savedTestCases : [];
   const safeFiles = Array.isArray(uploadedFiles) ? uploadedFiles : [];
   const safeBoards = Array.isArray(boards) ? boards : [];
+
+  useEffect(() => {
+    void silentRefreshBoards();
+  }, [silentRefreshBoards]);
+
+  const boardsEmptyPlaceholder = () => {
+    if (loading?.boards) {
+      return (
+        <span className="text-xs text-slate-500 dark:text-slate-400 inline-flex items-center gap-1.5">
+          <RefreshCw size={12} className="animate-spin shrink-0" aria-hidden />
+          Loading boards…
+        </span>
+      );
+    }
+    if (errors?.boards) {
+      return (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs max-w-xl">
+          <span className="text-amber-700 dark:text-amber-300">
+            Could not load boards: {errors.boards}
+          </span>
+          <button
+            type="button"
+            onClick={() => void refreshBoards()}
+            className="font-bold text-blue-600 dark:text-blue-400 hover:underline"
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
+    return (
+      <span className="text-xs text-slate-500 dark:text-slate-400 max-w-xl leading-relaxed">
+        No boards in the list yet. The API returned an empty list — add boards under{' '}
+        <strong className="text-slate-600 dark:text-slate-300">Board Status</strong>, or check that the backend is running and{' '}
+        <code className="text-[10px] bg-slate-100 dark:bg-slate-800 px-1 rounded">VITE_API_BASE_URL</code> matches your server.
+      </span>
+    );
+  };
+
   const [showBrowseModal, setShowBrowseModal] = useState(false);
   const [selectedSetIds, setSelectedSetIds] = useState([]);
   const [runSetName, setRunSetName] = useState('');
@@ -1120,7 +1163,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
                 </div>
                 <div className="flex flex-wrap gap-2 mt-1">
                   {safeBoards.length === 0 ? (
-                    <span className="text-xs text-slate-500">No boards loaded</span>
+                    boardsEmptyPlaceholder()
                   ) : (
                     safeBoards.map((b) => {
                       const status = (b.status || '').toLowerCase();
@@ -1172,7 +1215,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
                 <button type="button" onClick={clearBoards} className="text-xs font-bold text-slate-600 hover:text-slate-800">Clear</button>
                 <div className="flex flex-wrap gap-2 mt-1">
                   {safeBoards.length === 0 ? (
-                    <span className="text-xs text-slate-500">No boards loaded</span>
+                    boardsEmptyPlaceholder()
                   ) : (
                   safeBoards.map((b) => {
                       const status = (b.status || '').toLowerCase();

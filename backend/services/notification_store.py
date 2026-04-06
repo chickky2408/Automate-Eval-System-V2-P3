@@ -29,7 +29,8 @@ class NotificationStore:
         data: Optional[dict] = None,
     ) -> dict:
         """Add a new notification."""
-        notification_id = str(uuid.uuid4())
+        # ORM primary key is VARCHAR(32)
+        notification_id = uuid.uuid4().hex
         
         async with async_session() as session:
             orm = NotificationORM(
@@ -68,9 +69,7 @@ class NotificationStore:
             query = select(NotificationORM).order_by(NotificationORM.created_at.desc())
             
             if user_id:
-                query = query.where(
-                    (NotificationORM.user_id == user_id) | (NotificationORM.user_id.is_(None))
-                )
+                query = query.where(NotificationORM.user_id == user_id)
             
             if read is not None:
                 query = query.where(NotificationORM.read == read)

@@ -2,11 +2,21 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
-from typing import Optional
+from typing import Any, Dict, Optional
+
+from pydantic import BaseModel, Field
 
 from services.notification_store import notification_store
 
 router = APIRouter()
+
+
+class NotificationCreateBody(BaseModel):
+    title: str
+    message: str = ""
+    type: str = Field(..., description="Notification category, e.g. success, error, info")
+    user_id: Optional[str] = None
+    data: Optional[Dict[str, Any]] = None
 
 
 @router.get("")
@@ -20,20 +30,14 @@ async def list_notifications(
 
 
 @router.post("")
-async def create_notification(
-    title: str,
-    message: str,
-    notif_type: str,
-    user_id: Optional[str] = None,
-    data: Optional[dict] = None,
-):
-    """Create a new notification."""
+async def create_notification(body: NotificationCreateBody):
+    """Create a new notification (JSON body)."""
     return await notification_store.add_notification(
-        title=title,
-        message=message,
-        notif_type=notif_type,
-        user_id=user_id,
-        data=data,
+        title=body.title,
+        message=body.message,
+        notif_type=body.type,
+        user_id=body.user_id,
+        data=body.data,
     )
 
 

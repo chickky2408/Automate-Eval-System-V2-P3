@@ -444,6 +444,24 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
     }
     return [...(pendingDraftTestCases || [])];
   })();
+
+  /** Vertical tab: one horizontal row (scroll), newest / most recently updated on the left. Indices = order in `displayedSavedTestCases` for drag/drop. */
+  const stepViewOrderedCases = useMemo(() => {
+    const list = displayedSavedTestCases || [];
+    const rowTime = (tc) => {
+      const t = new Date(tc.updatedAt || tc.createdAt || 0).getTime();
+      return Number.isFinite(t) ? t : 0;
+    };
+    return [...list]
+      .map((tc, originalIndex) => ({ tc, originalIndex }))
+      .sort((a, b) => {
+        const tb = rowTime(b.tc);
+        const ta = rowTime(a.tc);
+        if (tb !== ta) return tb - ta;
+        return b.originalIndex - a.originalIndex;
+      });
+  }, [displayedSavedTestCases]);
+
   const displayedSavedTestCaseSets = viewingSharedProfileId && sharedProfileDataCache[viewingSharedProfileId]
     ? (sharedProfileDataCache[viewingSharedProfileId].savedTestCaseSets ?? [])
     : savedTestCaseSets;
@@ -3382,23 +3400,23 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
           </table>
         </div>
         ) : (
-          /* Tab 2: Step layout — 2 columns so more test cases visible */
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          /* Tab 2: Vertical — single row, scroll horizontally; newest / latest updated first (left) */
+          <div className="flex flex-row flex-nowrap gap-3 overflow-x-auto pb-1 scroll-smooth [scrollbar-gutter:stable]">
             {displayedSavedTestCases.length === 0 ? (
-              <div className="col-span-2 py-8 text-center text-slate-400 text-sm border border-slate-200 dark:border-slate-600 rounded-lg">
+              <div className="w-full min-w-0 py-8 text-center text-slate-400 text-sm border border-slate-200 dark:border-slate-600 rounded-lg">
                 No test cases — use From Library or Add Test Case
               </div>
             ) : (
-              displayedSavedTestCases.map((tc, idx) => (
+              stepViewOrderedCases.map(({ tc, originalIndex }, displayIdx) => (
                 <div
                   key={tc.id}
                   onDragEnter={(e) => e.preventDefault()}
-                  onDragOver={(e) => handleRowDragOver(e, idx)}
-                  onDrop={(e) => handleRowDrop(e, idx)}
-                  className={`border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 ${
-                    draggingRowIndex === idx ? 'opacity-50' : ''
+                  onDragOver={(e) => handleRowDragOver(e, originalIndex)}
+                  onDrop={(e) => handleRowDrop(e, originalIndex)}
+                  className={`shrink-0 w-[min(100%,380px)] min-w-[280px] border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 ${
+                    draggingRowIndex === originalIndex ? 'opacity-50' : ''
                   } ${
-                    dropTargetRowIndex === idx
+                    dropTargetRowIndex === originalIndex
                       ? 'ring-2 ring-blue-400 bg-blue-50 dark:bg-blue-900/20'
                       : ''
                   } ${selectedTestCaseIds.includes(tc.id) ? 'bg-blue-50/60 dark:bg-blue-900/20' : ''}`}
@@ -3418,7 +3436,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                     {/* Drag handle */}
                     <span
                       draggable
-                      onDragStart={(e) => handleRowDragStart(e, idx)}
+                      onDragStart={(e) => handleRowDragStart(e, originalIndex)}
                       onDragEnd={handleRowDragEnd}
                       className="p-1 cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-600 shrink-0 mt-0.5"
                       title="Drag to reorder"
@@ -3428,7 +3446,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
 
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-wrap items-center gap-2 mb-1">
-                        <span className="text-xs font-semibold text-slate-500 shrink-0">#{idx + 1}</span>
+                        <span className="text-xs font-semibold text-slate-500 shrink-0">#{displayIdx + 1}</span>
                         <input
                           type="text"
                           value={tc.name || ''}
@@ -3481,7 +3499,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                             addToast({ type: 'warning', message: 'This test case uses files in a running or pending set. Wait for the set to finish.' });
                             return;
                           }
-                          removeDisplayedTestCase(tc.id, idx);
+                          removeDisplayedTestCase(tc.id, originalIndex);
                           queueMicrotask(() => addToast({ type: 'success', message: 'Removed' }));
                         }}
                         disabled={isTestCaseInUseByBatch(tc)}
@@ -3492,16 +3510,16 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                       </button>
                     </div>
                   </div>
-                  {/* Files: single column layout — EROM, ULP, VCD, then extra */}
-                  <div className="px-3 py-1.5">
-                    <div className="grid grid-cols-1 gap-y-1.5">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="text-xs font-semibold text-slate-500 w-12 shrink-0">EROM:</span>
+                  {/* Files: EROM → ULP → VCD in one row (matches table order) */}
+                  <div className="px-3 py-1.5 space-y-2">
+                    <div className="grid grid-cols-3 gap-2 min-w-0">
+                      <div className="flex flex-col gap-0.5 min-w-0">
+                        <span className="text-[10px] font-semibold text-slate-500">EROM</span>
                         <select
                           value={tc.binName || ''}
                           onChange={(e) => updateDisplayedTestCase(tc.id, { binName: e.target.value })}
                           disabled={isTestCaseLocked(tc.id) || isViewingShared}
-                          className="flex-1 min-w-0 px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800"
+                          className="w-full min-w-0 px-1.5 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800"
                           title={
                             isTestCaseLocked(tc.id)
                               ? 'Files are locked because this test case is used in a set. Use “Save as new test case” to change files.'
@@ -3519,13 +3537,13 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                           )}
                         </select>
                       </div>
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="text-xs font-semibold text-slate-500 w-12 shrink-0">ULP:</span>
+                      <div className="flex flex-col gap-0.5 min-w-0">
+                        <span className="text-[10px] font-semibold text-slate-500">ULP</span>
                         <select
                           value={tc.linName || ''}
                           onChange={(e) => updateDisplayedTestCase(tc.id, { linName: e.target.value || undefined })}
                           disabled={isTestCaseLocked(tc.id) || isViewingShared}
-                          className="flex-1 min-w-0 px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800"
+                          className="w-full min-w-0 px-1.5 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800"
                           title={
                             isTestCaseLocked(tc.id)
                               ? 'Files are locked because this test case is used in a set. Use “Save as new test case” to change files.'
@@ -3543,13 +3561,13 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                           )}
                         </select>
                       </div>
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="text-xs font-semibold text-slate-500 w-12 shrink-0">VCD:</span>
+                      <div className="flex flex-col gap-0.5 min-w-0">
+                        <span className="text-[10px] font-semibold text-slate-500">VCD</span>
                         <select
                           value={tc.vcdName || ''}
                           onChange={(e) => updateDisplayedTestCase(tc.id, { vcdName: e.target.value })}
                           disabled={isTestCaseLocked(tc.id) || isViewingShared}
-                          className="flex-1 min-w-0 px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800"
+                          className="w-full min-w-0 px-1.5 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800"
                           title={
                             isTestCaseLocked(tc.id)
                               ? 'Files are locked because this test case is used in a set. Use “Save as new test case” to change files.'
@@ -3567,8 +3585,10 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                           )}
                         </select>
                       </div>
-                      {tc.extraColumns && Object.keys(tc.extraColumns).length > 0 ? (
-                        Object.entries(tc.extraColumns)
+                    </div>
+                    {tc.extraColumns && Object.keys(tc.extraColumns).length > 0 ? (
+                      <div className="grid grid-cols-1 gap-y-1.5">
+                        {Object.entries(tc.extraColumns)
                           .filter(([col, val]) => {
                             const m = col.match(/^(VCD|ERoM|ULP|MDI)(\d+)$/);
                             if (!m) return true;
@@ -3652,9 +3672,9 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                               )}
                             </div>
                           );
-                        })
-                      ) : null}
-                    </div>
+                        })}
+                      </div>
+                    ) : null}
                   </div>
                   {/* Command section: compact — only + button when empty; list when commands exist */}
                   <div className="px-3 py-1 border-t border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/30">

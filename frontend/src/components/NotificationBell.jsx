@@ -2,6 +2,17 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Bell } from 'lucide-react';
 import { useTestStore } from '../store/useTestStore';
 
+function formatNotifTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const sec = (Date.now() - d.getTime()) / 1000;
+  if (sec < 45) return 'just now';
+  if (sec < 3600) return `${Math.max(1, Math.floor(sec / 60))}m ago`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
 const NotificationItem = ({ notification, onClick }) => {
   const typeColor = (type) => {
     switch (type) {
@@ -36,15 +47,25 @@ const NotificationItem = ({ notification, onClick }) => {
   );
 };
 
-const NotificationBell = () => {
+const NotificationBell = ({ onOpenJob }) => {
   const { notifications, localNotifications, markNotificationRead, markAllNotificationsRead, loading, errors } = useTestStore();
   const [showNotifications, setShowNotifications] = useState(false);
   const notificationRef = useRef(null);
 
   const mergedNotifications = useMemo(() => {
+    const fromServer = (notifications || []).map((n) => ({
+      ...n,
+      type: n.type,
+      jobId: n.data?.jobId ?? n.data?.job_id,
+      time: n.time || formatNotifTime(n.createdAt),
+    }));
     const merged = [
-      ...(localNotifications || []).map((n) => ({ ...n, time: n.createdAt ? 'just now' : undefined })),
-      ...(notifications || []),
+      ...(localNotifications || []).map((n) => ({
+        ...n,
+        jobId: n.data?.jobId ?? n.data?.job_id ?? n.jobId,
+        time: n.time || (n.createdAt ? formatNotifTime(n.createdAt) : 'just now'),
+      })),
+      ...fromServer,
     ];
     merged.sort((a, b) => {
       const tA = a.createdAt ? new Date(a.createdAt) : new Date(0);
@@ -120,6 +141,8 @@ const NotificationBell = () => {
                     notification={notif}
                     onClick={() => {
                       if (notif.id != null) markNotificationRead(notif.id);
+                      const jid = notif.jobId ?? notif.data?.jobId ?? notif.data?.job_id;
+                      if (jid != null) onOpenJob?.(jid);
                     }}
                   />
                 ))}

@@ -187,13 +187,34 @@ const App = () => {
                 {(() => {
                   const total = systemHealth.totalBoards || 0;
                   const online = systemHealth.onlineBoards || 0;
+                  const busy = systemHealth.busyBoards || 0;
                   const stale = systemHealth.staleBoards || 0;
                   const error = systemHealth.errorBoards || 0;
-                  const healthStatus = total === 0 ? 'unknown' : error > 0 || (online === 0 && total > 0) ? 'error' : stale > 0 ? 'warning' : 'ok';
-                  const healthConfig = { ok: { bg: 'bg-emerald-50 dark:bg-emerald-900/30', text: 'text-emerald-600 dark:text-emerald-400', label: 'System OK' }, warning: { bg: 'bg-amber-50 dark:bg-amber-900/30', text: 'text-amber-600 dark:text-amber-400', label: 'Stale boards' }, error: { bg: 'bg-red-50 dark:bg-red-900/30', text: 'text-red-600 dark:text-red-400', label: 'System degraded' }, unknown: { bg: 'bg-slate-100 dark:bg-slate-700', text: 'text-slate-600 dark:text-slate-400', label: 'No boards' } };
+                  const ready = online + busy;
+                  // Degraded only when nothing is available to run work — not when a few boards are down in a mixed fleet.
+                  let healthStatus = 'unknown';
+                  if (total === 0) healthStatus = 'unknown';
+                  else if (ready === 0) healthStatus = 'error';
+                  else if (stale > 0 || error > 0) healthStatus = 'warning';
+                  else healthStatus = 'ok';
+                  const healthConfig = {
+                    ok: { bg: 'bg-emerald-50 dark:bg-emerald-900/30', text: 'text-emerald-600 dark:text-emerald-400', label: 'System OK' },
+                    warning: { bg: 'bg-amber-50 dark:bg-emerald-900/30', text: 'text-amber-600 dark:text-amber-400', label: 'Some boards need attention' },
+                    error: { bg: 'bg-red-50 dark:bg-red-900/30', text: 'text-red-600 dark:text-red-400', label: 'System degraded' },
+                    unknown: { bg: 'bg-slate-100 dark:bg-slate-700', text: 'text-slate-600 dark:text-slate-400', label: 'No boards' },
+                  };
                   const c = healthConfig[healthStatus] || healthConfig.unknown;
                   return (
-                    <div className={`flex items-center gap-2 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${c.bg} ${c.text} border-current/20`} title={healthStatus === 'warning' ? `${stale} board(s) no heartbeat >60s` : healthStatus === 'error' ? 'Boards offline or error' : ''}>
+                    <div
+                      className={`flex items-center gap-2 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${c.bg} ${c.text} border-current/20`}
+                      title={
+                        healthStatus === 'warning'
+                          ? `${error} offline/error, ${stale} stale (no heartbeat >60s while online/busy)`
+                          : healthStatus === 'error'
+                            ? 'No boards online or busy — fleet unavailable'
+                            : ''
+                      }
+                    >
                       {healthStatus === 'ok' && <CheckCircle2 size={13} />}
                       {healthStatus === 'warning' && <AlertCircle size={13} />}
                       {healthStatus === 'error' && <XCircle size={13} />}
@@ -227,7 +248,13 @@ const App = () => {
               >
                 {theme === 'dark' ? '☀' : '🌙'}
               </button>
-              <NotificationBell />
+              <NotificationBell
+                onOpenJob={(jobId) => {
+                  if (jobId == null) return;
+                  setExpandJobId(jobId);
+                  setActivePage('jobs');
+                }}
+              />
             </div>
           </div>
         </header>
@@ -300,6 +327,13 @@ const App = () => {
         </div>
       </main>
       <ToastContainer />
+      <JobAttentionBanner
+        onOpenJob={(jobId) => {
+          if (jobId == null) return;
+          setExpandJobId(jobId);
+          setActivePage('jobs');
+        }}
+      />
       <JobTagManagerModal jobId={tagManagerJobId} onClose={() => setTagManagerJobId(null)} />
     </div>
   );
@@ -803,6 +837,104 @@ const ProfileSwitcher = () => {
           </div>
         </div>
       )}
+    </div>
+  );
+};
+
+const JobAttentionBanner = ({ onOpenJob }) => {
+  const banner = useTestStore((s) => s.jobAttentionBanner);
+  const dismiss = useTestStore((s) => s.dismissJobAttentionBanner);
+  const requestPerm = useTestStore((s) => s.requestBrowserNotificationPermission);
+  const theme = useTestStore((s) => s.theme);
+  const [permBusy, setPermBusy] = useState(false);
+
+  if (!banner) return null;
+
+  const isDark = theme === 'dark';
+  const panel = isDark
+    ? 'bg-slate-900 border-slate-600 text-slate-100'
+    : 'bg-white border-slate-200 text-slate-900';
+  const sub = isDark ? 'text-slate-400' : 'text-slate-600';
+
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex items-start justify-center pt-[12vh] px-4 pointer-events-auto"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="job-attention-title"
+    >
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/40"
+        aria-label="Dismiss"
+        onClick={() => dismiss()}
+      />
+      <div className={`relative max-w-md w-full rounded-2xl border shadow-2xl p-5 ${panel}`}>
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5">
+            {banner.type === 'success' ? (
+              <CheckCircle2 className={`w-8 h-8 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`} />
+            ) : banner.type === 'error' ? (
+              <AlertCircle className={`w-8 h-8 ${isDark ? 'text-red-400' : 'text-red-600'}`} />
+            ) : (
+              <Activity className={`w-8 h-8 ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 id="job-attention-title" className="text-lg font-bold leading-tight">
+              {banner.title}
+            </h2>
+            <p className={`text-sm mt-2 ${sub}`}>{banner.message}</p>
+            {typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default' && (
+              <button
+                type="button"
+                disabled={permBusy}
+                className={`mt-3 text-xs font-semibold underline ${isDark ? 'text-blue-300' : 'text-blue-600'}`}
+                onClick={async () => {
+                  setPermBusy(true);
+                  try {
+                    await requestPerm();
+                  } finally {
+                    setPermBusy(false);
+                  }
+                }}
+              >
+                Enable browser notifications
+              </button>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => dismiss()}
+            className={`p-1 rounded-lg ${isDark ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}
+            aria-label="Close"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        {banner.jobId != null && (
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => dismiss()}
+              className={`px-3 py-2 text-sm font-semibold rounded-xl ${isDark ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-800'}`}
+            >
+              OK
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const id = banner.jobId;
+                dismiss();
+                onOpenJob?.(id);
+              }}
+              className="px-3 py-2 text-sm font-semibold rounded-xl bg-blue-600 text-white hover:bg-blue-700"
+            >
+              Open job
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

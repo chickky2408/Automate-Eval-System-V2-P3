@@ -627,6 +627,16 @@ export const getNotifications = (filters = {}) => {
 };
 
 /**
+ * Create notification (persisted for current owner)
+ * Body: { title, message, type, user_id?, data? }
+ */
+export const createNotification = (body) =>
+  apiRequest(API_ENDPOINTS.NOTIFICATIONS, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+/**
  * Mark notification as read
  * Expected Response: { success: true }
  */
@@ -636,10 +646,16 @@ export const markNotificationRead = (id) => {
 
 /**
  * Mark all notifications as read
+ * Query: ?user_id=... (recommended so only this owner's rows are cleared)
  * Expected Response: { success: true, count: number }
  */
-export const markAllNotificationsRead = () => {
-  return apiRequest(API_ENDPOINTS.NOTIFICATION_MARK_ALL_READ, { method: 'POST' });
+export const markAllNotificationsRead = (filters = {}) => {
+  const entries = Object.entries(filters).filter(([, v]) => v != null && v !== '');
+  const queryParams = new URLSearchParams(Object.fromEntries(entries)).toString();
+  const url = queryParams
+    ? `${API_ENDPOINTS.NOTIFICATION_MARK_ALL_READ}?${queryParams}`
+    : API_ENDPOINTS.NOTIFICATION_MARK_ALL_READ;
+  return apiRequest(url, { method: 'POST' });
 };
 
 // ============================================
@@ -756,6 +772,7 @@ export default {
   
   // Notifications
   getNotifications,
+  createNotification,
   markNotificationRead,
   markAllNotificationsRead,
   

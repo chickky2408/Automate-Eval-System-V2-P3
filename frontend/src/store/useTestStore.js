@@ -28,6 +28,97 @@ import { isValidPaletteKey, TAG_PALETTE_MAP, splitTagsComma } from '../utils/tag
 import { rememberClientOwnerLabel, syncOwnerLabelsFromJobs, syncOwnerLabelsFromFiles } from '../utils/profileOwnerLabel';
 import api from '../services/api';
 
+/** Auto-dismiss timer for in-app job alert overlay */
+let jobAttentionBannerTimer = null;
+
+function isJobOwnedByActiveProfile(job, activeProfileId, clientId) {
+  const pid = job?.profileId ?? job?.profile_id;
+  const cid = job?.clientId ?? job?.client_id;
+  const pidStr = pid != null ? String(pid).trim() : '';
+  if (activeProfileId && pidStr !== '' && pidStr === String(activeProfileId)) return true;
+  if (pidStr === '' && cid != null && clientId && String(cid) === String(clientId)) return true;
+  return false;
+}
+
+function fileIsFail(file) {
+  if (!file) return false;
+  const r = (file.result || '').toLowerCase();
+  const s = (file.status || '').toLowerCase();
+  return r === 'fail' || s === 'error';
+}
+
+function resolvePrevFile(prevFiles, file, idx) {
+  if (!prevFiles?.length) return undefined;
+  if (file?.id != null) return prevFiles.find((f) => f.id === file.id);
+  return prevFiles[idx];
+}
+
+/** Owner-scoped job notification rows; includes _attention (show overlay) for side effects. */
+function buildMyJobLocalNotifications(prevJobs, nextJobs, activeProfileId, clientId) {
+  const prevList = prevJobs || [];
+  const nextList = nextJobs || [];
+  const now = new Date().toISOString();
+  const out = [];
+
+  for (const j of nextList) {
+    if (!isJobOwnedByActiveProfile(j, activeProfileId, clientId)) continue;
+    const prev = prevList.find((p) => p.id === j.id);
+    const wasRunning = (prev?.status || '').toLowerCase() === 'running';
+    const st = (j.status || '').toLowerCase();
+    const nowDone = st === 'completed' || st === 'stopped';
+
+    if (wasRunning && nowDone) {
+      const anyFail = (j.files || []).some(fileIsFail);
+      const title =
+        st === 'stopped' ? 'Set stopped' : anyFail ? 'Set finished with failures' : 'Set completed';
+      const message =
+        st === 'stopped'
+          ? `Set #${j.id} (${j.name || 'Unnamed'}) was stopped.`
+          : anyFail
+            ? `Set #${j.id} (${j.name || 'Unnamed'}) finished — some test cases failed.`
+            : `Set #${j.id} (${j.name || 'Unnamed'}) finished successfully.`;
+      const type = st === 'stopped' ? 'info' : anyFail ? 'error' : 'success';
+      out.push({
+        id: `local-${j.id}-done-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        title,
+        message,
+        type,
+        read: false,
+        createdAt: now,
+        data: { jobId: j.id },
+        _attention: st === 'completed' || (st === 'stopped' && anyFail),
+      });
+    }
+
+    if (st === 'running') {
+      const prevFiles = prev?.files || [];
+      (j.files || []).forEach((file, idx) => {
+        const pFile = resolvePrevFile(prevFiles, file, idx);
+        if (fileIsFail(file) && !fileIsFail(pFile)) {
+          const name = file.testCaseName || file.name || `Test case #${idx + 1}`;
+          out.push({
+            id: `local-${j.id}-tc-${file.id ?? idx}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+            title: 'Test case error',
+            message: `${name} failed while running (Set #${j.id}).`,
+            type: 'error',
+            read: false,
+            createdAt: now,
+            data: { jobId: j.id, fileId: file.id },
+            _attention: true,
+          });
+        }
+      });
+    }
+  }
+
+  return out;
+}
+
+function stripAttentionFields(row) {
+  const { _attention, ...rest } = row;
+  return rest;
+}
+
 // Load test commands from localStorage
 const loadTestCommands = () => {
   try {
@@ -794,6 +885,47 @@ export const useTestStore = create((set, get) => {
     files: null,
   },
   toasts: [],
+  /** In-app job alert (modal-style); also drives browser Notification when permitted */
+  jobAttentionBanner: null,
+  showJobAttentionBanner: (payload) => {
+    if (jobAttentionBannerTimer) {
+      clearTimeout(jobAttentionBannerTimer);
+      jobAttentionBannerTimer = null;
+    }
+    const durationMs = payload?.durationMs ?? 5000 + Math.floor(Math.random() * 5001);
+    const t = payload?.type === 'error' ? 'error' : payload?.type === 'success' ? 'success' : 'info';
+    set({
+      jobAttentionBanner: {
+        title: payload?.title || 'Job update',
+        message: payload?.message || '',
+        type: t,
+        jobId: payload?.jobId ?? null,
+      },
+    });
+    try {
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+        // eslint-disable-next-line no-new
+        new Notification(payload?.title || 'Job update', { body: payload?.message || '' });
+      }
+    } catch (e) {
+      /* ignore */
+    }
+    jobAttentionBannerTimer = setTimeout(() => {
+      get().dismissJobAttentionBanner();
+      jobAttentionBannerTimer = null;
+    }, durationMs);
+  },
+  dismissJobAttentionBanner: () => {
+    if (jobAttentionBannerTimer) {
+      clearTimeout(jobAttentionBannerTimer);
+      jobAttentionBannerTimer = null;
+    }
+    set({ jobAttentionBanner: null });
+  },
+  requestBrowserNotificationPermission: async () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return 'unsupported';
+    return Notification.requestPermission();
+  },
   addToast: (toast) => {
     const id = toast?.id || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const entry = {
@@ -2122,11 +2254,12 @@ export const useTestStore = create((set, get) => {
       .catch((error) => console.error('Failed to mark notification read', error));
   },
   markAllNotificationsRead: () => {
+    const ownerKey = get().activeProfileId || getClientId();
     set((state) => ({
       notifications: state.notifications.map(n => ({ ...n, read: true })),
       localNotifications: state.localNotifications.map(n => ({ ...n, read: true }))
     }));
-    void api.markAllNotificationsRead()
+    void api.markAllNotificationsRead({ user_id: ownerKey })
       .then(() => get().refreshNotifications())
       .catch((error) => console.error('Failed to mark all notifications read', error));
   },
@@ -2256,7 +2389,11 @@ export const useTestStore = create((set, get) => {
           }
         });
         const localNotifications = [...newLocal, ...(state.localNotifications || [])];
-        return { boards: data, localNotifications };
+        return {
+          boards: data,
+          localNotifications,
+          errors: { ...state.errors, boards: null },
+        };
       });
       return data;
     } catch (error) {
@@ -2294,40 +2431,6 @@ export const useTestStore = create((set, get) => {
       );
       set((state) => {
         const prevJobs = state.jobs || [];
-        const justFinished = (data || []).filter((j) => {
-          const prev = prevJobs.find((p) => p.id === j.id);
-          const wasRunning = prev?.status === 'running';
-          const nowDone = j.status === 'completed' || j.status === 'stopped';
-          return wasRunning && nowDone;
-        });
-        const now = new Date().toISOString();
-        const newLocal = [];
-        justFinished.forEach((j) => {
-          newLocal.push({
-            id: `local-${j.id}-batch-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-            title: j.status === 'completed' ? 'Batch completed' : 'Batch stopped',
-            message: `Batch #${j.id} (${j.name || 'Unnamed'}) ${j.status === 'completed' ? 'finished successfully.' : 'was stopped.'}`,
-            type: j.status === 'completed' ? 'success' : 'info',
-            read: false,
-            createdAt: now,
-          });
-          (j.files || []).forEach((file, idx) => {
-            const result = (file.result || '').toLowerCase();
-            const isFail = result === 'fail' || (file.status || '').toLowerCase() === 'error';
-            if (result === 'pass' || isFail) {
-              const name = file.testCaseName || file.name || `Test case #${idx + 1}`;
-              newLocal.push({
-                id: `local-${j.id}-file-${idx}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-                title: result === 'pass' ? 'Test case passed' : 'Test case failed',
-                message: `${name} — ${result === 'pass' ? 'Passed' : 'Failed'} (Set: ${j.name || j.configName || `#${j.id}`})`,
-                type: result === 'pass' ? 'success' : 'error',
-                read: false,
-                createdAt: now,
-              });
-            }
-          });
-        });
-        const localNotifications = [...newLocal, ...(state.localNotifications || [])];
         // ใช้ชื่อ test case ไม่ใช่ชื่อไฟล์ — แมป test_case_name จาก API ถ้า testCaseName ว่าง
         const jobs = (data || []).map((j) => ({
           ...j,
@@ -2336,7 +2439,37 @@ export const useTestStore = create((set, get) => {
             testCaseName: f.testCaseName ?? f.test_case_name,
           })),
         }));
-        return { jobs, localNotifications };
+        const deltas = buildMyJobLocalNotifications(
+          prevJobs,
+          jobs,
+          state.activeProfileId,
+          getClientId()
+        );
+        queueMicrotask(() => {
+          const userKey = get().activeProfileId || getClientId();
+          deltas.forEach((d) => {
+            if (d._attention) {
+              get().showJobAttentionBanner({
+                title: d.title,
+                message: d.message,
+                type: d.type,
+                jobId: d.data?.jobId,
+              });
+            }
+            const row = stripAttentionFields(d);
+            void api
+              .createNotification({
+                title: row.title,
+                message: row.message || '',
+                type: row.type || 'info',
+                user_id: userKey,
+                data: row.data,
+              })
+              .catch(() => {});
+          });
+          if (deltas.length) void get().silentRefreshNotifications();
+        });
+        return { jobs, localNotifications: state.localNotifications };
       });
       return data;
     } catch (error) {
@@ -2361,45 +2494,41 @@ export const useTestStore = create((set, get) => {
       );
       set((state) => {
         const prevJobs = state.jobs || [];
-        const justFinished = (data || []).filter((j) => {
-          const prev = prevJobs.find((p) => p.id === j.id);
-          const wasRunning = prev?.status === 'running';
-          const nowDone = j.status === 'completed' || j.status === 'stopped';
-          return wasRunning && nowDone;
-        });
-        const now = new Date().toISOString();
-        const newLocal = [];
-        justFinished.forEach((j) => {
-          newLocal.push({
-            id: `local-${j.id}-batch-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-            title: j.status === 'completed' ? 'Batch completed' : 'Batch stopped',
-            message: `Batch #${j.id} (${j.name || 'Unnamed'}) ${j.status === 'completed' ? 'finished successfully.' : 'was stopped.'}`,
-            type: j.status === 'completed' ? 'success' : 'info',
-            read: false,
-            createdAt: now,
-          });
-          (j.files || []).forEach((file, idx) => {
-            const result = (file.result || '').toLowerCase();
-            const isFail = result === 'fail' || (file.status || '').toLowerCase() === 'error';
-            if (result === 'pass' || isFail) {
-              const name = file.testCaseName || file.name || `Test case #${idx + 1}`;
-              newLocal.push({
-                id: `local-${j.id}-file-${idx}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-                title: result === 'pass' ? 'Test case passed' : 'Test case failed',
-                message: `${name} — ${result === 'pass' ? 'Passed' : 'Failed'} (Set: ${j.name || j.configName || `#${j.id}`})`,
-                type: result === 'pass' ? 'success' : 'error',
-                read: false,
-                createdAt: now,
-              });
-            }
-          });
-        });
-        const localNotifications = [...newLocal, ...(state.localNotifications || [])];
         const jobs = (data || []).map((j) => ({
           ...j,
           files: (j.files || []).map((f) => ({ ...f, testCaseName: f.testCaseName ?? f.test_case_name })),
         }));
-        return { jobs, localNotifications };
+        const deltas = buildMyJobLocalNotifications(
+          prevJobs,
+          jobs,
+          state.activeProfileId,
+          getClientId()
+        );
+        queueMicrotask(() => {
+          const userKey = get().activeProfileId || getClientId();
+          deltas.forEach((d) => {
+            if (d._attention) {
+              get().showJobAttentionBanner({
+                title: d.title,
+                message: d.message,
+                type: d.type,
+                jobId: d.data?.jobId,
+              });
+            }
+            const row = stripAttentionFields(d);
+            void api
+              .createNotification({
+                title: row.title,
+                message: row.message || '',
+                type: row.type || 'info',
+                user_id: userKey,
+                data: row.data,
+              })
+              .catch(() => {});
+          });
+          if (deltas.length) void get().silentRefreshNotifications();
+        });
+        return { jobs, localNotifications: state.localNotifications };
       });
       return data;
     } catch (error) {
@@ -2413,7 +2542,8 @@ export const useTestStore = create((set, get) => {
         loading: { ...state.loading, notifications: true },
         errors: { ...state.errors, notifications: null },
       }));
-      const data = await api.getNotifications();
+      const ownerKey = get().activeProfileId || getClientId();
+      const data = await api.getNotifications({ user_id: ownerKey, limit: 100 });
       set({ notifications: data });
       return data;
     } catch (error) {
@@ -2428,7 +2558,8 @@ export const useTestStore = create((set, get) => {
   },
   silentRefreshNotifications: async () => {
     try {
-      const data = await api.getNotifications();
+      const ownerKey = get().activeProfileId || getClientId();
+      const data = await api.getNotifications({ user_id: ownerKey, limit: 100 });
       set({ notifications: data });
       return data;
     } catch (error) {

@@ -550,6 +550,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
   const [rawTcEditorMode, setRawTcEditorMode] = useState('edit'); // 'edit' | 'duplicate'
   const [rawTcEditorSourceRow, setRawTcEditorSourceRow] = useState(null);
   const [rawTcFilePicker, setRawTcFilePicker] = useState(null); // { kind: 'bin'|'vcd'|'lin', q: string } | null
+  /** Edit TC panel: … opens tag color tools (same picker as TC column Tags modal). */
+  const [rawTcEditorTagToolsOpen, setRawTcEditorTagToolsOpen] = useState(false);
+  const rawTcEditorTagToolsRef = useRef(null);
   /** Raw Test Cases table: tag overflow modal + inline + (same UX as Test Cases page) */
   const [libraryRawTcTagOverflowKey, setLibraryRawTcTagOverflowKey] = useState(null);
   const [libraryRawTcTagModalAddDraft, setLibraryRawTcTagModalAddDraft] = useState('');
@@ -1188,18 +1191,33 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
   }, []);
 
   const buildRawTcDraft = useCallback((tc) => {
+    const ex = tc.extraColumns && typeof tc.extraColumns === 'object' ? tc.extraColumns : {};
     const tag =
-      (tc.extraColumns && (tc.extraColumns.tag || tc.extraColumns.Tag)) != null
-        ? String(tc.extraColumns.tag || tc.extraColumns.Tag)
+      (ex.tag || ex.Tag) != null
+        ? String(ex.tag || ex.Tag)
         : '';
+    const tagTrim = tag.trim();
+    const tags = String(tagTrim || '')
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean);
+    const tagColorList = tags.length ? normalizeTagColorList(ex, tags.length) : [];
+    const fbRaw = (ex.tagColor || ex.tag_color) && TAG_PALETTE_MAP[ex.tagColor || ex.tag_color]
+      ? ex.tagColor || ex.tag_color
+      : tags.length
+        ? tagColorList[0]
+        : 'mint';
+    const tagColor = TAG_PALETTE_MAP[fbRaw] ? fbRaw : 'mint';
     return {
       name: (tc.name || '').trim(),
-      tag: tag.trim(),
+      tag: tagTrim,
       tryCount: typeof tc.tryCount === 'number' && tc.tryCount > 0 ? tc.tryCount : 1,
       vcdName: (tc.vcdName || '').trim(),
       binName: (tc.binName || '').trim(),
       linName: (tc.linName || '').trim(),
       extraSlots: collectExtraSlotsFromTc(tc),
+      tagColor,
+      tagColorList: tags.length ? [...tagColorList] : [],
     };
   }, []);
 
@@ -1382,6 +1400,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
     setRawTcEditorMode('edit');
     setRawTcEditorSourceRow(null);
     setRawTcFilePicker(null);
+    setRawTcEditorTagToolsOpen(false);
   }, []);
 
   const rawTcPickerFiles = useMemo(() => {
@@ -1475,12 +1494,21 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
           .join('|');
 
       const srcDraft = buildRawTcDraft(src);
+      const colorSigForDraft = (draft) => {
+        const parts = splitTags((draft?.tag || '').trim());
+        if (!parts.length) return '';
+        return normalizeTagColorList(
+          { tagColor: draft.tagColor, tagColorList: draft.tagColorList },
+          parts.length
+        ).join('|');
+      };
       const sameFiles =
         String(vcdName).trim() === String(src?.vcdName || '').trim() &&
         String(binName).trim() === String(src?.binName || '').trim() &&
         String(linName).trim() === String(src?.linName || '').trim() &&
         String(tryCount) === String(srcTry) &&
         String(tag).trim() === String(srcTag).trim() &&
+        colorSigForDraft(rawTcEditorDraft) === colorSigForDraft(srcDraft) &&
         sigSlots(rawTcEditorDraft.extraSlots) === sigSlots(srcDraft.extraSlots);
 
       if (sameFiles) {
@@ -1519,10 +1547,23 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
       if (m && parseInt(m[2], 10) >= 2) delete baseExtra[k];
     });
     const nextExtra = { ...baseExtra };
-    if (tag) nextExtra.tag = tag;
-    else {
+    if (tag) {
+      nextExtra.tag = tag;
+      const tagArr = splitTags(tag);
+      const fb = TAG_PALETTE_MAP[rawTcEditorDraft.tagColor] ? rawTcEditorDraft.tagColor : 'mint';
+      const prevList = Array.isArray(rawTcEditorDraft.tagColorList) ? rawTcEditorDraft.tagColorList : [];
+      nextExtra.tagColor = fb;
+      nextExtra.tagColorList = tagArr.map((_, i) => {
+        const k = prevList[i];
+        return TAG_PALETTE_MAP[k] ? k : fb;
+      });
+      if (nextExtra.tag_color != null) delete nextExtra.tag_color;
+    } else {
       delete nextExtra.tag;
       delete nextExtra.Tag;
+      delete nextExtra.tagColor;
+      delete nextExtra.tag_color;
+      delete nextExtra.tagColorList;
     }
 
     const nextTc = {
@@ -1614,6 +1655,17 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
     const stillThere = libraryRawRows.some((r) => r._key === rawTcEditorKey);
     if (!stillThere) closeRawTcEditor();
   }, [rawTcEditorKey, libraryRawRows, closeRawTcEditor]);
+
+  useEffect(() => {
+    if (!rawTcEditorTagToolsOpen) return;
+    const onDoc = (e) => {
+      if (rawTcEditorTagToolsRef.current && !rawTcEditorTagToolsRef.current.contains(e.target)) {
+        setRawTcEditorTagToolsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [rawTcEditorTagToolsOpen]);
 
   useEffect(() => {
     const onMouseUp = () => {
@@ -3918,15 +3970,85 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                       />
                     </label>
                     <div className="grid grid-cols-2 gap-2">
-                      <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
-                        Tag
-                        <input
-                          type="text"
-                          value={rawTcEditorDraft.tag}
-                          onChange={(e) => setRawTcEditorDraft((d) => (d ? { ...d, tag: e.target.value } : d))}
-                          className="mt-1 w-full px-2 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900"
-                        />
-                      </label>
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold text-slate-600 dark:text-slate-300">Tag</div>
+                        <div ref={rawTcEditorTagToolsRef} className="relative mt-1 flex items-center gap-1.5 min-w-0">
+                          <input
+                            type="text"
+                            value={rawTcEditorDraft.tag}
+                            onChange={(e) => {
+                              const nextTag = e.target.value;
+                              setRawTcEditorDraft((d) => {
+                                if (!d) return d;
+                                const next = { ...d, tag: nextTag };
+                                const parts = splitTags(nextTag);
+                                const fb = TAG_PALETTE_MAP[d.tagColor] ? d.tagColor : 'mint';
+                                if (parts.length === 0) {
+                                  next.tagColorList = [];
+                                } else {
+                                  const prev = Array.isArray(d.tagColorList) ? d.tagColorList : [];
+                                  next.tagColorList = parts.map((_, i) => {
+                                    const k = prev[i];
+                                    return TAG_PALETTE_MAP[k] ? k : fb;
+                                  });
+                                }
+                                return next;
+                              });
+                            }}
+                            className="flex-1 min-w-0 px-2 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900"
+                          />
+                          <div className="relative shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setRawTcEditorTagToolsOpen((o) => !o)}
+                              className="inline-flex items-center justify-center w-7 h-7 rounded-full text-[12px] font-semibold border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700"
+                              title="สี tag — เหมือนคอลัมน์ TC"
+                            >
+                              …
+                            </button>
+                            {rawTcEditorTagToolsOpen && (
+                              <div className="absolute right-0 top-full z-[130] mt-1 flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 p-2 shadow-xl">
+                                {(() => {
+                                  const hdrTags = splitTags(rawTcEditorDraft.tag || '');
+                                  const displayKey = hdrTags.length
+                                    ? normalizeTagColorList(
+                                        {
+                                          tagColor: rawTcEditorDraft.tagColor,
+                                          tagColorList: rawTcEditorDraft.tagColorList,
+                                        },
+                                        hdrTags.length
+                                      )[0]
+                                    : TAG_PALETTE_MAP[rawTcEditorDraft.tagColor]
+                                      ? rawTcEditorDraft.tagColor
+                                      : 'mint';
+                                  const safeDisplayKey = TAG_PALETTE_MAP[displayKey] ? displayKey : 'mint';
+                                  return (
+                                    <TagColorSwatchPicker
+                                      size="sm"
+                                      value={safeDisplayKey}
+                                      menuZClass="z-[140]"
+                                      onChange={(k) => {
+                                        setRawTcEditorDraft((d) => {
+                                          if (!d) return d;
+                                          const tagArr = splitTags(d.tag);
+                                          const next = { ...d, tagColor: k };
+                                          if (tagArr.length) next.tagColorList = tagArr.map(() => k);
+                                          else next.tagColorList = [];
+                                          return next;
+                                        });
+                                      }}
+                                    />
+                                  );
+                                })()}
+                              </div>
+                            )}
+                          </div>
+                          <span
+                            className="shrink-0 w-px h-5 self-center bg-slate-200 dark:bg-slate-600"
+                            aria-hidden
+                          />
+                        </div>
+                      </div>
                       <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
                         Try
                         <input
@@ -3960,26 +4082,6 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                       </div>
                     </label>
                     <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
-                      VCD
-                      <div className="relative mt-1">
-                        <input
-                          type="text"
-                          value={rawTcEditorDraft.vcdName}
-                          onChange={(e) => setRawTcEditorDraft((d) => (d ? { ...d, vcdName: e.target.value } : d))}
-                          className="w-full pr-10 px-2 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900"
-                          placeholder="Type to search…"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setRawTcFilePicker({ kind: 'vcd', q: rawTcEditorDraft.vcdName || '' })}
-                          className="absolute inset-y-0 right-0 px-2 inline-flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                          title="Browse from Library"
-                        >
-                          <ChevronDown size={16} />
-                        </button>
-                      </div>
-                    </label>
-                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
                       ULP
                       <div className="relative mt-1">
                         <input
@@ -3992,6 +4094,26 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                         <button
                           type="button"
                           onClick={() => setRawTcFilePicker({ kind: 'lin', q: rawTcEditorDraft.linName || '' })}
+                          className="absolute inset-y-0 right-0 px-2 inline-flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                          title="Browse from Library"
+                        >
+                          <ChevronDown size={16} />
+                        </button>
+                      </div>
+                    </label>
+                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
+                      VCD
+                      <div className="relative mt-1">
+                        <input
+                          type="text"
+                          value={rawTcEditorDraft.vcdName}
+                          onChange={(e) => setRawTcEditorDraft((d) => (d ? { ...d, vcdName: e.target.value } : d))}
+                          className="w-full pr-10 px-2 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900"
+                          placeholder="Type to search…"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setRawTcFilePicker({ kind: 'vcd', q: rawTcEditorDraft.vcdName || '' })}
                           className="absolute inset-y-0 right-0 px-2 inline-flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
                           title="Browse from Library"
                         >

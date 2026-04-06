@@ -53,12 +53,12 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
   const [isStoppingAll, setIsStoppingAll] = useState(false);
   const [isStoppingSelected, setIsStoppingSelected] = useState(false);
   const [selectedJobIds, setSelectedJobIds] = useState([]); // สำหรับเลือก batch ที่ต้องการ run
-  const [selectAllColumn, setSelectAllColumn] = useState('pending'); // 'pending' | 'running' | 'completed' - column สำหรับ Select All
+  const [selectAllColumn, setSelectAllColumn] = useState('pending'); // 'pending' | 'running' | 'error' | 'completed'
   const [dragStartIndex, setDragStartIndex] = useState(null); // สำหรับ drag selection
   const [isDragging, setIsDragging] = useState(false); // track ว่ากำลัง drag อยู่หรือไม่
   // Single search + dropdown filters for Job Management
   const [jobsSearch, setJobsSearch] = useState('');
-  const [jobsStatusFilter, setJobsStatusFilter] = useState('all'); // 'all' | 'pending' | 'running' | 'completed'
+  const [jobsStatusFilter, setJobsStatusFilter] = useState('all'); // 'all' | 'pending' | 'running' | 'error' | 'completed'
   const [jobsTagFilter, setJobsTagFilter] = useState('');
   const [jobsConfigFilter, setJobsConfigFilter] = useState('');
   const [jobsTimeFilter, setJobsTimeFilter] = useState('all'); // 'today' | 'week' | 'month' | 'all'
@@ -402,9 +402,27 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
     return [...job.files].sort((a, b) => (a.order || 0) - (b.order || 0));
   };
 
+  const jobHasExecutionFailure = (job) =>
+    (job.files || []).some(
+      (f) => f.result === 'fail' || (f.status || '').toLowerCase() === 'error'
+    );
+
+  /** Kanban column: pending | running | error | completed (error = finished set with any TC fail) */
+  const jobBoardColumn = (job) => {
+    const s = (job.status || '').toLowerCase();
+    if (s === 'pending') return 'pending';
+    if (s === 'running') return 'running';
+    if (s === 'completed' || s === 'stopped') {
+      return jobHasExecutionFailure(job) ? 'error' : 'completed';
+    }
+    return 'completed';
+  };
+
+  const isDemoJobId = (id) => typeof id === 'string' && id.startsWith('demo-');
+
   // สีการ์ดตามสถานะ: เขียว = ผ่านทั้งหมด, แดง = มี fail
   const getCardStatusStyle = (job) => {
-    const hasFail = (job.files || []).some(f => f.result === 'fail' || f.status === 'error');
+    const hasFail = jobHasExecutionFailure(job);
     if (job.status === 'running') return 'border-l-4 border-l-blue-500';
     if (job.status === 'pending') return 'border-l-4 border-l-amber-500';
     if (job.status === 'completed' || job.status === 'stopped') {
@@ -495,8 +513,17 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
 
   const filteredPendingJobs = sortByDate(applyJobsFilters(pendingJobs));
   const filteredRunningJobs = sortByDate(applyJobsFilters(runningJobs));
-  const allCompletedJobs = sortedAllJobs.filter(j => j.status === 'completed' || j.status === 'stopped');
-  const completedJobsFiltered = sortByDate(applyJobsFilters(allCompletedJobs));
+  const allCompletedOrStopped = sortedAllJobs.filter(
+    (j) => j.status === 'completed' || j.status === 'stopped'
+  );
+  const completedSuccessJobs = sortByDate(
+    allCompletedOrStopped.filter((j) => !jobHasExecutionFailure(j))
+  );
+  const errorColumnSourceJobs = sortByDate(
+    allCompletedOrStopped.filter((j) => jobHasExecutionFailure(j))
+  );
+  const filteredCompletedSuccess = sortByDate(applyJobsFilters(completedSuccessJobs));
+  const filteredErrorJobs = sortByDate(applyJobsFilters(errorColumnSourceJobs));
 
   // Simulated completed batches for demo when there are no real completed jobs
   const DEMO_COMPLETED_JOB = {
@@ -577,19 +604,19 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
       { id: 'demo-f2-3', name: 'alt_case_3.vcd', status: 'completed', result: 'fail', order: 3 },
     ],
   };
-  // แสดง demo completed/error เสมอด้านบนของ completed column เพื่อใช้พรีเซนต์
-  const displayCompletedJobs = [
-    DEMO_COMPLETED_JOB,
-    DEMO_FAILED_JOB,
-    DEMO_COMPLETED_JOB_2,
-    DEMO_FAILED_JOB_2,
-    ...completedJobsFiltered,
-  ];
+  const displayCompletedJobs = [DEMO_COMPLETED_JOB, DEMO_COMPLETED_JOB_2, ...filteredCompletedSuccess];
+  const displayErrorJobs = [DEMO_FAILED_JOB, DEMO_FAILED_JOB_2, ...filteredErrorJobs];
 
   // Unique tags and configs from all jobs (for dropdowns)
   const uniqueTags = [...new Set(jobs.map(j => j.tag).filter(Boolean))].sort();
   const uniqueConfigs = [...new Set(jobs.map(j => j.configName).filter(Boolean))].sort();
-  const hasActiveFilters = !!(jobsSearch.trim() || jobsTagFilter || jobsConfigFilter || jobsTimeFilter !== 'all');
+  const hasActiveFilters = !!(
+    jobsSearch.trim() ||
+    jobsTagFilter ||
+    jobsConfigFilter ||
+    jobsTimeFilter !== 'all' ||
+    jobsStatusFilter !== 'all'
+  );
 
   // Component สำหรับ render job card (ใช้ซ้ำได้)
   const toggleDetails = (jobId) => {
@@ -597,7 +624,7 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
   };
 
   const renderJobCard = (job, jobIndex, allJobs, column) => {
-    const isDemoJob = job.id === 'demo-completed' || job.id === 'demo-failed';
+    const isDemoJob = isDemoJobId(job.id);
     const sortedFiles = getSortedFiles(job);
     const isExpanded = expandedJobs.includes(job.id);
     const showDetails = expandedDetailsJobs.includes(job.id);
@@ -611,7 +638,7 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
       <div 
       key={job.id} 
       id={`job-${job.id}`} 
-      className={`bg-white text-slate-900 rounded-xl border shadow-sm overflow-hidden transition-all ${getCardStatusStyle(job)} ${
+      className={`bg-white text-slate-900 rounded-lg border shadow-sm overflow-hidden transition-all ${getCardStatusStyle(job)} ${
           selectedJobIds.includes(job.id) ? 'border-blue-500 ring-2 ring-blue-200' : 'border-slate-200 dark:border-slate-700'
         } ${highlightJobId === String(job.id) ? 'ring-4 ring-amber-300/70 border-amber-400' : ''} ${
           draggingJobId === job.id ? 'opacity-50' : ''
@@ -641,24 +668,21 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
           const draggedJobId = e.dataTransfer.getData('application/x-job-id') || e.dataTransfer.getData('text/plain');
           if (!draggedJobId) return;
 
-          const targetStatus = column === 'pending' ? 'pending' : column === 'running' ? 'running' : 'completed';
           const draggedJob = jobs.find((j) => j.id === draggedJobId);
           if (!draggedJob) {
             setDraggingJobId(null);
             return;
           }
 
-          // ถ้าลากจาก Pending → Running ให้สั่ง start job จริงผ่าน API
-          if (draggedJob.status === 'pending' && targetStatus === 'running') {
+          if (draggedJob.status === 'pending' && column === 'running') {
             void startJobById(draggedJobId);
             setDraggingJobId(null);
             return;
           }
 
-          // อนุญาต reorder เฉพาะภายในคอลัมน์เดียวกันเท่านั้น
-          if (draggedJob.status === targetStatus) {
+          if (jobBoardColumn(draggedJob) === column) {
             const fromIndex = parseInt(e.dataTransfer.getData('application/x-job-from-index'), 10);
-            const toIndex = allJobs.findIndex(j => j.id === job.id);
+            const toIndex = allJobs.findIndex((j) => j.id === job.id);
             if (!Number.isNaN(fromIndex) && toIndex >= 0 && fromIndex !== toIndex) {
               moveJobToIndex(draggedJobId, toIndex, allJobs);
             }
@@ -668,7 +692,7 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
         onDragEnd={() => setDraggingJobId(null)}
       >
         {/* Job Header */}
-        <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800">
+        <div className="px-2 py-1.5 border-b border-slate-100 dark:border-slate-800">
           <div className="flex flex-col gap-0">
             {/* Top Row: Batch Info */}
             <div className="flex justify-between items-center gap-2.5">
@@ -696,19 +720,19 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
                     <span className="px-2 py-0.5 bg-slate-200 text-slate-500 rounded text-xs font-semibold">Demo</span>
                   )}
                   <span className="min-w-0 flex-1 flex items-center gap-1.5 flex-wrap">
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 truncate" title={(job.name || job.configName || '').trim() || `Set #${job.id}`}>
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate" title={(job.name || job.configName || '').trim() || `Set #${job.id}`}>
                       {(job.name || job.configName || '').trim() || `Set #${job.id}`}
                     </h3>
                     <span className={`px-2 py-0.5 rounded-full text-xs font-bold uppercase shrink-0 ${
                     job.status === 'running' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' :
                     job.status === 'pending' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' :
                     (job.status === 'completed' || job.status === 'stopped')
-                      ? ((job.files || []).some(f => f.result === 'fail' || f.status === 'error')
+                      ? (jobHasExecutionFailure(job)
                         ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
                         : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300')
                       : 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200'
                   }`}>
-                    {(job.status === 'completed' || job.status === 'stopped') && (job.files || []).some(f => f.result === 'fail')
+                    {(job.status === 'completed' || job.status === 'stopped') && jobHasExecutionFailure(job)
                       ? 'Failed'
                       : job.status
                     }
@@ -864,7 +888,7 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
           {/* Progress Bar (แสดงเฉพาะเมื่อมี progress > 0 เพื่อไม่ให้ดูเป็นพื้นที่ว่างใน PENDING) */}
           {(job.progress || 0) > 0 && (
             <div className="mt-2">
-              <div className="h-1.5 w-full bg-slate-200 rounded-full overflow-hidden">
+              <div className="h-1 w-full bg-slate-200 rounded-full overflow-hidden">
                 <div 
                   className="h-full bg-blue-600 transition-all duration-1000" 
                   style={{ width: `${job.progress}%` }}
@@ -881,7 +905,7 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
   const getTestCaseDisplayNameForModal = (f) => formatTestCaseDisplayNameRaw(f?.testCaseName || (f?.order != null ? `Test case ${f.order}` : '—'));
 
   return (
-  <div className="space-y-4 min-w-0">
+  <div className="space-y-3 min-w-0">
     {/* Modal: error notification per test case */}
     {testCaseErrorModal && (() => {
       const { file, job, index } = testCaseErrorModal;
@@ -1082,19 +1106,22 @@ Duration: ${file.duration || 'N/A'}
         </div>
       );
     })()}
-    <div className="flex flex-col sm:flex-row sm:flex-wrap sm:justify-between sm:items-center gap-3">
+    <div className="flex flex-col sm:flex-row sm:flex-wrap sm:justify-between sm:items-center gap-2">
         <div className="min-w-0">
-      <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100">Job Management</h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm sm:text-base">Manage and monitor all test jobs</p>
+      <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100 leading-tight">Job Management</h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-0.5 text-xs sm:text-sm">Manage and monitor all test jobs</p>
         </div>
       <div className="flex flex-wrap gap-2 sm:gap-3 items-center">
         {/* Select All: เลือก column ก่อน แล้วกด Select All จะเลือกเฉพาะ batch ใน column นั้น */}
         {jobs.length > 0 && (() => {
-          const selectAllColumnIds = selectAllColumn === 'pending'
-            ? filteredPendingJobs.map(j => j.id)
-            : selectAllColumn === 'running'
-              ? filteredRunningJobs.map(j => j.id)
-              : displayCompletedJobs.filter(j => j.id !== 'demo-completed' && j.id !== 'demo-failed').map(j => j.id);
+          const selectAllColumnIds =
+            selectAllColumn === 'pending'
+              ? filteredPendingJobs.map((j) => j.id)
+              : selectAllColumn === 'running'
+                ? filteredRunningJobs.map((j) => j.id)
+                : selectAllColumn === 'error'
+                  ? displayErrorJobs.filter((j) => !isDemoJobId(j.id)).map((j) => j.id)
+                  : displayCompletedJobs.filter((j) => !isDemoJobId(j.id)).map((j) => j.id);
           const allSelectedInColumn = selectAllColumnIds.length > 0 && selectAllColumnIds.every(id => selectedJobIds.includes(id));
           return (
             <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-lg border border-slate-200 dark:bg-slate-900 dark:border-slate-700">
@@ -1106,6 +1133,7 @@ Duration: ${file.duration || 'N/A'}
               >
                 <option value="pending">Pending</option>
                 <option value="running">Running</option>
+                <option value="error">Error</option>
                 <option value="completed">Completed</option>
               </select>
               <input
@@ -1171,7 +1199,7 @@ Duration: ${file.duration || 'N/A'}
     </div>
 
       {/* Single search + filter bar */}
-      <div className="rounded-xl border border-slate-200 bg-white dark:bg-slate-900 dark:border-slate-700 p-3 mb-4 flex flex-wrap items-center gap-2">
+      <div className="rounded-lg border border-slate-200 bg-white dark:bg-slate-900 dark:border-slate-700 p-2 mb-3 flex flex-wrap items-center gap-1.5">
         <div className="relative flex-1 min-w-[180px]">
           <Search size={16} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
@@ -1179,24 +1207,25 @@ Duration: ${file.duration || 'N/A'}
           value={jobsSearch}
           onChange={(e) => setJobsSearch(e.target.value)}
           placeholder="Search by name, ID, firmware, boards..."
-          className="w-full pl-8 pr-3 py-1.5 border border-slate-300 dark:border-slate-700 rounded-lg text-sm bg-white text-slate-700 dark:bg-slate-900 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full pl-8 pr-2 py-1 border border-slate-300 dark:border-slate-700 rounded-md text-xs bg-white text-slate-700 dark:bg-slate-900 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
         <select
           value={jobsStatusFilter}
           onChange={(e) => setJobsStatusFilter(e.target.value)}
-          className="px-3 py-1.5 border border-slate-300 dark:border-slate-700 rounded-lg text-sm font-medium bg-white text-slate-700 dark:bg-slate-900 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+          className="px-2 py-1 border border-slate-300 dark:border-slate-700 rounded-md text-xs font-medium bg-white text-slate-700 dark:bg-slate-900 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer max-w-[140px]"
           title="Column / Status"
         >
           <option value="all">All columns</option>
           <option value="pending">Pending</option>
           <option value="running">Running</option>
+          <option value="error">Error</option>
           <option value="completed">Completed</option>
         </select>
         <select
           value={jobsTagFilter}
           onChange={(e) => setJobsTagFilter(e.target.value)}
-          className="px-3 py-1.5 border border-slate-300 dark:border-slate-700 rounded-lg text-sm font-medium bg-white text-slate-700 dark:bg-slate-900 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer min-w-[120px]"
+          className="px-2 py-1 border border-slate-300 dark:border-slate-700 rounded-md text-xs font-medium bg-white text-slate-700 dark:bg-slate-900 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer min-w-[100px] max-w-[130px]"
           title="Tag"
         >
           <option value="">All Tags</option>
@@ -1207,7 +1236,7 @@ Duration: ${file.duration || 'N/A'}
         <select
           value={jobsConfigFilter}
           onChange={(e) => setJobsConfigFilter(e.target.value)}
-          className="px-3 py-1.5 border border-slate-300 dark:border-slate-700 rounded-lg text-sm font-medium bg-white text-slate-700 dark:bg-slate-900 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer min-w-[120px]"
+          className="px-2 py-1 border border-slate-300 dark:border-slate-700 rounded-md text-xs font-medium bg-white text-slate-700 dark:bg-slate-900 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer min-w-[100px] max-w-[130px]"
           title="Config"
         >
           <option value="">All Configs</option>
@@ -1218,7 +1247,7 @@ Duration: ${file.duration || 'N/A'}
         <select
           value={jobsTimeFilter}
           onChange={(e) => setJobsTimeFilter(e.target.value)}
-          className="px-3 py-1.5 border border-slate-300 dark:border-slate-700 rounded-lg text-sm font-medium bg-white text-slate-700 dark:bg-slate-900 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+          className="px-2 py-1 border border-slate-300 dark:border-slate-700 rounded-md text-xs font-medium bg-white text-slate-700 dark:bg-slate-900 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
           title="Time"
         >
           <option value="all">All Time</option>
@@ -1233,6 +1262,7 @@ Duration: ${file.duration || 'N/A'}
               setJobsTagFilter('');
               setJobsConfigFilter('');
               setJobsTimeFilter('all');
+              setJobsStatusFilter('all');
             }}
             className="px-2 py-1.5 bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 flex items-center gap-1"
             title="Clear all filters"
@@ -1259,23 +1289,27 @@ Duration: ${file.duration || 'N/A'}
         </div>
       )}
 
-      {/* Columns: 3 columns when "All", or 1 column when status selected */}
-      <div className={`grid gap-4 md:gap-5 ${jobsStatusFilter === 'all' ? 'grid-cols-1 md:grid-cols-3' : 'grid-cols-1'}`}>
+      {/* Columns: 4 columns when "All", or 1 column when a single status is selected */}
+      <div
+        className={`grid gap-2 md:gap-3 ${
+          jobsStatusFilter === 'all' ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-4' : 'grid-cols-1'
+        }`}
+      >
         {/* Column 1: Pending - show when all or pending */}
         {(jobsStatusFilter === 'all' || jobsStatusFilter === 'pending') && (
-        <div className="space-y-3 rounded-2xl border border-slate-200 bg-white/80 p-3 shadow-sm dark:bg-slate-900/70 dark:border-slate-800">
-          <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 dark:bg-amber-900/30 dark:border-amber-700">
-            <div className="flex items-center gap-2">
-              <div className="w-2.5 h-2.5 bg-amber-500 rounded-full"></div>
-              <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">Pending</h2>
-              <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-bold dark:bg-amber-900/60 dark:text-amber-200">
+        <div className="space-y-2 rounded-xl border border-slate-200 bg-white/80 p-2 shadow-sm dark:bg-slate-900/70 dark:border-slate-800 min-w-0">
+          <div className="bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 dark:bg-amber-900/30 dark:border-amber-700">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <div className="w-2 h-2 bg-amber-500 rounded-full shrink-0" />
+              <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Pending</h2>
+              <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full text-[10px] font-bold dark:bg-amber-900/60 dark:text-amber-200 tabular-nums">
                 {filteredPendingJobs.length}
               </span>
             </div>
           </div>
-          <div className="space-y-2 pt-1 pr-1 md:pr-2">
+          <div className="space-y-1.5 pt-0.5 pr-0.5 md:pr-1 min-h-[4rem]">
             {filteredPendingJobs.length === 0 ? (
-              <div className="rounded-xl border border-slate-200 bg-white px-4 py-6 text-center text-slate-400 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-400">
+              <div className="rounded-lg border border-slate-200 bg-white px-2 py-4 text-center text-slate-400 text-xs dark:bg-slate-900 dark:border-slate-700 dark:text-slate-400">
                 <p>{hasActiveFilters ? 'No matching pending jobs' : 'No pending jobs'}</p>
               </div>
             ) : (
@@ -1290,19 +1324,19 @@ Duration: ${file.duration || 'N/A'}
 
         {/* Column 2: Running - show when all or running */}
         {(jobsStatusFilter === 'all' || jobsStatusFilter === 'running') && (
-        <div className="space-y-3 rounded-2xl border border-slate-200 bg-white/80 p-3 shadow-sm dark:bg-slate-900/70 dark:border-slate-800">
-          <div className="bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 dark:bg-blue-900/30 dark:border-blue-700">
-            <div className="flex items-center gap-2">
-              <div className="w-2.5 h-2.5 bg-blue-500 rounded-full animate-pulse"></div>
-              <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">Running</h2>
-              <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-xs font-bold dark:bg-blue-900/60 dark:text-blue-200">
+        <div className="space-y-2 rounded-xl border border-slate-200 bg-white/80 p-2 shadow-sm dark:bg-slate-900/70 dark:border-slate-800 min-w-0">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5 dark:bg-blue-900/30 dark:border-blue-700">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse shrink-0" />
+              <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Running</h2>
+              <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-full text-[10px] font-bold dark:bg-blue-900/60 dark:text-blue-200 tabular-nums">
                 {filteredRunningJobs.length}
               </span>
             </div>
           </div>
-          <div className="space-y-2 pt-1 pr-1 md:pr-2">
+          <div className="space-y-1.5 pt-0.5 pr-0.5 md:pr-1 min-h-[4rem]">
             {filteredRunningJobs.length === 0 ? (
-              <div className="rounded-xl border border-slate-200 bg-white px-4 py-6 text-center text-slate-400 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-400">
+              <div className="rounded-lg border border-slate-200 bg-white px-2 py-4 text-center text-slate-400 text-xs dark:bg-slate-900 dark:border-slate-700 dark:text-slate-400">
                 <p>{hasActiveFilters ? 'No matching running jobs' : 'No running jobs'}</p>
               </div>
             ) : (
@@ -1315,26 +1349,53 @@ Duration: ${file.duration || 'N/A'}
         </div>
         )}
 
-        {/* Column 3: Completed - show when all or completed */}
+        {/* Column: Error (completed/stopped sets with any failed TC) — after Running */}
+        {(jobsStatusFilter === 'all' || jobsStatusFilter === 'error') && (
+        <div className="space-y-2 rounded-xl border border-slate-200 bg-white/80 p-2 shadow-sm dark:bg-slate-900/70 dark:border-slate-800 min-w-0">
+          <div className="bg-red-50 border border-red-200 rounded-lg px-2 py-1.5 dark:bg-red-900/25 dark:border-red-800">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <div className="w-2 h-2 bg-red-500 rounded-full shrink-0" />
+              <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Error</h2>
+              <span className="px-1.5 py-0.5 bg-red-100 text-red-800 rounded-full text-[10px] font-bold dark:bg-red-900/50 dark:text-red-200 tabular-nums">
+                {displayErrorJobs.length}
+              </span>
+            </div>
+          </div>
+          <div className="space-y-1.5 pt-0.5 pr-0.5 md:pr-1 min-h-[4rem]">
+            {displayErrorJobs.length === 0 ? (
+              <div className="rounded-lg border border-slate-200 bg-white px-2 py-4 text-center text-slate-400 text-xs dark:bg-slate-900 dark:border-slate-700 dark:text-slate-400">
+                <p>{hasActiveFilters ? 'No matching error jobs' : 'No error jobs'}</p>
+              </div>
+            ) : (
+              displayErrorJobs.map((job) => {
+                const originalIndex = jobs.findIndex((j) => j.id === job.id);
+                return renderJobCard(job, originalIndex, displayErrorJobs, 'error');
+              })
+            )}
+          </div>
+        </div>
+        )}
+
+        {/* Column: Completed (passed / no failed TC) */}
         {(jobsStatusFilter === 'all' || jobsStatusFilter === 'completed') && (
-        <div className="space-y-3 rounded-2xl border border-slate-200 bg-white/80 p-3 shadow-sm dark:bg-slate-900/70 dark:border-slate-800">
-          <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 dark:bg-emerald-900/30 dark:border-emerald-700">
-            <div className="flex items-center gap-2">
-              <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full"></div>
-              <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">Completed</h2>
-              <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full text-xs font-bold dark:bg-emerald-900/60 dark:text-emerald-200">
+        <div className="space-y-2 rounded-xl border border-slate-200 bg-white/80 p-2 shadow-sm dark:bg-slate-900/70 dark:border-slate-800 min-w-0">
+          <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1.5 dark:bg-emerald-900/30 dark:border-emerald-700">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <div className="w-2 h-2 bg-emerald-500 rounded-full shrink-0" />
+              <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Completed</h2>
+              <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded-full text-[10px] font-bold dark:bg-emerald-900/60 dark:text-emerald-200 tabular-nums">
                 {displayCompletedJobs.length}
               </span>
             </div>
           </div>
-          <div className="space-y-2 pt-1 pr-1 md:pr-2">
+          <div className="space-y-1.5 pt-0.5 pr-0.5 md:pr-1 min-h-[4rem]">
             {displayCompletedJobs.length === 0 ? (
-              <div className="rounded-xl border border-slate-200 bg-white px-4 py-6 text-center text-slate-400 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-400">
+              <div className="rounded-lg border border-slate-200 bg-white px-2 py-4 text-center text-slate-400 text-xs dark:bg-slate-900 dark:border-slate-700 dark:text-slate-400">
                 <p>{hasActiveFilters ? 'No matching completed jobs' : 'No completed jobs'}</p>
               </div>
             ) : (
-              displayCompletedJobs.map((job, index) => {
-                const originalIndex = jobs.findIndex(j => j.id === job.id);
+              displayCompletedJobs.map((job) => {
+                const originalIndex = jobs.findIndex((j) => j.id === job.id);
                 return renderJobCard(job, originalIndex, displayCompletedJobs, 'completed');
               })
             )}

@@ -49,13 +49,17 @@ async def get_system_health():
     online = sum(1 for b in boards if b.status.state.value == "online")
     busy = sum(1 for b in boards if b.status.state.value == "busy")
     error = sum(1 for b in boards if b.status.state.value in {"error", "offline"})
-    # Boards with no heartbeat in 60s (or never) = stale
+    # Stale = expected-to-be-live boards (online/busy) with missing/old heartbeat only.
+    # Do not count offline/error inventory as "stale" — they are already in errorBoards.
     STALE_THRESHOLD_SEC = 60
     stale = sum(
         1
         for b in boards
-        if _seconds_since(b.status.last_heartbeat) is None
-        or _seconds_since(b.status.last_heartbeat) > STALE_THRESHOLD_SEC
+        if b.status.state.value in {"online", "busy"}
+        and (
+            _seconds_since(b.status.last_heartbeat) is None
+            or _seconds_since(b.status.last_heartbeat) > STALE_THRESHOLD_SEC
+        )
     )
     storage = await _get_storage_summary()
     return {

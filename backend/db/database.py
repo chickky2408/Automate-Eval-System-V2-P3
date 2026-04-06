@@ -177,6 +177,13 @@ async def init_db():
                             pass
             await conn.run_sync(_add_board_status_columns)
 
+        # Seed demo boards when inventory is empty (dev / first boot)
+        from db.seed_boards import seed_demo_boards_if_empty
+
+        inserted = await seed_demo_boards_if_empty()
+        if inserted:
+            print(f"[DB] Seeded {inserted} default board(s) for local demo")
+
         print(f"[DB] Database ready at {DATABASE_URL}")
     except Exception as e:
         print(f"[DB] Connection failed: {e}")
