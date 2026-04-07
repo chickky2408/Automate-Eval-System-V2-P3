@@ -23,6 +23,7 @@ import {
   jobTagPillClasses,
 } from '../utils/tagPalette';
 import TagColorSwatchPicker from '../components/TagColorSwatchPicker';
+import UploadChoiceModal from '../components/UploadChoiceModal';
 
 // Set names that use this file (from fileLibrarySnapshot or items)
 const getSetNamesUsingFile = (fileName, savedTestCaseSets) => {
@@ -490,6 +491,10 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
   const [isImporting, setIsImporting] = useState(false);
   const [importDrafts, setImportDrafts] = useState([]); // [{ id, file, name, tag }]
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  /** After import from modal, optionally go to Run Set (same intent as old "Save and go") */
+  const pendingNavigateToRunSetAfterImportRef = useRef(false);
+  const fileLibraryUploadChoiceRef = useRef(null);
+  const [fileLibraryUploadChoiceModal, setFileLibraryUploadChoiceModal] = useState(null);
 
   useEffect(() => {
     if (importDrafts.length > 0) setIsImportModalOpen(true);
@@ -565,50 +570,6 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
     });
   }, []);
 
-  const saveImportDraftsToLibrary = useCallback(async () => {
-    if (importDrafts.length === 0) return;
-    setIsImporting(true);
-    let ok = 0;
-    let dup = 0;
-    const normSize = (v) => {
-      const n = typeof v === 'number' ? v : Number(String(v || '').replace(/[^\d.]/g, ''));
-      return Number.isFinite(n) ? n : null;
-    };
-    const base = (s) => (String(s || '').split('/').pop() || String(s || '')).trim();
-    const existingKeys = new Set(
-      (uploadedFiles || []).map((f) => `${base(f.name)}::${normSize(f.size) ?? ''}`)
-    );
-    for (const d of importDrafts) {
-      const rawName = String(d.name || '').trim();
-      if (!d.file || !rawName) continue;
-      const desiredKey = `${base(rawName)}::${normSize(d.file.size) ?? ''}`;
-      if (existingKeys.has(desiredKey)) {
-        dup++;
-        continue;
-      }
-      const renamed = rawName === d.file.name ? d.file : new File([d.file], rawName, { type: d.file.type });
-      // attach metadata for backend upload
-      renamed.metadata = { tag: (d.tag || '').trim() };
-      const result = await addUploadedFile(renamed);
-      if (result?.id) {
-        ok++;
-        existingKeys.add(desiredKey);
-        const tagVal = (d.tag || '').trim();
-        if (tagVal) setFileTag?.(result.id, tagVal);
-      }
-    }
-    setIsImporting(false);
-    setImportDrafts([]);
-    setIsImportModalOpen(false);
-    if (ok > 0) addToast({ type: 'success', message: `Saved ${ok} file(s) to Library` });
-    if (dup > 0) addToast({ type: 'info', message: `Skipped ${dup} duplicate file(s) (already in Library)` });
-    if (ok === 0 && dup === 0) addToast({ type: 'warning', message: 'No file saved' });
-  }, [importDrafts, uploadedFiles, addUploadedFile, addToast, setFileTag]);
-
-  const saveImportDraftsToLibraryAndSendToRunSet = useCallback(async () => {
-    await saveImportDraftsToLibrary();
-    if (onNavigateToRunSet) onNavigateToRunSet();
-  }, [saveImportDraftsToLibrary, onNavigateToRunSet]);
   const [libraryView, setLibraryView] = useState('files'); // 'files' | 'rawTestCases' | 'testCases'
   useEffect(() => {
     if (!fileLibraryViewOnNavigate) return;
@@ -865,6 +826,123 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
     });
     return next.join(', ');
   };
+
+  /** Import → Library: same Reuse / Upload new flow as Test Cases (checksum + name match vs library). */
+  const executeImportUploadsFromPrepared = useCallback(
+    async (prepared, choices) => {
+      const normSize = (v) => {
+        const n = typeof v === 'number' ? v : Number(String(v || '').replace(/[^\d.]/g, ''));
+        return Number.isFinite(n) ? n : null;
+      };
+      const base = (s) => (String(s || '').split('/').pop() || String(s || '')).trim();
+      await refreshFiles();
+      const existingKeys = new Set(
+        (useTestStore.getState().uploadedFiles || []).map((f) => `${base(f.name)}::${normSize(f.size) ?? ''}`)
+      );
+      let ok = 0;
+      let reused = 0;
+      for (const p of prepared) {
+        const rawName = String(p.draft.name || '').trim();
+        if (!p.draft.file || !rawName) continue;
+        const renamed = rawName === p.draft.file.name ? p.draft.file : new File([p.draft.file], rawName, { type: p.draft.file.type });
+        const choiceResolved = choices ? choices[p.file.name] : undefined;
+        if (p.existing && (choiceResolved || 'reuse') === 'reuse') {
+          reused++;
+          const tagVal = (p.draft.tag || '').trim();
+          if (tagVal && p.existing.id) {
+            const prev = (fileTags && fileTags[p.existing.id]) || '';
+            setFileTag?.(p.existing.id, upsertTagsString(prev, tagVal));
+          }
+          continue;
+        }
+        const desiredKey = `${base(rawName)}::${normSize(renamed.size) ?? ''}`;
+        if (existingKeys.has(desiredKey)) {
+          continue;
+        }
+        const fileToUpload = renamed;
+        fileToUpload.metadata = { tag: (p.draft.tag || '').trim() };
+        const result = await addUploadedFile(fileToUpload);
+        if (result?.id) {
+          ok++;
+          existingKeys.add(desiredKey);
+          const tagVal = (p.draft.tag || '').trim();
+          if (tagVal) setFileTag?.(result.id, tagVal);
+        }
+      }
+      setImportDrafts([]);
+      setIsImportModalOpen(false);
+      if (ok > 0) addToast({ type: 'success', message: `Saved ${ok} file(s) to Library` });
+      if (reused > 0) addToast({ type: 'info', message: `${reused} file(s) reused from Library` });
+      if (ok === 0 && reused === 0) addToast({ type: 'warning', message: 'No file saved' });
+      const nav = pendingNavigateToRunSetAfterImportRef.current;
+      pendingNavigateToRunSetAfterImportRef.current = false;
+      if (nav) onNavigateToRunSet?.();
+    },
+    [addUploadedFile, addToast, fileTags, refreshFiles, setFileTag, upsertTagsString, onNavigateToRunSet]
+  );
+
+  const saveImportDraftsToLibrary = useCallback(async () => {
+    if (importDrafts.length === 0) return;
+    setIsImporting(true);
+    try {
+      await refreshFiles();
+      const currentFiles = useTestStore.getState().uploadedFiles || [];
+      const byChecksum = new Map(
+        currentFiles.filter((f) => f.checksum).map((f) => [f.checksum, f])
+      );
+      const byName = new Map(currentFiles.map((f) => [String(f.name || '').toLowerCase(), f]));
+      const prepared = [];
+      for (const d of importDrafts) {
+        const rawName = String(d.name || '').trim();
+        if (!d.file || !rawName) continue;
+        const renamed = rawName === d.file.name ? d.file : new File([d.file], rawName, { type: d.file.type });
+        const sig = await computeFileSignature(renamed);
+        const existingByChecksum = sig.checksum ? byChecksum.get(sig.checksum) : null;
+        const existingByName = byName.get((renamed.name || '').toLowerCase());
+        const existing = existingByChecksum || existingByName;
+        prepared.push({ file: renamed, sig, existing, draft: d });
+      }
+      if (prepared.length === 0) {
+        addToast({ type: 'warning', message: 'No file saved' });
+        return;
+      }
+      if (prepared.some((p) => p.existing)) {
+        fileLibraryUploadChoiceRef.current = { prepared };
+        setFileLibraryUploadChoiceModal({ prepared });
+        return;
+      }
+      await executeImportUploadsFromPrepared(prepared, null);
+    } finally {
+      setIsImporting(false);
+    }
+  }, [importDrafts, refreshFiles, addToast, executeImportUploadsFromPrepared]);
+
+  const saveImportDraftsToLibraryAndSendToRunSet = useCallback(async () => {
+    pendingNavigateToRunSetAfterImportRef.current = true;
+    await saveImportDraftsToLibrary();
+  }, [saveImportDraftsToLibrary]);
+
+  const handleFileLibraryUploadChoiceConfirm = useCallback(
+    async (choices) => {
+      const blob = fileLibraryUploadChoiceRef.current;
+      if (!blob?.prepared?.length) return;
+      fileLibraryUploadChoiceRef.current = null;
+      setFileLibraryUploadChoiceModal(null);
+      setIsImporting(true);
+      try {
+        await executeImportUploadsFromPrepared(blob.prepared, choices);
+      } finally {
+        setIsImporting(false);
+      }
+    },
+    [executeImportUploadsFromPrepared]
+  );
+
+  const handleFileLibraryUploadChoiceCancel = useCallback(() => {
+    fileLibraryUploadChoiceRef.current = null;
+    setFileLibraryUploadChoiceModal(null);
+    pendingNavigateToRunSetAfterImportRef.current = false;
+  }, []);
 
   const removeOneTagFromString = (currentRaw, tagToRemove) => {
     const target = String(tagToRemove || '').trim().toLowerCase();
@@ -1979,6 +2057,12 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
 
   return (
     <div className="w-full max-w-6xl mx-auto space-y-6">
+      <UploadChoiceModal
+        open={!!fileLibraryUploadChoiceModal?.prepared?.length}
+        prepared={fileLibraryUploadChoiceModal?.prepared ?? []}
+        onConfirm={handleFileLibraryUploadChoiceConfirm}
+        onCancel={handleFileLibraryUploadChoiceCancel}
+      />
       {isImportModalOpen && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center">
           <div
@@ -1995,7 +2079,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                   Import files
                 </div>
                 <div className="text-xs text-slate-500 dark:text-slate-400">
-                  Drop/paste/add more files, preview, set name/tag, then save
+                  Drop/paste/add more files, preview, set name/tag, then save. If a file matches Library (name or content), you can choose Reuse or Upload new — same as Test Cases.
                 </div>
               </div>
               <button
@@ -2213,7 +2297,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                     Select test cases from Library
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                    Same pool as Test Case Library (local + synced). Rows already in this set (same file signature) are hidden.
+                    
                   </p>
                 </div>
                 <button
@@ -4010,7 +4094,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                                   ? 'Test case is locked (running/pending or Vis=close)'
                                   : 'Double click to edit in this page'
                             }
-                            className={`border-b border-slate-100 dark:border-slate-700 select-none ${isRowSelectionDisabled ? 'opacity-75 bg-slate-50 dark:bg-slate-800/50 cursor-not-allowed' : 'cursor-pointer'} ${tcRowBusy ? 'ring-1 ring-amber-400/50 dark:ring-amber-500/40' : ''} ${dimProcessRow ? '[&_td]:text-slate-500 dark:[&_td]:text-slate-400 [&_a]:text-slate-500 dark:[&_a]:text-slate-400 [&_button]:text-slate-500 dark:[&_button]:text-slate-400' : ''} ${isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : dimProcessRow ? 'bg-slate-50/90 dark:bg-slate-900/50' : !isRowSelectionDisabled ? 'hover:bg-slate-50 dark:hover:bg-slate-800/50' : ''}`}
+                            className={`border-b border-slate-100 dark:border-slate-700 select-none ${isRowSelectionDisabled ? 'opacity-75 bg-slate-50 dark:bg-slate-800/50 cursor-not-allowed' : 'cursor-pointer'} ${tcRowBusy ? 'ring-1 ring-amber-400/50 dark:ring-amber-500/40' : ''} ${dimProcessRow ? '[&_td]:text-slate-500 dark:[&_td]:text-slate-400 [&_a]:text-slate-500 dark:[&_a]:text-slate-400 [&_td:not(:nth-child(5))_button]:text-slate-500 dark:[&_td:not(:nth-child(5))_button]:text-slate-400' : ''} ${isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : dimProcessRow ? 'bg-slate-50/90 dark:bg-slate-900/50' : !isRowSelectionDisabled ? 'hover:bg-slate-50 dark:hover:bg-slate-800/50' : ''}`}
                             onClick={(e) => {
                               if (
                                 e.target.closest('input[type="checkbox"]') ||
@@ -4079,7 +4163,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   if (isTcSystemLocked(tc)) {
-                                    addToast({ type: 'warning', message: 'เทสต์เคสนี้ถูกล็อกจาก process (running/pending) — ไม่สามารถเปลี่ยน Vis ได้' });
+                                    addToast({ type: 'warning', message: 'Test case is locked (running/pending) — cannot change Vis' });
                                     return;
                                   }
                                   updateTcVisibility(tc, !isTcManuallyClosed(tc));
@@ -4087,20 +4171,26 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                                 }}
                                 className={`inline-flex items-center justify-center p-1 rounded ${
                                   isTcSystemLocked(tc)
-                                    ? 'text-blue-500 hover:bg-blue-500/10 cursor-not-allowed'
+                                    ? 'text-blue-600 dark:text-blue-400 hover:bg-blue-500/10 cursor-not-allowed'
                                     : isTcManuallyClosed(tc)
                                       ? 'text-amber-500 hover:bg-amber-500/10'
                                       : 'text-slate-400 hover:bg-slate-500/10'
                                 }`}
                                 title={
                                   isTcSystemLocked(tc)
-                                    ? 'Locked by system (running/pending) — system lock'
+                                    ? 'ล็อกอัตโนมัติ — TC อยู่ใน process (running/pending)'
                                     : isTcManuallyClosed(tc)
                                       ? 'Closed — click to open/selectable'
                                       : 'Open — click to close/lock from select all'
                                 }
                               >
-                                {isTcSystemLocked(tc) ? <Lock size={14} /> : isTcManuallyClosed(tc) ? <Lock size={14} /> : <Globe size={14} />}
+                                {isTcSystemLocked(tc) ? (
+                                  <Lock size={14} className="text-blue-600 dark:text-blue-400" strokeWidth={2.25} />
+                                ) : isTcManuallyClosed(tc) ? (
+                                  <Lock size={14} className="text-amber-500" strokeWidth={2.25} />
+                                ) : (
+                                  <Globe size={14} />
+                                )}
                               </button>
                             </td>
                             <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 min-w-[160px]">
@@ -5551,6 +5641,8 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                           const inUseByBatch = fileNamesInUseByBatch.has(f.name);
                           const isFileClosed = isFileManuallyClosed(f);
                           const isFileInProcess = inUseByBatch;
+                          /** System lock (running/pending job): dim row — opacity on all but first td so explicit text-slate-700 / colored chips still look grey; checkbox column stays full strength */
+                          const dimProcessRow = isFileInProcess && !isFileClosed;
                           const displayName = (fileDisplayNames && fileDisplayNames[f.id]) || (String(f.name || '').split('/').pop() || f.name);
                           const lastModified = f.updatedAt || f.uploadDate || f.createdAt || null;
                           const fpBusy = !!(filePendingById && filePendingById[f.id]);
@@ -5558,8 +5650,8 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                             <tr
                               key={f.id}
                               ref={isFocused ? focusedLibraryFileRef : null}
-                              title={isFileInProcess && !isFileClosed ? 'Running / Pending — แถวสีเทาเพื่อให้เห็นว่าไฟล์อยู่ใน process (ยังเลือกได้)' : undefined}
-                              className={`text-slate-800 dark:text-slate-100 ${fpBusy ? 'ring-1 ring-amber-400/50 dark:ring-amber-500/40' : ''} ${isFileClosed ? 'opacity-75 bg-slate-50/50 dark:bg-slate-800/30 cursor-not-allowed' : 'cursor-pointer'} ${isHighlighted ? 'bg-blue-50 dark:bg-blue-900/20' : isFileInProcess && !isFileClosed ? 'bg-slate-50/90 dark:bg-slate-900/45' : ''} ${isFileInProcess && !isFileClosed ? '[&_td]:text-slate-500 dark:[&_td]:text-slate-400 [&_a]:text-slate-500 dark:[&_a]:text-slate-400' : ''} ${!isHighlighted && !isFileClosed && !isFileInProcess ? 'hover:bg-slate-50 dark:hover:bg-slate-700/40' : ''} ${!isHighlighted && isFileInProcess && !isFileClosed ? 'hover:bg-slate-100/85 dark:hover:bg-slate-800/55' : ''}`}
+                              title={dimProcessRow ? 'Running / Pending — ระบบล็อก (แถวจางลง — ยังเลือก checkbox ได้)' : undefined}
+                              className={`text-slate-800 dark:text-slate-100 ${fpBusy ? 'ring-1 ring-amber-400/50 dark:ring-amber-500/40' : ''} ${isFileClosed ? 'opacity-75 bg-slate-50/50 dark:bg-slate-800/30 cursor-not-allowed' : 'cursor-pointer'} ${isHighlighted ? 'bg-blue-50 dark:bg-blue-900/20' : dimProcessRow ? 'bg-slate-100/75 dark:bg-slate-900/50' : ''} ${dimProcessRow ? '[&_td:not(:first-child)]:opacity-55 dark:[&_td:not(:first-child)]:opacity-60' : ''} ${!isHighlighted && !isFileClosed && !isFileInProcess ? 'hover:bg-slate-50 dark:hover:bg-slate-700/40' : ''} ${!isHighlighted && dimProcessRow ? 'hover:bg-slate-100/90 dark:hover:bg-slate-800/60' : ''}`}
                               onClick={(e) => {
                                 if (e.target.closest('input[type="checkbox"]') || e.target.closest('button') || e.target.closest('input[type="text"]')) return;
                                 if (isFileClosed || fpBusy) return;
