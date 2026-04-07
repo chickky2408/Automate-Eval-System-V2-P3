@@ -191,6 +191,14 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
     return () => document.removeEventListener('mousedown', onMouseDown);
   }, [tagColorDropdownOpen]);
 
+  /** Default/legacy owner filter → active profile id so the Owner chip shows the profile name. */
+  useEffect(() => {
+    if (systemOwnerFilter !== 'mine' && systemOwnerFilter !== '__active__') return;
+    setDashboardSystemSummary({
+      systemOwnerFilter: activeProfileId ? String(activeProfileId) : 'all',
+    });
+  }, [systemOwnerFilter, activeProfileId, setDashboardSystemSummary]);
+
   const dashboardDemoBoards = useMemo(
     () => [
       {
@@ -312,8 +320,15 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
   }, [boards, dashboardDemoBoards, boardQueuePaused]);
 
   const fleetTotalBoards = fleetBoards.length;
-  const fleetOnlineBoards = fleetBoards.filter((b) => b.status === 'online').length;
-  const fleetBusyBoards = fleetBoards.filter((b) => b.status === 'busy').length;
+  const isBoardSelectable = (b) => {
+    const st = String(b?.status || '').toLowerCase();
+    // "Online" on dashboard means: user can select this board in Run Set.
+    // Exclude boards that are broken/shutdown/offline, or explicitly paused from selection.
+    if (st === 'error' || st === 'offline') return false;
+    if (b?.queuePaused) return false;
+    return st === 'online' || st === 'busy';
+  };
+  const fleetOnlineBoards = fleetBoards.filter(isBoardSelectable).length;
 
   const pendingJobs = jobs.filter((j) => j.status === 'pending');
   const jobQueueCount = pendingJobs.length;
@@ -332,17 +347,36 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
   const systemBoardOptions = [...new Set((jobs || []).flatMap((j) => Array.isArray(j.boards) ? j.boards : []).filter(Boolean))].sort();
 
   const allOwnerProfiles = useMemo(() => {
+    // De-dupe by display name (not by id) so Owner dropdown does not repeat the same person
+    // just because they created many jobs or appear in multiple directories.
+    const norm = (s) => String(s || '').trim().toLowerCase();
+    const pickKey = (p) => norm(p?.name) || norm(p?.id);
+
+    // Priority: local profiles first, then shared, then server directory.
     const list = [
       ...(Array.isArray(profiles) ? profiles : []),
       ...(Array.isArray(sharedProfiles) ? sharedProfiles : []),
       ...(Array.isArray(serverProfileDirectory) ? serverProfileDirectory : []),
     ];
-    const byId = new Map();
+
+    const byDisplay = new Map(); // key -> profile
     list.forEach((p) => {
       if (!p || !p.id) return;
-      byId.set(String(p.id), p);
+      const k = pickKey(p);
+      if (!k) return;
+      if (!byDisplay.has(k)) byDisplay.set(k, p);
     });
-    return Array.from(byId.values()).sort((a, b) => String(a?.name || a?.id).localeCompare(String(b?.name || b?.id)));
+
+    // Also ensure active profile is present and wins for its display name.
+    const active = (Array.isArray(profiles) ? profiles : []).find((p) => String(p?.id) === String(activeProfileId));
+    if (active?.id) {
+      const k = pickKey(active);
+      if (k) byDisplay.set(k, active);
+    }
+
+    return Array.from(byDisplay.values()).sort((a, b) =>
+      String(a?.name || a?.id).localeCompare(String(b?.name || b?.id))
+    );
   }, [profiles, sharedProfiles, serverProfileDirectory]);
 
   const ownerColorKeyFromText = (text) => {
@@ -436,6 +470,13 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
     return `${yyyy}-${mm}-${dd}`;
   };
 
+  const systemOwnerFilterResolved = useMemo(() => {
+    if (systemOwnerFilter === 'mine' || systemOwnerFilter === '__active__') {
+      return activeProfileId ? String(activeProfileId) : 'all';
+    }
+    return systemOwnerFilter;
+  }, [systemOwnerFilter, activeProfileId]);
+
   const systemSummaryJobs = jobs.filter((job) => {
     if (systemStatusFilter !== 'all' && job.status !== systemStatusFilter) return false;
     if (systemTagFilter && (job.tag || '').toLowerCase() !== systemTagFilter.toLowerCase()) return false;
@@ -449,15 +490,14 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
       const ymd = toYMD(job.startedAt || job.createdAt);
       if (ymd !== systemDateFilter) return false;
     }
-    if (systemOwnerFilter === 'mine' && job.clientId !== clientId) return false;
-    if (systemOwnerFilter === 'others' && (job.clientId === clientId || !job.clientId)) return false;
-    if (systemOwnerFilter !== 'all' && systemOwnerFilter !== 'mine' && systemOwnerFilter !== 'others') {
-      const targetProfile = allOwnerProfiles.find((p) => String(p.id) === String(systemOwnerFilter));
-      const targetName = targetProfile?.name || targetProfile?.id || String(systemOwnerFilter);
+    if (systemOwnerFilterResolved === 'others' && (job.clientId === clientId || !job.clientId)) return false;
+    if (systemOwnerFilterResolved !== 'all' && systemOwnerFilterResolved !== 'others') {
+      const targetProfile = allOwnerProfiles.find((p) => String(p.id) === String(systemOwnerFilterResolved));
+      const targetName = targetProfile?.name || targetProfile?.id || String(systemOwnerFilterResolved);
 
       const pid = job.profileId ?? job.profile_id ?? null;
       const ownerName = resolveJobOwnerDisplayName(job, jobOwnerLabelCtx);
-      const pidMatch = pid != null && String(pid) === String(systemOwnerFilter);
+      const pidMatch = pid != null && String(pid) === String(systemOwnerFilterResolved);
       const nameMatch = ownerName && targetName && ownerName === targetName;
       if (!pidMatch && !nameMatch) return false;
     }
@@ -541,7 +581,10 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
     };
   });
 
-  const availableBoards = fleetBoards.filter((b) => b.status === 'online' && !b.currentJob).length;
+  const availableBoards = fleetBoards.filter((b) => {
+    const st = String(b?.status || '').toLowerCase();
+    return isBoardSelectable(b) && st === 'online' && !b.currentJob;
+  }).length;
   const queuedBoardsLeft = availableBoards;
   const deviceProgressRows = fleetBoards.map((b) => {
     const boardKey = (b.name || b.id || '').toString();
@@ -575,6 +618,9 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
     ).length;
     return { board: b, progress, job, completedFiles, totalFiles, remainingFiles, jobsWaitingForBoard };
   });
+  const fleetBusyBoards = deviceProgressRows.filter(
+    (r) => isBoardSelectable(r.board) && (r.jobsWaitingForBoard || 0) > 0
+  ).length;
 
   const handleCopyCommand = (command) => {
     navigator.clipboard.writeText(command);
@@ -714,16 +760,14 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
             </div>
             <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-800 rounded-full px-1 py-0.5 flex-wrap" data-owner-dropdown-root>
               {(() => {
-                const selectedKey = systemOwnerFilter;
+                const selectedKey = systemOwnerFilterResolved;
                 const selectedProfile = allOwnerProfiles.find((p) => String(p.id) === String(selectedKey));
                 const ownerButtonLabel =
                   selectedKey === 'all'
                     ? 'All owners'
-                    : selectedKey === 'mine'
-                      ? 'Me'
-                      : selectedKey === 'others'
-                        ? 'Other clients'
-                        : (selectedProfile?.name || selectedProfile?.id || String(selectedKey));
+                    : selectedKey === 'others'
+                      ? 'Other clients'
+                      : (selectedProfile?.name || selectedProfile?.id || String(selectedKey));
 
                 return (
                   <div className="relative">
@@ -741,7 +785,6 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
                         <div className="px-2 pb-2">
                           {[
                             { value: 'all', label: 'All owners' },
-                            { value: 'mine', label: 'Me' },
                             { value: 'others', label: 'Other clients' },
                           ].map((o) => (
                             <button
@@ -752,7 +795,7 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
                                 setOwnerDropdownOpen(false);
                               }}
                               className={`w-full px-2 py-2 rounded-md text-left text-[11px] hover:bg-slate-100 dark:hover:bg-slate-700 ${
-                                systemOwnerFilter === o.value ? 'bg-slate-100 dark:bg-slate-700' : ''
+                                systemOwnerFilterResolved === o.value ? 'bg-slate-100 dark:bg-slate-700' : ''
                               }`}
                               title={o.label}
                             >
@@ -778,7 +821,7 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
                                 setOwnerDropdownOpen(false);
                               }}
                               className={`w-full px-2 py-2 rounded-md text-left text-[11px] hover:bg-slate-100 dark:hover:bg-slate-700 ${
-                                String(systemOwnerFilter) === String(p.id) ? 'bg-slate-100 dark:bg-slate-700' : ''
+                                String(systemOwnerFilterResolved) === String(p.id) ? 'bg-slate-100 dark:bg-slate-700' : ''
                               }`}
                               title={p.name || p.id}
                             >
@@ -801,7 +844,7 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
                                 setOwnerDropdownOpen(false);
                               }}
                               className={`w-full px-2 py-2 rounded-md text-left text-[11px] hover:bg-slate-100 dark:hover:bg-slate-700 ${
-                                String(systemOwnerFilter) === String(name) ? 'bg-slate-100 dark:bg-slate-700' : ''
+                                String(systemOwnerFilterResolved) === String(name) ? 'bg-slate-100 dark:bg-slate-700' : ''
                               }`}
                               title={name}
                             >

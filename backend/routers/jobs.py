@@ -318,7 +318,11 @@ async def start_job(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
 
-    fe_job_store.ensure_meta(job.id, default_file_name=job.vcd_filename, pairs_data=getattr(job, "pairs_data", None))
+    meta = fe_job_store.ensure_meta(
+        job.id,
+        default_file_name=job.vcd_filename,
+        pairs_data=getattr(job, "pairs_data", None),
+    )
     job_files = fe_job_store.list_files(job.id)
     file_names = set()
     for f in job_files:
@@ -347,8 +351,27 @@ async def start_job(job_id: str):
                 },
             )
 
+    # If frontend did not specify boards (auto mode), pick an available board now so:
+    # - System Summary shows the board name (not "—")
+    # - Operators can see where the job is running
+    assigned_board_id = None
+    boards_for_meta: List[str] = list(meta.get("boards") or [])
+    if not boards_for_meta:
+        b = await board_manager.get_available_board(target_board_id=getattr(job, "target_board_id", None))
+        if b is not None:
+            assigned_board_id = b.id
+            boards_for_meta = [b.name or b.id]
+            # Keep FE meta in sync for list_jobs -> _resolve_boards.
+            meta["boards"] = boards_for_meta
+            # Also mark board busy immediately for accurate fleet view.
+            await board_manager.set_board_busy(b.id, job.id)
+
     await job_queue_service.update_job_status(
-        job_id, JobState.RUNNING, progress=0, started_at=datetime.utcnow()
+        job_id,
+        JobState.RUNNING,
+        progress=0,
+        started_at=datetime.utcnow(),
+        assigned_board_id=assigned_board_id,
     )
     fe_job_store.sync_files_for_status(job_id, "running")
     return {"success": True, "message": "Job started"}

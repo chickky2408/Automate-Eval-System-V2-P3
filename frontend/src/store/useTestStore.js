@@ -958,10 +958,12 @@ export const useTestStore = create((set, get) => {
   /** Dashboard System Summary filters — persist across SPA navigation; reset on full page refresh */
   dashboardSystemSummary: {
     systemSearch: '',
-    systemStatusFilter: 'running',
+    systemStatusFilter: 'all',
     systemTagFilter: '',
     systemTagColorFilter: '',
-    systemOwnerFilter: 'mine',
+    // Use a sentinel that is resolved to the current active profile on first load.
+    // This makes a fresh refresh default to "my profile" while still persisting any user-changed filters in SPA navigation.
+    systemOwnerFilter: '__active__',
     systemBoardFilter: 'all',
     systemDateFilter: '',
     isSystemSummaryExpanded: false,
