@@ -259,16 +259,32 @@ const App = () => {
           </div>
         </header>
 
-        {/* CONTENT PAGES */}
-        <div className="p-4 sm:p-6 lg:p-8 overflow-x-hidden overflow-y-auto min-w-0">
+        {/* CONTENT PAGES — full-bleed layout for Library / Create TC / Run Set */}
+        <div
+          className={`overflow-x-hidden overflow-y-auto min-w-0 ${
+            activePage === 'testCases' ||
+            activePage === 'fileLibrary' ||
+            activePage === 'runSet'
+              ? 'flex flex-1 flex-col min-h-0 p-3 sm:p-4 lg:px-6 lg:py-4'
+              : 'p-4 sm:p-6 lg:p-8'
+          }`}
+        >
           {/* Keep these 3 pages mounted so local "in-progress" UI state doesn't reset */}
-          <div className={activePage === 'fileLibrary' ? '' : 'hidden'}>
+          <div
+            className={
+              activePage === 'fileLibrary' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'
+            }
+          >
             <FileLibraryPage
               onNavigateToTestCases={() => setActivePage('testCases')}
               onNavigateToRunSet={() => setActivePage('runSet')}
             />
           </div>
-          <div className={activePage === 'testCases' ? '' : 'hidden'}>
+          <div
+            className={
+              activePage === 'testCases' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'
+            }
+          >
             <TestCasesPage
               onNavigateBackToLibrary={() => {
                 useTestStore.getState().setFileLibraryViewOnNavigate('rawTestCases');
@@ -277,7 +293,9 @@ const App = () => {
               onNavigateToRunSet={() => setActivePage('runSet')}
             />
           </div>
-          <div className={activePage === 'runSet' ? '' : 'hidden'}>
+          <div
+            className={activePage === 'runSet' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'}
+          >
             <RunSetPage onNavigateJobs={() => setActivePage('jobs')} />
           </div>
 

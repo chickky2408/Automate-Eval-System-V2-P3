@@ -603,17 +603,17 @@ const RunSetPage = ({ onNavigateJobs }) => {
   };
 
   return (
-    <div className="w-full max-w-6xl mx-auto space-y-6">
-      <div>
+    <div className="flex min-h-0 w-full max-w-none min-w-0 flex-1 flex-col space-y-4">
+      <div className="shrink-0">
         <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Run Set</h1>
         <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm">Browse to select test cases, then run. Set for run is built on this page.</p>
       </div>
 
-      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+      <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
         {/* Two columns: left = Browse test cases, right = Set for run (larger — important process) */}
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.25fr] gap-4 mb-4">
+        <div className="mb-4 grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[1fr_1.25fr] lg:min-h-[min(680px,calc(100dvh-17rem))]">
           {/* Left — Library list (filter + scroll, draggable) */}
-          <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-600 flex flex-col min-h-[480px] lg:h-[580px]">
+          <div className="flex min-h-[420px] flex-col rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-600 dark:bg-slate-800/50 lg:min-h-0 lg:h-full">
             <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">1. Test cases in library</h3>
             <div className="flex flex-col sm:flex-row gap-2 mb-2 shrink-0">
               <input
@@ -682,7 +682,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
           <div
             ref={runSetRightRef}
             tabIndex={0}
-            className="p-4 rounded-xl border-2 border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 min-h-[480px] lg:h-[580px] flex flex-col outline-none"
+            className="flex min-h-[420px] flex-col rounded-xl border-2 border-slate-200 bg-white p-4 outline-none dark:border-slate-600 dark:bg-slate-900 lg:min-h-0 lg:h-full"
             onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; e.currentTarget.classList.add('ring-2', 'ring-blue-400'); }}
             onDragLeave={(e) => { e.currentTarget.classList.remove('ring-2', 'ring-blue-400'); }}
             onDrop={(e) => {

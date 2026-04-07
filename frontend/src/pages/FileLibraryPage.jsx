@@ -2056,7 +2056,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
   };
 
   return (
-    <div className="w-full max-w-6xl mx-auto space-y-6">
+    <div className="flex w-full max-w-none min-w-0 flex-1 flex-col min-h-0 space-y-4">
       <UploadChoiceModal
         open={!!fileLibraryUploadChoiceModal?.prepared?.length}
         prepared={fileLibraryUploadChoiceModal?.prepared ?? []}

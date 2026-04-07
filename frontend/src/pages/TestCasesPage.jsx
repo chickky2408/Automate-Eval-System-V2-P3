@@ -797,9 +797,9 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
     try {
       const raw = localStorage.getItem('tcBuilderPanelHeight');
       const n = raw ? parseInt(raw, 10) : NaN;
-      return Number.isFinite(n) && n >= 260 ? n : 520;
+      return Number.isFinite(n) && n >= 260 ? n : 640;
     } catch {
-      return 520;
+      return 640;
     }
   });
   useEffect(() => {
@@ -2040,7 +2040,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
   );
 
   return (
-    <div className="w-full max-w-6xl mx-auto space-y-6">
+    <div className="w-full max-w-none min-w-0 flex flex-1 flex-col min-h-0 space-y-4">
       <UploadChoiceModal
         open={!!saveLibraryUploadModal?.prepared?.length}
         prepared={saveLibraryUploadModal?.prepared ?? []}
@@ -2852,8 +2852,8 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
       })()}
 
       {/* Saved Test Cases table (Apply try, Duplicate, Move, Auto select, Save as Set) */}
-      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-4 flex flex-col flex-1 min-h-0">
+        <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-3">
           
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -3004,8 +3004,9 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
             )}
           </div>
         )}
+        <div className="flex min-h-0 flex-1 flex-col">
         {/* Tab switcher: Table (horizontal) | Step (vertical layout per image) + Select all when Step */}
-        <div className="mb-3 flex items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-600">
+        <div className="mb-3 flex shrink-0 items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-600">
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -3046,8 +3047,11 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
         </div>
         <div
           ref={tcBuilderPanelRef}
-          className="resize-y overflow-auto min-h-[260px] max-h-[80vh]"
-          style={{ height: tcBuilderPanelHeight }}
+          className="min-h-[260px] flex-1 resize-y overflow-auto"
+          style={{
+            height: tcBuilderPanelHeight,
+            maxHeight: 'min(92dvh, calc(100dvh - 10.5rem))',
+          }}
           onMouseUp={() => {
             const el = tcBuilderPanelRef.current;
             if (!el) return;
@@ -3816,8 +3820,9 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
           </div>
         )}
         </div>
+        </div>
 
-        <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-2">
+        <div className="mt-4 flex shrink-0 justify-end gap-2 border-t border-slate-200 pt-3 dark:border-slate-700">
           <button
             onClick={handleSaveAndSendToRunSet}
             className="px-3 py-2 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-1.5"
