@@ -617,8 +617,14 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
   const [fileStatusFilter, setFileStatusFilter] = useState('all'); // 'all' | 'pending' | 'running' | 'completed'
   const [fileSearch, setFileSearch] = useState('');
   const [fileTagSearch, setFileTagSearch] = useState('');
+  const [fileTagColorFilter, setFileTagColorFilter] = useState(''); // '' = all
+  const [fileTagColorDropdownOpen, setFileTagColorDropdownOpen] = useState(false);
+  const [fileTagColorSearch, setFileTagColorSearch] = useState('');
   const [fileSizeSearch, setFileSizeSearch] = useState('');
   const [fileOwnerSearch, setFileOwnerSearch] = useState('');
+  const [fileTcSearch, setFileTcSearch] = useState('');
+  const [fileSetSearch, setFileSetSearch] = useState('');
+  const [fileDateSearch, setFileDateSearch] = useState('');
   const [tagInputByFileId, setTagInputByFileId] = useState({});
   const [isTagEditorOpenByFileId, setIsTagEditorOpenByFileId] = useState({});
   const [editingDisplayNameFileId, setEditingDisplayNameFileId] = useState(null);
@@ -725,12 +731,30 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
   const getFileKind = (f) => {
     const ext = String(f?.name || '').split('.').pop()?.toLowerCase();
     if (ext === 'vcd') return 'vcd';
-    if (['bin', 'hex', 'elf', 'erom'].includes(ext)) return 'bin';
+    if (['bin', 'hex', 'elf', 'erom'].includes(ext)) return 'erom';
     // Text-based MDI files (manual commands / scripts)
     if (ext === 'txt') return 'mdi';
-    if (['lin', 'ulp'].includes(ext)) return 'lin';
+    if (['lin', 'ulp'].includes(ext)) return 'ulp';
     return 'other';
   };
+
+  // Close Files tag-color dropdown on outside click / Esc
+  useEffect(() => {
+    if (!fileTagColorDropdownOpen) return;
+    const onDoc = (e) => {
+      const root = e.target?.closest?.('[data-file-tagcolor-dropdown-root]');
+      if (!root) setFileTagColorDropdownOpen(false);
+    };
+    const onEsc = (e) => {
+      if (e.key === 'Escape') setFileTagColorDropdownOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onEsc);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onEsc);
+    };
+  }, [fileTagColorDropdownOpen]);
 
   const splitTags = (raw) =>
     String(raw || '')
@@ -1030,8 +1054,8 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
       const k = getFileKind(f);
       if (fileFilter !== 'all') {
         if (fileFilter === 'vcd' && k !== 'vcd') return false;
-        if (fileFilter === 'bin' && k !== 'bin') return false;
-        if (fileFilter === 'lin' && k !== 'lin') return false;
+        if (fileFilter === 'erom' && k !== 'erom') return false;
+        if (fileFilter === 'ulp' && k !== 'ulp') return false;
         if (fileFilter === 'mdi' && k !== 'mdi') return false;
       }
       const status = fileStatusByName.get(f.name) || null;
@@ -1045,6 +1069,12 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
         const q = fileTagSearch.trim().toLowerCase();
         if (!tags.some((t) => t.toLowerCase().includes(q))) return false;
       }
+      if (fileTagColorFilter) {
+        const want = normalizeTagColorKey(fileTagColorFilter);
+        const raw = (fileTagColors && fileTagColors[f.id]) || '';
+        const have = normalizeTagColorKey(raw);
+        if (have !== want) return false;
+      }
       if (fileSizeSearch.trim()) {
         const q = fileSizeSearch.trim().toLowerCase();
         const n = normalizeFileSize(f.size);
@@ -1056,6 +1086,28 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
         const display = resolveFileOwnerDisplay(f, ownerLabelCtx).toLowerCase();
         const ownerId = String(f.ownerId || '').toLowerCase();
         if (!display.includes(q) && !ownerId.includes(q)) return false;
+      }
+      if (fileTcSearch.trim()) {
+        const q = fileTcSearch.trim().toLowerCase();
+        const usedByTcs = getTestCasesUsingFile(f.name, fileReferenceTestCases, fileReferenceTestCaseSets);
+        const ok = (usedByTcs || []).some((u) => String(u?.name || '').toLowerCase().includes(q));
+        if (!ok) return false;
+      }
+      if (fileSetSearch.trim()) {
+        const q = fileSetSearch.trim().toLowerCase();
+        const sets = getSetNamesUsingFile(f.name, fileReferenceTestCaseSets);
+        const ok = (sets || []).some((s) => String(s || '').toLowerCase().includes(q));
+        if (!ok) return false;
+      }
+      if (fileDateSearch.trim()) {
+        const q = fileDateSearch.trim().toLowerCase();
+        const raw = f.updatedAt || f.uploadDate || f.createdAt || '';
+        const d = raw ? new Date(raw) : null;
+        const ymd = d && !Number.isNaN(d.getTime())
+          ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+          : '';
+        const pretty = d && !Number.isNaN(d.getTime()) ? d.toLocaleDateString().toLowerCase() : '';
+        if (!ymd.toLowerCase().includes(q) && !pretty.includes(q)) return false;
       }
       if (libraryCreatedByFilter === 'mine') {
         if (!isFileOwnerMine(f, currentClientId, activeProfileId)) return false;
@@ -3383,7 +3435,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                   <Trash2 size={18} strokeWidth={2} />
                 </button>
                 {selectedSetKeys.size > 0 && <span className="text-xs text-slate-500">{selectedSetKeys.size} selected</span>}
-                <span className="text-xs text-slate-400">Click, Shift+click range, Ctrl/Cmd+click toggle, or drag to select. Trash removes from set only — Library unchanged.</span>
+                <span className="text-xs text-slate-400"></span>
               </div>
               {(resolvedSetOwnerFilter === 'all' || resolvedSetOwnerFilter !== String(activeProfileId || '')) && !globalTestCaseDataLoaded ? (
                 <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-3 text-center text-xs text-slate-500 dark:text-slate-400">
@@ -5659,42 +5711,158 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                     </div>
                 </div>
                 {/* Import preview moved to modal */}
-                <div className="w-full grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2 mt-1">
-                  <div className="flex items-center gap-2">
-                    {['all', 'vcd', 'erom', 'ulp', 'mdi'].map((k) => (
-                      <button
-                        key={k}
-                        onClick={() => setFileFilter(k)}
-                        className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border ${
-                          fileFilter === k
-                            ? 'bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/30 dark:border-blue-700'
-                            : 'border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-400'
-                        }`}
-                      >
-                        {k === 'all' ? 'All' : k === 'mdi' ? 'MDI' : k.toUpperCase()}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="flex items-center gap-2">
+                <div className="w-full mt-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900/40 p-2">
+                  {/* Single row: scroll horizontally on narrow viewports */}
+                  <div className="flex w-full min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:thin]">
+                    <div className="inline-flex shrink-0 items-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden">
+                      {['all', 'vcd', 'erom', 'ulp', 'mdi'].map((k) => (
+                        <button
+                          key={k}
+                          type="button"
+                          onClick={() => setFileFilter(k)}
+                          className={`px-2 py-1 text-[11px] font-semibold border-r last:border-r-0 border-slate-200 dark:border-slate-700 ${
+                            fileFilter === k
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70'
+                          }`}
+                        >
+                          {k === 'all' ? 'All' : k === 'mdi' ? 'MDI' : k.toUpperCase()}
+                        </button>
+                      ))}
+                    </div>
+
                     <select
                       value={fileStatusFilter}
                       onChange={(e) => setFileStatusFilter(e.target.value)}
-                      className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 w-full"
+                      className="shrink-0 h-8 pl-1.5 pr-6 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 max-w-[76px]"
+                      title="Status"
                     >
-                      <option value="all">All status</option>
-                      <option value="pending">Pending</option>
-                      <option value="running">Running</option>
-                      <option value="completed">Completed</option>
+                      <option value="all">All</option>
+                      <option value="pending">Pend</option>
+                      <option value="running">Run</option>
+                      <option value="completed">Done</option>
                     </select>
-                    <select value={fileSort} onChange={(e) => setFileSort(e.target.value)} className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 w-full"><option value="time">Time</option><option value="name">Name</option></select>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input type="text" value={fileSearch} onChange={(e) => setFileSearch(e.target.value)} placeholder="Search name" className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 w-full" />
-                    <input type="text" value={fileTagSearch} onChange={(e) => setFileTagSearch(e.target.value)} placeholder="Search tag" className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 w-full" />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input type="text" value={fileSizeSearch} onChange={(e) => setFileSizeSearch(e.target.value)} placeholder="Search size" className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 w-full" />
-                    <input type="text" value={fileOwnerSearch} onChange={(e) => setFileOwnerSearch(e.target.value)} placeholder="Search owner" className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 w-full" />
+                    <select
+                      value={fileSort}
+                      onChange={(e) => setFileSort(e.target.value)}
+                      className="shrink-0 h-8 pl-1.5 pr-6 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 w-[68px]"
+                      title="Sort"
+                    >
+                      <option value="time">Time</option>
+                      <option value="name">Name</option>
+                    </select>
+
+                    <input
+                      type="text"
+                      value={fileSearch}
+                      onChange={(e) => setFileSearch(e.target.value)}
+                      placeholder="Name"
+                      className="shrink-0 h-8 min-w-[100px] w-[120px] px-2 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                    />
+                    <input
+                      type="text"
+                      value={fileTagSearch}
+                      onChange={(e) => setFileTagSearch(e.target.value)}
+                      placeholder="Tag"
+                      className="shrink-0 h-8 w-[72px] px-2 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                    />
+
+                    {(() => {
+                      const selectedKey = String(fileTagColorFilter || '').trim();
+                      const dotKey = TAG_PALETTE_MAP[selectedKey] ? selectedKey : 'mint';
+                      const isAll = !selectedKey;
+                      const q = fileTagColorSearch.trim().toLowerCase();
+                      const keys = TAG_PALETTE_KEYS.filter((k) => !q || k.toLowerCase().includes(q));
+                      return (
+                        <div className="relative shrink-0" data-file-tagcolor-dropdown-root>
+                          <button
+                            type="button"
+                            onClick={() => setFileTagColorDropdownOpen((v) => !v)}
+                            className="h-8 w-8 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 inline-flex items-center justify-center"
+                            title={isAll ? 'Tag color (all)' : `Tag color: ${selectedKey}`}
+                          >
+                            <span
+                              className={`inline-flex w-2.5 h-2.5 rounded-full ${isAll ? 'bg-slate-400 dark:bg-slate-600' : (TAG_SWATCH_DOT_CLASS[dotKey] || TAG_SWATCH_DOT_CLASS.mint)}`}
+                              aria-hidden
+                            />
+                            <span className="sr-only">{isAll ? 'All tag colors' : selectedKey}</span>
+                          </button>
+                          {fileTagColorDropdownOpen && (
+                            <div className="absolute left-0 top-full mt-2 z-50 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg w-[200px] max-h-[320px] overflow-y-auto">
+                              <div className="px-3 py-2 text-[11px] font-semibold text-slate-500 dark:text-slate-400">Tag color</div>
+                              <div className="px-2 pb-2">
+                                <input
+                                  type="text"
+                                  value={fileTagColorSearch}
+                                  onChange={(e) => setFileTagColorSearch(e.target.value)}
+                                  placeholder="Search color…"
+                                  className="w-full h-8 px-2 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200"
+                                />
+                              </div>
+                              <div className="p-2 space-y-1">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setFileTagColorFilter('');
+                                    setFileTagColorDropdownOpen(false);
+                                  }}
+                                  className={`w-full flex items-center justify-start px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 ${isAll ? 'bg-slate-100 dark:bg-slate-700' : ''}`}
+                                  title="All tag colors"
+                                >
+                                  <span className="inline-flex w-2.5 h-2.5 rounded-full bg-slate-400 dark:bg-slate-600" aria-hidden />
+                                  <span className="ml-2 text-xs text-slate-700 dark:text-slate-200">All</span>
+                                </button>
+                                {keys.map((k) => {
+                                  const isSelected = selectedKey === k;
+                                  return (
+                                    <button
+                                      key={k}
+                                      type="button"
+                                      onClick={() => {
+                                        setFileTagColorFilter(k);
+                                        setFileTagColorDropdownOpen(false);
+                                      }}
+                                      className={`w-full flex items-center justify-start px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 ${isSelected ? 'bg-slate-100 dark:bg-slate-700' : ''}`}
+                                      title={k}
+                                    >
+                                      <span className={`inline-flex w-2.5 h-2.5 rounded-full ${TAG_SWATCH_DOT_CLASS[k] || TAG_SWATCH_DOT_CLASS.mint}`} aria-hidden />
+                                      <span className="ml-2 text-xs text-slate-700 dark:text-slate-200">{k}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    <input type="text" value={fileTcSearch} onChange={(e) => setFileTcSearch(e.target.value)} placeholder="TC" className="shrink-0 h-8 w-[56px] px-2 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900" />
+                    <input type="text" value={fileSetSearch} onChange={(e) => setFileSetSearch(e.target.value)} placeholder="Set" className="shrink-0 h-8 w-[56px] px-2 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900" />
+                    <input type="text" value={fileDateSearch} onChange={(e) => setFileDateSearch(e.target.value)} placeholder="Date" className="shrink-0 h-8 w-[68px] px-2 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900" />
+                    <input type="text" value={fileSizeSearch} onChange={(e) => setFileSizeSearch(e.target.value)} placeholder="Size" className="shrink-0 h-8 w-[52px] px-2 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900" />
+                    <input type="text" value={fileOwnerSearch} onChange={(e) => setFileOwnerSearch(e.target.value)} placeholder="Owner" className="shrink-0 h-8 min-w-[56px] w-[68px] px-2 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900" />
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (selectedLibraryFileIds.length === 0) {
+                          addToast({ type: 'info', message: 'Select file(s) first' });
+                          return;
+                        }
+                        setFileToTestCaseDraft(selectedLibraryFileIds);
+                        addToast({
+                          type: 'success',
+                          message: `Send ${selectedLibraryFileIds.length} files to Create Test Cases — will group by TCxxxx in file name and auto-create rows`,
+                        });
+                        if (onNavigateToTestCases) onNavigateToTestCases();
+                      }}
+                      disabled={selectedLibraryFileIds.length === 0}
+                      className="shrink-0 h-8 px-2.5 rounded-lg text-[11px] font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+                      title="Send selected files to Test Cases builder"
+                    >
+                      Send → TC
+                    </button>
                   </div>
                 </div>
                 <div className="w-full flex flex-wrap items-center gap-2 mt-1">
@@ -5752,26 +5920,6 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                       </button>
                     </div>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (selectedLibraryFileIds.length === 0) {
-                        addToast({ type: 'info', message: 'Select file(s) first' });
-                        return;
-                      }
-                      setFileToTestCaseDraft(selectedLibraryFileIds);
-                      addToast({
-                        type: 'success',
-                        message: `Send ${selectedLibraryFileIds.length} files to Create Test Cases — will group by TCxxxx in file name and auto-create rows`,
-                      });
-                      if (onNavigateToTestCases) onNavigateToTestCases();
-                    }}
-                    disabled={selectedLibraryFileIds.length === 0}
-                    className="ml-auto px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    title="Send selected files to Test Cases builder"
-                  >
-                    Send to Create Test Case →
-                  </button>
                 </div>
                 {/* Removed "Delete All" action to avoid accidental destructive UX */}
               </div>
