@@ -4,12 +4,15 @@ import {
   ChevronLeft,
   ChevronRight,
   Eye,
+  FileSpreadsheet,
   Gauge,
+  ImageDown,
   Maximize2,
   Minimize2,
   Pause,
   Play,
   Trash2,
+  X,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
@@ -22,6 +25,7 @@ const WAVEFORM_CANVAS_HEIGHT = 320;
 const STACKED_STRIP_MIN = 80;
 const STACKED_LABEL_COL = 28;
 const STACKED_LANE_COUNT = 4;
+const SNAPSHOT_MAX = 12;
 
 const WaveformPage = () => {
   const boards = useTestStore((state) => state.boards || []);
@@ -78,6 +82,8 @@ const WaveformPage = () => {
   const [showCursor2, setShowCursor2] = useState(true);
   const [cursorChannel, setCursorChannel] = useState('ch1');
   const [selectedBoardId, setSelectedBoardId] = useState('');
+  const [snapshots, setSnapshots] = useState([]);
+  const snapshotsRef = useRef([]);
   const showCursorRef = useRef(true);
   const cursorFracRef = useRef(0.35);
   const cursor2FracRef = useRef(0.65);
@@ -105,6 +111,7 @@ const WaveformPage = () => {
   showCursor2Ref.current = showCursor2;
   cursorChannelRef.current = cursorChannel;
   layoutModeRef.current = layoutMode;
+  snapshotsRef.current = snapshots;
 
   const stackedPanelHeight = Math.min(
     960,
@@ -116,6 +123,13 @@ const WaveformPage = () => {
       setSelectedBoardId(onlineBoards[0].id);
     }
   }, [onlineBoards, selectedBoardId]);
+
+  useEffect(
+    () => () => {
+      snapshotsRef.current.forEach((s) => URL.revokeObjectURL(s.url));
+    },
+    []
+  );
 
   useEffect(() => {
     const el = containerRef.current;
@@ -902,6 +916,110 @@ const WaveformPage = () => {
     } catch (_) {}
   };
 
+  const exportFilenameBase = () => {
+    const d = new Date();
+    const iso = d.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const b = (selectedBoardId || 'simulated').replace(/[^\w-]+/g, '_').slice(0, 24);
+    const lay = layoutMode === 'stacked' ? '4ch' : 'overlay';
+    const z = String(zoomLevel).replace('.', 'p');
+    return `waveform_${iso}_${lay}_z${z}_${b}`;
+  };
+
+  const triggerDownloadBlob = (blob, filename) => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  };
+
+  const captureCanvasPngBlob = () =>
+    new Promise((resolve) => {
+      const canvas = canvasRef.current;
+      if (!canvas) {
+        resolve(null);
+        return;
+      }
+      canvas.toBlob((b) => resolve(b), 'image/png', 1);
+    });
+
+  const handleExportPng = async () => {
+    const blob = await captureCanvasPngBlob();
+    if (!blob) return;
+    const base = exportFilenameBase();
+    triggerDownloadBlob(blob, `${base}.png`);
+    setSnapshots((prev) => {
+      const url = URL.createObjectURL(blob);
+      const item = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        url,
+        createdAt: Date.now(),
+        label: base,
+      };
+      const next = [item, ...prev];
+      if (next.length > SNAPSHOT_MAX) {
+        next.slice(SNAPSHOT_MAX).forEach((x) => URL.revokeObjectURL(x.url));
+      }
+      return next.slice(0, SNAPSHOT_MAX);
+    });
+  };
+
+  const handleExportCsv = () => {
+    const buffers = bufferRef.current;
+    const ch1 = buffers.CH1 || [];
+    const nCh1 = ch1.length;
+    if (nCh1 < 2) return;
+    const displayCount = Math.max(
+      2,
+      Math.min(sampleCount || 0, Math.round(DISPLAY_WAVEFORM_SAMPLES / (zoomLevel || 1)))
+    );
+    const endIndex = Math.max(0, Math.min(nCh1, nCh1 - (paused ? scrollOffset : 0)));
+    const startIndex = Math.max(0, endIndex - displayCount);
+    const n = endIndex - startIndex;
+    const fsVal = meta.fs || 4000;
+    const rows = [['sample_index', 'time_ms', 'CH1', 'CH2', 'CH3', 'CH4']];
+    for (let i = 0; i < n; i++) {
+      const idx = startIndex + i;
+      const tMs = (idx / fsVal) * 1000;
+      const cell = (id) => {
+        const arr = buffers[id];
+        return arr && idx < arr.length && arr[idx] != null ? String(Number(arr[idx])) : '';
+      };
+      rows.push([String(i), String(tMs), cell('CH1'), cell('CH2'), cell('CH3'), cell('CH4')]);
+    }
+    const csv = rows.map((r) => r.join(',')).join('\n');
+    const bom = '\uFEFF';
+    triggerDownloadBlob(new Blob([bom + csv], { type: 'text/csv;charset=utf-8' }), `${exportFilenameBase()}.csv`);
+  };
+
+  const removeSnapshot = (id) => {
+    setSnapshots((prev) => {
+      const item = prev.find((s) => s.id === id);
+      if (item) URL.revokeObjectURL(item.url);
+      return prev.filter((s) => s.id !== id);
+    });
+  };
+
+  const clearSnapshots = () => {
+    setSnapshots((prev) => {
+      prev.forEach((s) => URL.revokeObjectURL(s.url));
+      return [];
+    });
+  };
+
+  const redownloadSnapshot = (s) => {
+    const a = document.createElement('a');
+    a.href = s.url;
+    a.download = `${s.label}.png`;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
   const measureChannelMap = { ch1: 'CH1', ch2: 'CH2', ch3: 'CH3', ch4: 'CH4' };
   const measureBuf = bufferRef.current[measureChannelMap[cursorChannel]] || [];
   const measureEndIndex = Math.max(0, Math.min(measureBuf.length, measureBuf.length - (paused ? scrollOffset : 0)));
@@ -1165,6 +1283,28 @@ const WaveformPage = () => {
               </button>
             </div>
 
+            <div className="flex items-center gap-0.5 shrink-0 rounded-xl overflow-hidden border border-emerald-200/80 dark:border-emerald-800/80 bg-emerald-50/50 dark:bg-emerald-950/40 p-0.5">
+              <button
+                type="button"
+                onClick={handleExportPng}
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 text-sm font-semibold text-emerald-800 dark:text-emerald-200 hover:bg-emerald-200/70 dark:hover:bg-emerald-900/60 rounded-lg transition-all"
+                title="Download PNG of the current chart (also kept in session list below)"
+              >
+                <ImageDown size={16} />
+                <span className="hidden sm:inline">PNG</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleExportCsv}
+                disabled={sampleCount < 2}
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 text-sm font-semibold text-emerald-800 dark:text-emerald-200 hover:bg-emerald-200/70 dark:hover:bg-emerald-900/60 rounded-lg transition-all disabled:opacity-40 disabled:pointer-events-none"
+                title="Export visible time window as CSV (same range as the chart)"
+              >
+                <FileSpreadsheet size={16} />
+                <span className="hidden sm:inline">CSV</span>
+              </button>
+            </div>
+
             {paused && maxScrollOffset > 0 && (
               <div className="flex items-center gap-2 shrink-0 px-2 py-1 sm:py-1.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white/70 dark:bg-slate-800/90">
                 <span className="text-xs font-bold text-slate-600 dark:text-slate-200">Scroll</span>
@@ -1353,6 +1493,56 @@ const WaveformPage = () => {
               {fs >= 1000000 ? `${(fs / 1000000).toFixed(1)} MHz` : fs >= 1000 ? `${(fs / 1000).toFixed(1)} kHz` : `${fs} Hz`}
             </div>
           </div>
+        </div>
+
+        <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-700">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+            <div className="text-xs font-bold text-slate-700 dark:text-slate-200">Session captures (PNG)</div>
+            {snapshots.length > 0 && (
+              <button
+                type="button"
+                onClick={clearSnapshots}
+                className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400"
+              >
+                Clear all
+              </button>
+            )}
+          </div>
+          <p className="text-[10px] text-slate-500 dark:text-slate-400 mb-2 leading-snug">
+            PNG saves the chart as it looks now (layout, zoom, pause/scroll). Kept here until you close or refresh this tab — use CSV for raw numbers in the same time window.
+          </p>
+          {snapshots.length === 0 ? (
+            <p className="text-xs text-slate-500 dark:text-slate-400">No captures yet — press PNG above.</p>
+          ) : (
+            <div className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {snapshots.map((s) => (
+                <div key={s.id} className="relative shrink-0 w-[7.5rem] group">
+                  <button
+                    type="button"
+                    onClick={() => redownloadSnapshot(s)}
+                    className="block w-full rounded-lg border border-slate-200 dark:border-slate-600 overflow-hidden bg-slate-100 dark:bg-slate-800 hover:ring-2 hover:ring-emerald-500/50 transition-shadow"
+                    title="Download this image again"
+                  >
+                    <img src={s.url} alt="Saved waveform capture" className="w-full h-[4.25rem] object-cover object-left-top" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeSnapshot(s.id)}
+                    className="absolute top-1 right-1 p-0.5 rounded-md bg-slate-900/75 text-white opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                    title="Remove from list"
+                  >
+                    <X size={14} strokeWidth={2.5} />
+                  </button>
+                  <div
+                    className="text-[9px] text-slate-500 dark:text-slate-400 truncate mt-0.5 tabular-nums"
+                    title={new Date(s.createdAt).toLocaleString()}
+                  >
+                    {new Date(s.createdAt).toLocaleString()}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
       </div>
