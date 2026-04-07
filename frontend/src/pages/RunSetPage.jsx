@@ -532,10 +532,15 @@ const RunSetPage = ({ onNavigateJobs }) => {
           errorsPerSet.push(`Set "${set.name || set.id}": Files not found in Library — ${list}`);
         } else if (filesPayload.length > 0) {
           const jobName = (set.name || '').trim() || `Set ${setsToRun.indexOf(set) + 1}`;
+          const setTagRaw = (set?.tag || '').trim();
+          const fallbackTagColor = TAG_PALETTE_MAP[set?.tagColor] ? set.tagColor : null;
+          const fallbackRunColor = TAG_PALETTE_MAP[runSetTagColor] ? runSetTagColor : 'mint';
+          const resolvedTagRaw = (tag || '').trim() || setTagRaw;
+          const resolvedTagColor = fallbackTagColor || fallbackRunColor;
           jobsToCreate.push({
             name: jobName,
-            tag: tag || undefined,
-            tagColor: TAG_PALETTE_MAP[runSetTagColor] ? runSetTagColor : 'mint',
+            tag: resolvedTagRaw || undefined,
+            tagColor: resolvedTagColor,
             firmware: firstBinName,
             boards: boardNames,
             priority: prioritize ? 'high' : undefined,

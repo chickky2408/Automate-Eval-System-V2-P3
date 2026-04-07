@@ -15,6 +15,7 @@ import {
 import {
   TAG_PALETTE_MAP,
   TAG_PALETTE_KEYS,
+  TAG_SWATCH_DOT_CLASS,
   normalizeTagColorList,
   getFirstTagPillClass,
   syncTagColorListAfterTagChange,
@@ -354,6 +355,31 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
     [profiles, sharedProfiles, serverProfileDirectory, activeProfileId, activeProfile.name, currentClientId]
   );
 
+  const allOwnerProfiles = useMemo(() => {
+    const norm = (s) => String(s || '').trim().toLowerCase();
+    const pickKey = (p) => norm(p?.name) || norm(p?.id);
+    const list = [
+      ...(Array.isArray(profiles) ? profiles : []),
+      ...(Array.isArray(sharedProfiles) ? sharedProfiles : []),
+      ...(Array.isArray(serverProfileDirectory) ? serverProfileDirectory : []),
+    ];
+    const byDisplay = new Map();
+    list.forEach((p) => {
+      if (!p || !p.id) return;
+      const k = pickKey(p);
+      if (!k) return;
+      if (!byDisplay.has(k)) byDisplay.set(k, p);
+    });
+    const activeP = (Array.isArray(profiles) ? profiles : []).find((p) => String(p?.id) === String(activeProfileId));
+    if (activeP?.id) {
+      const k = pickKey(activeP);
+      if (k) byDisplay.set(k, activeP);
+    }
+    return Array.from(byDisplay.values()).sort((a, b) =>
+      String(a?.name || a?.id).localeCompare(String(b?.name || b?.id))
+    );
+  }, [profiles, sharedProfiles, serverProfileDirectory, activeProfileId]);
+
   /** Cross-profile: same "Used by TC" / Sets for every profile once global snapshot is loaded. */
   const fileReferenceTestCases = useMemo(
     () => {
@@ -634,6 +660,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
   const [librarySetTcNameFilter, setLibrarySetTcNameFilter] = useState('');
   const [librarySetTcTagFilter, setLibrarySetTcTagFilter] = useState('');
   const [librarySetTcStatusFilter, setLibrarySetTcStatusFilter] = useState('all'); // 'all' | 'pending' | 'running' | 'completed'
+  const [librarySetTagColorFilter, setLibrarySetTagColorFilter] = useState(''); // '' = all
+  const [librarySetTagColorDropdownOpen, setLibrarySetTagColorDropdownOpen] = useState(false);
+  const [librarySetTagColorSearch, setLibrarySetTagColorSearch] = useState('');
   const [selectedLibrarySetTcKeys, setSelectedLibrarySetTcKeys] = useState([]);
   const lastClickedLibrarySetTcRef = useRef({ setId: null, index: null });
   const isDragSelectingLibrarySetRef = useRef(false);
@@ -643,8 +672,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
   const isDragSelectingFileRef = useRef(false);
   const [libraryFocusFileName, setLibraryFocusFileName] = useState(null);
   const focusedLibraryFileRef = useRef(null);
-  // Separate filter per Library tab: Set=Mine, Test Cases=Mine, File=All
-  const [librarySetFilter, setLibrarySetFilter] = useState('mine'); // Set Library
+  // Separate filter per Library tab: Set=Active profile, Test Cases=Mine, File=All
+  // For Sets tab, this stores an "owner filter key": '__active__' | 'all' | <profileId>
+  const [librarySetFilter, setLibrarySetFilter] = useState('__active__'); // Set Library
   const [libraryTestCasesFilter, setLibraryTestCasesFilter] = useState('mine'); // Test Cases Library
   const [libraryFileFilter, setLibraryFileFilter] = useState('all'); // File in Library
   const libraryCreatedByFilter = libraryView === 'testCases' ? librarySetFilter : libraryView === 'rawTestCases' ? libraryTestCasesFilter : libraryFileFilter;
@@ -655,13 +685,22 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
   };
   const refreshGlobalTestCaseData = useTestStore((s) => s.refreshGlobalTestCaseData);
 
-  // "All" / "Shared" = aggregate from GET /profiles/all-test-cases — fetch when that filter is active and snapshot not ready (otherwise we only saw active profile's savedTestCases)
+  // Cross-profile data (GET /profiles/all-test-cases) — fetch when filter needs non-local data.
   useEffect(() => {
     if (libraryView !== 'rawTestCases' && libraryView !== 'testCases') return;
-    if (libraryCreatedByFilter === 'mine') return;
+    // Raw Test Cases tab: keep old behavior (mine vs global/shared)
+    if (libraryView === 'rawTestCases' && libraryCreatedByFilter === 'mine') return;
+    // Sets tab: load global when showing all owners or another profile's sets
+    if (libraryView === 'testCases') {
+      const resolved = librarySetFilter === '__active__' ? String(activeProfileId || '') : String(librarySetFilter || '');
+      const needsGlobal = resolved === 'all' || (!!resolved && resolved !== String(activeProfileId || ''));
+      if (!needsGlobal) return;
+    } else {
+      if (libraryCreatedByFilter === 'mine') return;
+    }
     if (globalTestCaseDataLoaded) return;
     void refreshGlobalTestCaseData();
-  }, [libraryView, libraryCreatedByFilter, globalTestCaseDataLoaded, refreshGlobalTestCaseData]);
+  }, [libraryView, libraryCreatedByFilter, librarySetFilter, activeProfileId, globalTestCaseDataLoaded, refreshGlobalTestCaseData]);
 
   const fileVisById = useTestStore((s) => s.fileVisById);
   const setFileVisById = useTestStore((s) => s.setFileVisById);
@@ -2005,6 +2044,18 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
   }, [rawTcEditorTagToolsOpen]);
 
   useEffect(() => {
+    if (!librarySetTagColorDropdownOpen) return;
+    const onDoc = (e) => {
+      const t = e.target;
+      if (!(t instanceof Element)) return;
+      if (t.closest('[data-set-tagcolor-dropdown-root]')) return;
+      setLibrarySetTagColorDropdownOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [librarySetTagColorDropdownOpen]);
+
+  useEffect(() => {
     const onMouseUp = () => {
       isDragSelectingLibraryRef.current = false;
       isDragSelectingLibrarySetRef.current = false;
@@ -3097,6 +3148,59 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
         /* Set Library (UI tab "Sets") — saved sets, per-set TC table, multi-select, remove-from-set trash */
         (() => {
           const selectedSetKeys = new Set(selectedLibrarySetTcKeys);
+          const resolvedSetOwnerFilter =
+            librarySetFilter === '__active__'
+              ? (activeProfileId ? String(activeProfileId) : 'all')
+              : String(librarySetFilter || 'all');
+
+          const setMatchesFilters = (set) => {
+            const setName = String(set?.name || '').trim() || 'Set';
+            const nameQ = librarySetTcNameFilter.trim().toLowerCase();
+            if (nameQ && !setName.toLowerCase().includes(nameQ)) return false;
+
+            const tagQ = librarySetTcTagFilter.trim().toLowerCase();
+            if (tagQ) {
+              const raw = String(set?.tag || '').toLowerCase();
+              if (!raw.includes(tagQ)) return false;
+            }
+
+            const colorQ = String(librarySetTagColorFilter || '').trim();
+            if (colorQ) {
+              const rawList = Array.isArray(set?.tagColorList) ? set.tagColorList : [];
+              const colors = new Set(
+                [set?.tagColor, ...rawList]
+                  .map((k) => String(k || '').trim())
+                  .filter((k) => TAG_PALETTE_MAP[k])
+              );
+              if (!colors.has(colorQ)) return false;
+            }
+
+            const stRaw = setStatusByName.get(setName) || null;
+            const st = (stRaw || '').toLowerCase();
+            if (librarySetTcStatusFilter !== 'all') {
+              if (!st) return false;
+              if (st !== librarySetTcStatusFilter) return false;
+            }
+            return true;
+          };
+
+          const sourceSets = (() => {
+            const needsGlobal = resolvedSetOwnerFilter === 'all' || resolvedSetOwnerFilter !== String(activeProfileId || '');
+            if (needsGlobal) return aggregateSavedTestCaseSetsAcrossProfiles();
+            return (savedTestCaseSets || []).map((set) => ({
+              ...set,
+              _ownerId: activeProfileId,
+              _ownerName: resolveOwnerDisplayName(activeProfileId, ownerLabelCtx),
+            }));
+          })();
+
+          const setsFilteredForView = (sourceSets || [])
+            .filter((set) => {
+              if (resolvedSetOwnerFilter === 'all') return true;
+              const oid = set?._ownerId ?? null;
+              return oid != null && String(oid) === String(resolvedSetOwnerFilter);
+            })
+            .filter(setMatchesFilters);
           const handleDeleteSelectedSetTcs = () => {
             if (selectedSetKeys.size === 0) {
               addToast({ type: 'info', message: 'Select test case(s) first' });
@@ -3154,24 +3258,99 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
             });
             setSelectedLibrarySetTcKeys([]);
             if (removed > 0) {
-              addToast({ type: 'success', message: `นำออกจาก set แล้ว ${removed} รายการ (Library ยังอยู่)` });
+              addToast({ type: 'success', message: `removed from set already ${removed} rows (Library still exists)` });
             }
           };
           return (
             <div className="space-y-6">
               <div className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 flex flex-wrap items-center gap-3">
                 <select
-                  value={libraryCreatedByFilter}
-                  onChange={(e) => setLibraryCreatedByFilter(e.target.value)}
+                  value={librarySetFilter}
+                  onChange={(e) => setLibrarySetFilter(e.target.value)}
                   className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800"
-                  title="Mine = this profile only. All / Shared = load every profile’s sets from this server (GET /profiles/all-test-cases)."
+                  title="Filter sets by owner (profile)"
                 >
-                  <option value="all">All</option>
-                  <option value="mine">Mine</option>
-                  <option value="shared">Shared with me</option>
+                  <option value="all">All owners</option>
+                  <option value="__active__">{resolveOwnerDisplayName(activeProfileId, ownerLabelCtx) || (activeProfile?.name || 'My profile')}</option>
+                  {allOwnerProfiles
+                    .filter((p) => String(p?.id) !== String(activeProfileId))
+                    .map((p) => (
+                      <option key={`owner-${p.id}`} value={String(p.id)}>
+                        {p.name || p.id}
+                      </option>
+                    ))}
                 </select>
                 <input type="text" value={librarySetTcNameFilter} onChange={(e) => setLibrarySetTcNameFilter(e.target.value)} placeholder="Filter by name" className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 w-40" />
                 <input type="text" value={librarySetTcTagFilter} onChange={(e) => setLibrarySetTcTagFilter(e.target.value)} placeholder="Filter by tag" className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 w-32" />
+                {(() => {
+                  const selectedKey = String(librarySetTagColorFilter || '').trim();
+                  const dotKey = TAG_PALETTE_MAP[selectedKey] ? selectedKey : 'mint';
+                  const isAll = !selectedKey;
+                  const q = librarySetTagColorSearch.trim().toLowerCase();
+                  const keys = TAG_PALETTE_KEYS.filter((k) => !q || k.toLowerCase().includes(q));
+                  return (
+                    <div className="relative" data-set-tagcolor-dropdown-root>
+                      <button
+                        type="button"
+                        onClick={() => setLibrarySetTagColorDropdownOpen((v) => !v)}
+                        className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 inline-flex items-center gap-2"
+                        title="Tag color"
+                      >
+                        <span
+                          className={`inline-flex w-2.5 h-2.5 rounded-full ${isAll ? 'bg-slate-400 dark:bg-slate-600' : (TAG_SWATCH_DOT_CLASS[dotKey] || TAG_SWATCH_DOT_CLASS.mint)}`}
+                          aria-hidden
+                        />
+                        <span className="sr-only">{isAll ? 'All tag colors' : selectedKey}</span>
+                      </button>
+                      {librarySetTagColorDropdownOpen && (
+                        <div className="absolute left-0 top-full mt-2 z-50 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg w-[180px] max-h-[320px] overflow-y-auto">
+                          <div className="px-3 py-2 text-[11px] font-semibold text-slate-500 dark:text-slate-400">Tag color</div>
+                          <div className="px-2 pb-2">
+                            <input
+                              type="text"
+                              value={librarySetTagColorSearch}
+                              onChange={(e) => setLibrarySetTagColorSearch(e.target.value)}
+                              placeholder="Search color…"
+                              className="w-full px-2 py-1.5 text-xs rounded-md border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200"
+                            />
+                          </div>
+                          <div className="p-2 space-y-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setLibrarySetTagColorFilter('');
+                                setLibrarySetTagColorDropdownOpen(false);
+                              }}
+                              className={`w-full flex items-center justify-start px-2 py-2 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 ${isAll ? 'bg-slate-100 dark:bg-slate-700' : ''}`}
+                              title="All tag colors"
+                            >
+                              <span className="inline-flex w-2.5 h-2.5 rounded-full bg-slate-400 dark:bg-slate-600" aria-hidden />
+                              <span className="ml-2 text-xs text-slate-700 dark:text-slate-200">All</span>
+                            </button>
+                            {keys.map((k) => {
+                              const isSelected = selectedKey === k;
+                              return (
+                                <button
+                                  key={k}
+                                  type="button"
+                                  onClick={() => {
+                                    setLibrarySetTagColorFilter(k);
+                                    setLibrarySetTagColorDropdownOpen(false);
+                                  }}
+                                  className={`w-full flex items-center justify-start px-2 py-2 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 ${isSelected ? 'bg-slate-100 dark:bg-slate-700' : ''}`}
+                                  title={k}
+                                >
+                                  <span className={`inline-flex w-2.5 h-2.5 rounded-full ${TAG_SWATCH_DOT_CLASS[k] || TAG_SWATCH_DOT_CLASS.mint}`} aria-hidden />
+                                  <span className="ml-2 text-xs text-slate-700 dark:text-slate-200">{k}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
                 <select
                   value={librarySetTcStatusFilter}
                   onChange={(e) => setLibrarySetTcStatusFilter(e.target.value)}
@@ -3188,32 +3367,17 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                 {selectedSetKeys.size > 0 && <span className="text-xs text-slate-500">{selectedSetKeys.size} selected</span>}
                 <span className="text-xs text-slate-400">Click, Shift+click range, Ctrl/Cmd+click toggle, or drag to select. Trash removes from set only — Library unchanged.</span>
               </div>
-              {libraryCreatedByFilter !== 'mine' && !globalTestCaseDataLoaded ? (
+              {(resolvedSetOwnerFilter === 'all' || resolvedSetOwnerFilter !== String(activeProfileId || '')) && !globalTestCaseDataLoaded ? (
                 <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-3 text-center text-xs text-slate-500 dark:text-slate-400">
                   Syncing server snapshot…
                 </div>
               ) : null}
-              {!(
-                (libraryCreatedByFilter === 'mine'
-                  ? savedTestCaseSets
-                  : aggregateSavedTestCaseSetsAcrossProfiles()) || []
-              )?.length ? (
+              {!(setsFilteredForView || [])?.length ? (
                 <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-8 text-center text-slate-500 dark:text-slate-400">
                   No sets yet — create test cases and Save Set on the Test Cases page
                 </div>
               ) : (
-                (libraryCreatedByFilter === 'mine'
-                  ? (savedTestCaseSets || []).map((set) => ({
-                      ...set,
-                      _ownerId: activeProfileId,
-                      _ownerName: resolveOwnerDisplayName(activeProfileId, ownerLabelCtx),
-                    }))
-                  : aggregateSavedTestCaseSetsAcrossProfiles().filter(
-                      (set) =>
-                        libraryCreatedByFilter !== 'shared' ||
-                        (set._ownerId && set._ownerId !== activeProfileId)
-                    )
-                ).map((set, setIdx) => {
+                (setsFilteredForView || []).map((set, setIdx) => {
                   const items = Array.isArray(set.items) ? set.items : [];
                   const withMdi = (tc) => {
                     const cmds = Array.isArray(tc?.commands) ? tc.commands : [];
@@ -3237,17 +3401,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                     return { ...tc, mdiNames: names };
                   };
                   const itemsWithIndex = items.map((tc, i) => ({ ...withMdi(tc), _origIndex: i, _status: getTestCaseStatusFromJobs(tc) }));
-                  const filteredItems = itemsWithIndex.filter((tc) => {
-                    if (librarySetTcNameFilter.trim() && !(tc.name || '').toLowerCase().includes(librarySetTcNameFilter.trim().toLowerCase())) return false;
-                    const tagVal = (tc.extraColumns && (tc.extraColumns.tag || tc.extraColumns.Tag)) || '';
-                    if (librarySetTcTagFilter.trim() && !String(tagVal).toLowerCase().includes(librarySetTcTagFilter.trim().toLowerCase())) return false;
-                    if (librarySetTcStatusFilter !== 'all') {
-                      const status = tc._status || null;
-                      if (!status) return false;
-                      if (librarySetTcStatusFilter !== status) return false;
-                    }
-                    return true;
-                  });
+                  // IMPORTANT: Set Library filters (name/tag/status) apply to the set header only,
+                  // not to the table rows. Filtering rows makes the UI look broken (empty tables).
+                  const filteredItems = itemsWithIndex;
                   const allExtraColKeys = [...new Set(filteredItems.flatMap(getTcExtraColKeys))].sort();
                   const extraCols = allExtraColKeys
                     .filter((col) => !isExtraColumnHiddenFromLibraryTable(col))
@@ -3296,38 +3452,27 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                   return (
                     <div key={set.id} className={`bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden ${setBusy ? 'ring-1 ring-amber-400/50 dark:ring-amber-500/40' : ''}`}>
                       <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-600 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">
                             {setName}
-                            <span className="ml-2 text-xs font-normal text-slate-500">
-                              ({filteredItems.length} test case{filteredItems.length !== 1 ? 's' : ''}{filteredItems.length !== items.length ? `, filtered from ${items.length}` : ''})
-                            </span>
                           </h2>
-                          {setStatus && (
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
-                                setStatus === 'running'
-                                  ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/40 dark:text-blue-200 dark:border-blue-700'
-                                  : setStatus === 'pending'
-                                  ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/40 dark:text-amber-200 dark:border-amber-700'
-                                  : 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600'
-                              }`}
-                            >
-                              {setStatus.charAt(0).toUpperCase() + setStatus.slice(1)}
-                            </span>
-                          )}
-                          
+
+                          {/* section divider */}
+                          <span className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-1" aria-hidden />
+
+                          {/* Tag section (separate from status) */}
                           {(() => {
                             const raw = (set.tag || '').trim();
-                            if (!raw) return null;
                             const tags = splitTagsComma(raw);
-                            if (!tags.length) return null;
+                            if (!tags.length) {
+                              return <span className="text-[11px] text-slate-400 dark:text-slate-500">No tag</span>;
+                            }
                             const colors = normalizeTagColorList(
                               { tagColor: set.tagColor, tagColorList: set.tagColorList },
                               tags.length
                             );
                             return (
-                              <div className="flex flex-wrap items-center gap-1.5 ml-1">
+                              <div className="flex flex-wrap items-center gap-1.5 min-w-0">
                                 {tags.map((t, ti) => (
                                   <span
                                     key={`${set.id}-settag-${ti}`}
@@ -3341,10 +3486,31 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                             );
                           })()}
                         </div>
+
                         <div className="flex items-center gap-2">
                           {setSelectedKeysInSet > 0 && (
                             <span className="text-xs text-slate-500">{setSelectedKeysInSet} selected</span>
                           )}
+
+                          {/* Status section (placed near Run; if edit icon exists, show status before it) */}
+                          {setStatus && (
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
+                                setStatus === 'running'
+                                  ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/40 dark:text-blue-200 dark:border-blue-700'
+                                  : setStatus === 'pending'
+                                  ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/40 dark:text-amber-200 dark:border-amber-700'
+                                  : 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600'
+                              }`}
+                            >
+                              {setStatus.charAt(0).toUpperCase() + setStatus.slice(1)}
+                            </span>
+                          )}
+
+                          {(setStatus || canEditSet) && (
+                            <span className="w-px h-6 bg-slate-200 dark:bg-slate-700 mx-1" aria-hidden />
+                          )}
+
                           {canEditSet && (
                             <>
                               <button

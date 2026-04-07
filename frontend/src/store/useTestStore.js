@@ -3798,6 +3798,29 @@ export const useTestStore = create((set, get) => {
           set((state) => ({
             jobs: state.jobs.map(j => j.id === jobId ? response.job : j)
           }));
+          // Best-effort: keep Set Library tag in sync with System Summary tag edits.
+          // We match by set name === job name (unique match only).
+          try {
+            const jobName = String(response.job?.name || '').trim();
+            if (jobName) {
+              const sets = get().savedTestCaseSets || [];
+              const matches = sets.filter((s) => String(s?.name || '').trim() === jobName);
+              if (matches.length === 1) {
+                const setId = matches[0].id;
+                const rawTag = normalized.map((t) => t.tag).join(', ');
+                const tc0 = primary?.tagColor || null;
+                const tagColor = tc0 && typeof tc0 === 'string' ? tc0 : (matches[0]?.tagColor || null);
+                const tagColorList = normalized.length ? normalized.map((t) => t.tagColor || tagColor || null) : [];
+                get().updateSavedTestCaseSet(setId, {
+                  tag: rawTag,
+                  ...(tagColor != null ? { tagColor } : {}),
+                  tagColorList,
+                });
+              }
+            }
+          } catch (_e) {
+            // ignore
+          }
           return;
         }
         return get().refreshJobs();
