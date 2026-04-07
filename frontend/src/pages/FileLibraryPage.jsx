@@ -22,6 +22,7 @@ import {
   isExtraColumnHiddenFromLibraryTable,
   splitTagsComma,
   jobTagPillClasses,
+  normalizeTagColorKey,
 } from '../utils/tagPalette';
 import TagColorSwatchPicker from '../components/TagColorSwatchPicker';
 import UploadChoiceModal from '../components/UploadChoiceModal';
@@ -451,8 +452,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
     return STATUS_PRIORITY[b] > STATUS_PRIORITY[a] ? b : a;
   };
 
-  const { setStatusByName, testCaseStatusByName, fileStatusByName, testCaseStatusByFileKey } = useMemo(() => {
+  const { setStatusByName, setBoardsByName, testCaseStatusByName, fileStatusByName, testCaseStatusByFileKey } = useMemo(() => {
     const setStatus = new Map();
+    const setBoards = new Map(); // setName -> Set(boardName)
     const tcStatus = new Map();
     const fileStatus = new Map();
     const tcStatusByFileKey = new Map();
@@ -472,6 +474,14 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
 
       const setName = (job.configName || job.name || '').trim();
       if (setName) update(setStatus, setName, status);
+      if (setName) {
+        const existing = setBoards.get(setName) || new Set();
+        (Array.isArray(job.boards) ? job.boards : []).forEach((b) => {
+          const v = String(b || '').trim();
+          if (v) existing.add(v);
+        });
+        setBoards.set(setName, existing);
+      }
 
       (job.files || []).forEach((f) => {
         const tcName = (f.testCaseName || '').trim();
@@ -494,6 +504,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
 
     return {
       setStatusByName: setStatus,
+      setBoardsByName: setBoards,
       testCaseStatusByName: tcStatus,
       fileStatusByName: fileStatus,
       testCaseStatusByFileKey: tcStatusByFileKey,
@@ -660,6 +671,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
   const [librarySetTcNameFilter, setLibrarySetTcNameFilter] = useState('');
   const [librarySetTcTagFilter, setLibrarySetTcTagFilter] = useState('');
   const [librarySetTcStatusFilter, setLibrarySetTcStatusFilter] = useState('all'); // 'all' | 'pending' | 'running' | 'completed'
+  const [librarySetBoardFilter, setLibrarySetBoardFilter] = useState('');
   const [librarySetTagColorFilter, setLibrarySetTagColorFilter] = useState(''); // '' = all
   const [librarySetTagColorDropdownOpen, setLibrarySetTagColorDropdownOpen] = useState(false);
   const [librarySetTagColorSearch, setLibrarySetTagColorSearch] = useState('');
@@ -3164,15 +3176,20 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
               if (!raw.includes(tagQ)) return false;
             }
 
+            const boardQ = librarySetBoardFilter.trim().toLowerCase();
+            if (boardQ) {
+              const bset = setBoardsByName.get(setName);
+              const blist = bset ? Array.from(bset.values()) : [];
+              const ok = blist.some((b) => String(b || '').toLowerCase().includes(boardQ));
+              if (!ok) return false;
+            }
+
             const colorQ = String(librarySetTagColorFilter || '').trim();
             if (colorQ) {
               const rawList = Array.isArray(set?.tagColorList) ? set.tagColorList : [];
-              const colors = new Set(
-                [set?.tagColor, ...rawList]
-                  .map((k) => String(k || '').trim())
-                  .filter((k) => TAG_PALETTE_MAP[k])
-              );
-              if (!colors.has(colorQ)) return false;
+              const want = normalizeTagColorKey(colorQ);
+              const colors = new Set([set?.tagColor, ...rawList].map((k) => normalizeTagColorKey(k)));
+              if (!colors.has(want)) return false;
             }
 
             const stRaw = setStatusByName.get(setName) || null;
@@ -3282,6 +3299,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                 </select>
                 <input type="text" value={librarySetTcNameFilter} onChange={(e) => setLibrarySetTcNameFilter(e.target.value)} placeholder="Filter by name" className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 w-40" />
                 <input type="text" value={librarySetTcTagFilter} onChange={(e) => setLibrarySetTcTagFilter(e.target.value)} placeholder="Filter by tag" className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 w-32" />
+                <input type="text" value={librarySetBoardFilter} onChange={(e) => setLibrarySetBoardFilter(e.target.value)} placeholder="Filter by board" className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 w-32" />
                 {(() => {
                   const selectedKey = String(librarySetTagColorFilter || '').trim();
                   const dotKey = TAG_PALETTE_MAP[selectedKey] ? selectedKey : 'mint';
@@ -3483,6 +3501,25 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                                   </span>
                                 ))}
                               </div>
+                            );
+                          })()}
+
+                          {/* section divider */}
+                          <span className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-1" aria-hidden />
+
+                          {/* Boards section (from latest job(s) with this set name) */}
+                          {(() => {
+                            const bset = setBoardsByName.get(setName);
+                            const blist = bset ? Array.from(bset.values()) : [];
+                            if (!blist.length) {
+                              return <span className="text-[11px] text-slate-400 dark:text-slate-500">Boards: —</span>;
+                            }
+                            const shown = blist.slice(0, 2);
+                            const more = blist.length - shown.length;
+                            return (
+                              <span className="text-[11px] text-slate-500 dark:text-slate-400 truncate" title={blist.join(', ')}>
+                                Boards: {shown.join(', ')}{more > 0 ? ` +${more}` : ''}
+                              </span>
                             );
                           })()}
                         </div>

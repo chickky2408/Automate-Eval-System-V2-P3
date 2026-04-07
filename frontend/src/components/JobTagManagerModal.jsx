@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { X } from 'lucide-react';
 import { useTestStore } from '../store/useTestStore';
-import { jobTagPillClasses, TAG_PALETTE_KEYS, TAG_SWATCH_DOT_CLASS } from '../utils/tagPalette';
+import { jobTagPillClasses, TAG_PALETTE_KEYS, TAG_SWATCH_DOT_CLASS, normalizeTagColorKey } from '../utils/tagPalette';
 
 const normalizeTagEntry = (t) => {
   const name = String(t?.tag ?? t?.name ?? '').trim();
@@ -52,7 +52,7 @@ export default function JobTagManagerModal({ jobId, onClose }) {
     return Array.from(freq.values()).sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
   }, [jobs]);
 
-  const pickColor = (k) => (TAG_SWATCH_DOT_CLASS[k] ? k : 'mint');
+  const pickColor = (k) => normalizeTagColorKey(k);
 
   const startEdit = (idx) => {
     const t = draft[idx];

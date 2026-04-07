@@ -79,6 +79,54 @@ export function isValidPaletteKey(key) {
   return Boolean(key && TAG_PALETTE_MAP[key]);
 }
 
+/**
+ * Canonical palette key for any stored tag color string (case-insensitive).
+ * Unknown values become `mint` so filters and swatches stay aligned across System Summary, Set Library, and tag editors.
+ */
+export function normalizeTagColorKey(k) {
+  const s = String(k ?? '')
+    .trim()
+    .toLowerCase();
+  if (!s) return 'mint';
+  return TAG_PALETTE_MAP[s] ? s : 'mint';
+}
+
+/**
+ * Primary tag color for job rows (first entry in `job.tags`, then legacy `tagColor` / `tag_color`).
+ */
+export function getJobPrimaryTagColorKey(job) {
+  if (!job) return 'mint';
+  const tags = Array.isArray(job.tags) ? job.tags : [];
+  if (tags.length > 0) {
+    const t0 = tags[0];
+    const c = t0?.tagColor ?? t0?.color ?? null;
+    if (c != null && String(c).trim() !== '') return normalizeTagColorKey(c);
+  }
+  return normalizeTagColorKey(job.tagColor ?? job.tag_color ?? 'mint');
+}
+
+/**
+ * True if a job has the selected tag color in ANY tag (multi-tag aware).
+ * Includes legacy `job.tagColor` / `job.tag_color` as fallback.
+ */
+export function jobHasAnyTagColor(job, selectedColorKey) {
+  if (!selectedColorKey) return true;
+  const want = normalizeTagColorKey(selectedColorKey);
+  if (!job) return false;
+
+  const colors = new Set();
+  const tags = Array.isArray(job.tags) ? job.tags : [];
+  for (const t of tags) {
+    const c = t?.tagColor ?? t?.color ?? null;
+    if (c == null) continue;
+    const k = normalizeTagColorKey(c);
+    if (k) colors.add(k);
+  }
+  colors.add(normalizeTagColorKey(job.tagColor ?? job.tag_color ?? 'mint'));
+
+  return colors.has(want);
+}
+
 export function splitTagsComma(raw) {
   return String(raw || '')
     .split(',')

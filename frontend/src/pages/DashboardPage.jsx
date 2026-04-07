@@ -19,7 +19,7 @@ import {
 import { useTestStore } from '../store/useTestStore';
 import { getClientId } from '../utils/sessionStorage';
 import { resolveJobOwnerDisplayName } from '../utils/profileOwnerLabel';
-import { jobTagPillClasses, TAG_PALETTE_KEYS, TAG_SWATCH_DOT_CLASS } from '../utils/tagPalette';
+import { jobTagPillClasses, TAG_PALETTE_KEYS, TAG_SWATCH_DOT_CLASS, normalizeTagColorKey, getJobPrimaryTagColorKey, jobHasAnyTagColor } from '../utils/tagPalette';
 
 const StatCard = ({ icon, label, value, sub, onClick }) => {
   const isClickable = typeof onClick === 'function';
@@ -389,18 +389,12 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
     return k || 'mint';
   };
 
-  const normalizeTagColorKey = (k) => {
-    const s = String(k || '').trim();
-    if (!s) return 'mint';
-    return TAG_PALETTE_KEYS.includes(s) ? s : 'mint';
-  };
-
   const ownerTagColorByProfileId = useMemo(() => {
     const counts = new Map(); // pid -> key->count
     (jobs || []).forEach((job) => {
       const pid = job?.profileId ?? job?.profile_id ?? null;
       if (!pid) return;
-      const key = normalizeTagColorKey(job?.tagColor ?? job?.tag_color ?? 'mint');
+      const key = getJobPrimaryTagColorKey(job);
       const pidStr = String(pid);
       if (!counts.has(pidStr)) counts.set(pidStr, new Map());
       const m = counts.get(pidStr);
@@ -427,7 +421,7 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
     (jobs || []).forEach((job) => {
       if (!job) return;
       if (job.clientId !== clientId) return;
-      const key = normalizeTagColorKey(job?.tagColor ?? job?.tag_color ?? 'mint');
+      const key = getJobPrimaryTagColorKey(job);
       counts.set(key, (counts.get(key) || 0) + 1);
     });
     let bestKey = 'mint';
@@ -446,7 +440,7 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
     (jobs || []).forEach((job) => {
       if (!job) return;
       if (job.clientId === clientId || !job.clientId) return;
-      const key = normalizeTagColorKey(job?.tagColor ?? job?.tag_color ?? 'mint');
+      const key = getJobPrimaryTagColorKey(job);
       counts.set(key, (counts.get(key) || 0) + 1);
     });
     let bestKey = 'mint';
@@ -480,7 +474,7 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
   const systemSummaryJobs = jobs.filter((job) => {
     if (systemStatusFilter !== 'all' && job.status !== systemStatusFilter) return false;
     if (systemTagFilter && (job.tag || '').toLowerCase() !== systemTagFilter.toLowerCase()) return false;
-    if (systemTagColorFilter && (job.tagColor || '').toLowerCase() !== systemTagColorFilter.toLowerCase()) return false;
+    if (systemTagColorFilter && !jobHasAnyTagColor(job, systemTagColorFilter)) return false;
     if (systemBoardFilter !== 'all' && systemBoardFilter) {
       const bq = systemBoardFilter.toLowerCase();
       const hasBoard = (Array.isArray(job.boards) ? job.boards : []).some((b) => String(b || '').toLowerCase() === bq);
@@ -562,14 +556,14 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
     const displayTime = d && !Number.isNaN(d.getTime()) ? d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false }) : null;
     const ownerLabel = resolveJobOwnerDisplayName(job, jobOwnerLabelCtx);
     const tagsArr = Array.isArray(job?.tags) ? job.tags.filter((t) => t && (t.tag || t.name)) : [];
-    const primary = tagsArr.length
-      ? { tag: (tagsArr[0].tag || tagsArr[0].name || '').toString(), tagColor: tagsArr[0].tagColor || tagsArr[0].color || job.tagColor }
-      : { tag: job.tag || 'Untagged', tagColor: job.tagColor };
+    const primaryTag = tagsArr.length
+      ? (tagsArr[0].tag || tagsArr[0].name || '').toString()
+      : (job.tag || 'Untagged');
     return {
       jobId: job.id,
       jobName: job.name,
-      tag: primary.tag || 'Untagged',
-      tagColor: primary.tagColor,
+      tag: primaryTag || 'Untagged',
+      tagColor: getJobPrimaryTagColorKey(job),
       extraTagCount: Math.max(0, tagsArr.length - 1),
       boards: job.boards || [],
       status: job.status,
