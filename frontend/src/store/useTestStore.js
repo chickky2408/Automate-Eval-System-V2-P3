@@ -1552,9 +1552,21 @@ export const useTestStore = create((set, get) => {
 
     set((state) => {
       if (state.loadedSetId) {
-        return { loadedSetTable: [...(state.loadedSetTable || []), entry] };
+        const table = [...(state.loadedSetTable || [])];
+        if (typeof options.insertAt === 'number') {
+          const at = Math.max(0, Math.min(options.insertAt, table.length));
+          table.splice(at, 0, entry);
+          return { loadedSetTable: table };
+        }
+        return { loadedSetTable: [...table, entry] };
       }
-      const next = [...state.savedTestCases, entry];
+      const next = [...state.savedTestCases];
+      if (typeof options.insertAt === 'number') {
+        const at = Math.max(0, Math.min(options.insertAt, next.length));
+        next.splice(at, 0, entry);
+      } else {
+        next.push(entry);
+      }
       saveSavedTestCases(next);
       return { savedTestCases: next };
     });

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity, AlertCircle, ArrowDown, ArrowUp, Bell, CheckCircle2, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, Copy, Cpu, Download, Eye, FileCode, FileDown, FileJson, FileUp, Filter, FolderOpen, Globe, GripVertical, Grid3x3, HardDrive, History, Layers, LayoutDashboard, List, Lock, LogOut, Menu, Monitor, MoreVertical, Pause, Pencil, Play, PlayCircle, Plus, RefreshCw, Save, Search, Settings, Square, StopCircle, Tag, Terminal, Trash2, Upload, User, UserPlus, Users, Wifi, WifiOff, X, XCircle, Zap
+  Activity, AlertCircle, ArrowDown, ArrowDownFromLine, ArrowUp, ArrowUpFromLine, Bell, CheckCircle2, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, Copy, Cpu, Download, Eye, FileCode, FileDown, FileJson, FileUp, Filter, FolderOpen, Globe, GripVertical, Grid3x3, HardDrive, History, Layers, LayoutDashboard, List, Lock, LogOut, Menu, Monitor, MoreVertical, Pause, Pencil, Play, PlayCircle, Plus, RefreshCw, Save, Search, Settings, Square, StopCircle, Tag, Terminal, Trash2, Upload, User, UserPlus, Users, Wifi, WifiOff, X, XCircle, Zap
 } from 'lucide-react';
 import { useTestStore } from '../store/useTestStore';
 import api from '../services/api';
@@ -646,6 +646,11 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
   const [deletingBoxId, setDeletingBoxId] = useState(null);
   const [libraryTcNameFilter, setLibraryTcNameFilter] = useState('');
   const [libraryTcTagFilter, setLibraryTcTagFilter] = useState('');
+  const [libraryTcTagColorFilter, setLibraryTcTagColorFilter] = useState(''); // '' = all
+  const [libraryRawTcTagColorDropdownOpen, setLibraryRawTcTagColorDropdownOpen] = useState(false);
+  /** Raw TC table: Insert row menu (Excel-like: select one row, then Insert above/below) */
+  const [libraryRawTcInsertMenuOpen, setLibraryRawTcInsertMenuOpen] = useState(false);
+  const [libraryRawTcTagColorSearch, setLibraryRawTcTagColorSearch] = useState('');
   const [libraryTcStatusFilter, setLibraryTcStatusFilter] = useState('all'); // 'all' | 'pending' | 'running' | 'completed'
   const [selectedLibraryTcKeys, setSelectedLibraryTcKeys] = useState([]);
   /** Raw Test Cases: inline editor — key = row _key */
@@ -693,7 +698,8 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
   // Separate filter per Library tab: Set=Active profile, Test Cases=Mine, File=All
   // For Sets tab, this stores an "owner filter key": '__active__' | 'all' | <profileId>
   const [librarySetFilter, setLibrarySetFilter] = useState('__active__'); // Set Library
-  const [libraryTestCasesFilter, setLibraryTestCasesFilter] = useState('mine'); // Test Cases Library
+  /** Test Cases Library owner: same keys as Sets — '__active__' | 'all' | <profileId> | 'shared' */
+  const [libraryTestCasesFilter, setLibraryTestCasesFilter] = useState('__active__');
   const [libraryFileFilter, setLibraryFileFilter] = useState('all'); // File in Library
   const libraryCreatedByFilter = libraryView === 'testCases' ? librarySetFilter : libraryView === 'rawTestCases' ? libraryTestCasesFilter : libraryFileFilter;
   const setLibraryCreatedByFilter = (value) => {
@@ -706,15 +712,19 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
   // Cross-profile data (GET /profiles/all-test-cases) — fetch when filter needs non-local data.
   useEffect(() => {
     if (libraryView !== 'rawTestCases' && libraryView !== 'testCases') return;
-    // Raw Test Cases tab: keep old behavior (mine vs global/shared)
-    if (libraryView === 'rawTestCases' && libraryCreatedByFilter === 'mine') return;
+    // Raw Test Cases tab: only active profile — no global fetch
+    if (
+      libraryView === 'rawTestCases' &&
+      (libraryCreatedByFilter === 'mine' || libraryCreatedByFilter === '__active__')
+    )
+      return;
     // Sets tab: load global when showing all owners or another profile's sets
     if (libraryView === 'testCases') {
       const resolved = librarySetFilter === '__active__' ? String(activeProfileId || '') : String(librarySetFilter || '');
       const needsGlobal = resolved === 'all' || (!!resolved && resolved !== String(activeProfileId || ''));
       if (!needsGlobal) return;
     } else {
-      if (libraryCreatedByFilter === 'mine') return;
+      if (libraryCreatedByFilter === 'mine' || libraryCreatedByFilter === '__active__') return;
     }
     if (globalTestCaseDataLoaded) return;
     void refreshGlobalTestCaseData();
@@ -755,6 +765,40 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
       document.removeEventListener('keydown', onEsc);
     };
   }, [fileTagColorDropdownOpen]);
+
+  useEffect(() => {
+    if (!libraryRawTcTagColorDropdownOpen) return;
+    const onDoc = (e) => {
+      const root = e.target?.closest?.('[data-raw-tc-tagcolor-dropdown-root]');
+      if (!root) setLibraryRawTcTagColorDropdownOpen(false);
+    };
+    const onEsc = (e) => {
+      if (e.key === 'Escape') setLibraryRawTcTagColorDropdownOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onEsc);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onEsc);
+    };
+  }, [libraryRawTcTagColorDropdownOpen]);
+
+  useEffect(() => {
+    if (!libraryRawTcInsertMenuOpen) return;
+    const onDoc = (e) => {
+      const root = e.target?.closest?.('[data-library-raw-tc-insert-menu]');
+      if (!root) setLibraryRawTcInsertMenuOpen(false);
+    };
+    const onEsc = (e) => {
+      if (e.key === 'Escape') setLibraryRawTcInsertMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onEsc);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onEsc);
+    };
+  }, [libraryRawTcInsertMenuOpen]);
 
   const splitTags = (raw) =>
     String(raw || '')
@@ -1279,7 +1323,8 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
       _status: getTestCaseStatusFromJobs(tc),
     });
 
-    const needsGlobal = libraryCreatedByFilter !== 'mine';
+    const mineLike = libraryCreatedByFilter === 'mine' || libraryCreatedByFilter === '__active__';
+    const needsGlobal = !mineLike;
     const mineOwnerDisplay = resolveOwnerDisplayName(activeProfileId, ownerLabelCtx);
 
     // All / Shared: always merge server snapshot + every profile’s localStorage (never empty while global loads).
@@ -1348,6 +1393,10 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
   ]);
 
   const libraryFilteredRows = useMemo(() => {
+    const ownerF = libraryTestCasesFilter === 'mine' || libraryTestCasesFilter === '__active__' ? '__active__' : libraryTestCasesFilter;
+    const resolvedOwner =
+      ownerF === '__active__' ? (activeProfileId ? String(activeProfileId) : 'all') : String(ownerF || 'all');
+
     return libraryRawRows.filter((tc) => {
       if (libraryTcNameFilter.trim() && !(tc.name || '').toLowerCase().includes(libraryTcNameFilter.trim().toLowerCase())) return false;
       const tagVal = (tc.extraColumns && (tc.extraColumns.tag || tc.extraColumns.Tag)) || '';
@@ -1357,11 +1406,32 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
         if (!status) return false;
         if (libraryTcStatusFilter !== status) return false;
       }
-      if (libraryCreatedByFilter === 'mine' && tc._ownerId !== activeProfileId) return false;
-      if (libraryCreatedByFilter === 'shared' && (tc._ownerId === activeProfileId || !tc._ownerId)) return false;
+      if (resolvedOwner === 'all') {
+        /* show all owners */
+      } else if (resolvedOwner === 'shared') {
+        if (tc._ownerId === activeProfileId || !tc._ownerId) return false;
+      } else if (String(tc._ownerId || '') !== resolvedOwner) {
+        return false;
+      }
+      if (libraryTcTagColorFilter.trim()) {
+        const want = normalizeTagColorKey(libraryTcTagColorFilter);
+        const ex = tc.extraColumns && typeof tc.extraColumns === 'object' ? tc.extraColumns : {};
+        const parts = splitTagsComma(ex.tag || ex.Tag || '');
+        const list = parts.length ? normalizeTagColorList(ex, parts.length) : [];
+        const colorKeys = new Set([ex.tagColor || ex.tag_color, ...list].map((k) => normalizeTagColorKey(k)));
+        if (!colorKeys.has(want)) return false;
+      }
       return true;
     });
-  }, [libraryRawRows, libraryTcNameFilter, libraryTcTagFilter, libraryTcStatusFilter, libraryCreatedByFilter, activeProfileId]);
+  }, [
+    libraryRawRows,
+    libraryTcNameFilter,
+    libraryTcTagFilter,
+    libraryTcTagColorFilter,
+    libraryTcStatusFilter,
+    libraryTestCasesFilter,
+    activeProfileId,
+  ]);
 
   const fileOptionsByKind = useMemo(() => {
     const list = uploadedFiles || [];
@@ -3742,7 +3812,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                               <th className="w-14 px-2 py-2 border-r border-slate-200 dark:border-slate-600 text-center">Try</th>
                               <th className="w-20 px-2 py-2 border-r border-slate-200 dark:border-slate-600 text-center">Status</th>
                               <th className="w-20 px-2 py-2 border-r border-slate-200 dark:border-slate-600 text-center">Edit</th>
-                              <th className="w-20 px-2 py-2 border-r border-slate-200 dark:border-slate-600 text-center">History</th>
+                              <th className="w-20 px-2 py-2 border-r border-slate-200 dark:border-slate-600 text-right">History</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -4009,11 +4079,11 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                                         <Pencil size={16} />
                                       </button>
                                     </td>
-                                    <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-center">
+                                    <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 align-bottom text-right w-20">
                                       <button
                                         type="button"
                                         onClick={(e) => { e.stopPropagation(); setTestCaseHistoryFor({ tc }); }}
-                                        className="inline-flex items-center justify-center gap-1 px-1.5 py-1 rounded text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+                                        className="inline-flex items-center gap-1 px-1 py-0.5 rounded text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
                                         title="View job/set history for this test case"
                                       >
                                         <History size={14} />
@@ -4213,6 +4283,175 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
             onNavigateToRunSet();
             addToast({ type: 'success', message: `Sent ${rows.length} test case(s) to Run Set` });
           };
+
+          const handleInsertRowBelowRawTc = (tc, e) => {
+            e?.stopPropagation?.();
+            e?.preventDefault?.();
+            if (String(tc._ownerId || '') !== String(activeProfileId || '')) {
+              addToast({ type: 'info', message: 'เพิ่มแถวได้เฉพาะเทสต์เคสของโปรไฟล์ปัจจุบัน' });
+              return;
+            }
+            if (tc._source === 'current' && tc.id) {
+              const ix = (savedTestCases || []).findIndex((t) => String(t.id) === String(tc.id));
+              if (ix < 0) {
+                addToast({ type: 'warning', message: 'ไม่พบรายการใน Library' });
+                return;
+              }
+              addSavedTestCase(
+                {
+                  name: 'New test case',
+                  vcdName: '',
+                  binName: '',
+                  linName: '',
+                  tryCount: 1,
+                  extraColumns: {},
+                  commands: [],
+                  createdAt: new Date().toISOString(),
+                },
+                { insertAt: ix + 1 }
+              );
+              addToast({ type: 'success', message: 'เพิ่มแถวใหม่ใต้รายการนี้แล้ว' });
+              return;
+            }
+            if (tc._source === 'set' && tc._setId != null && tc._itemIndex != null) {
+              const set = (savedTestCaseSets || []).find((s) => s.id === tc._setId);
+              if (!set || !Array.isArray(set.items)) return;
+              const setName = (set.name || '').trim() || 'Set';
+              const st = (setStatusByName.get(setName) || '').toLowerCase();
+              if (st === 'running' || st === 'pending') {
+                addToast({ type: 'warning', message: 'Set กำลังรัน/รอ — เพิ่มแถวใน set ไม่ได้' });
+                return;
+              }
+              if (savedTestCaseSetPendingById?.[String(tc._setId)]) {
+                addToast({ type: 'info', message: 'กำลังบันทึก set — รอสักครู่' });
+                return;
+              }
+              const canEdit = set._ownerId == null || String(set._ownerId) === String(activeProfileId);
+              if (!canEdit) {
+                addToast({ type: 'warning', message: 'ไม่ใช่ set ของโปรไฟล์นี้' });
+                return;
+              }
+              const items = [...set.items];
+              const used = new Set(items.map((t) => String(t.name || '').trim()).filter(Boolean));
+              const finalName = pickUniqueNameForAppend('New test case', used);
+              const newItem = cloneSavedLibraryTcToSetItem(
+                { name: '', vcdName: '', binName: '', linName: '', tryCount: 1, extraColumns: {}, commands: [] },
+                finalName
+              );
+              items.splice(tc._itemIndex + 1, 0, newItem);
+              updateSavedTestCaseSet(tc._setId, { items });
+              addToast({ type: 'success', message: 'เพิ่มแถวใน set ใต้รายการนี้แล้ว' });
+            }
+          };
+
+          const handleInsertRowAboveRawTc = (tc, e) => {
+            e?.stopPropagation?.();
+            e?.preventDefault?.();
+            if (String(tc._ownerId || '') !== String(activeProfileId || '')) {
+              addToast({ type: 'info', message: 'เพิ่มแถวได้เฉพาะเทสต์เคสของโปรไฟล์ปัจจุบัน' });
+              return;
+            }
+            if (tc._source === 'current' && tc.id) {
+              const ix = (savedTestCases || []).findIndex((t) => String(t.id) === String(tc.id));
+              if (ix < 0) {
+                addToast({ type: 'warning', message: 'ไม่พบรายการใน Library' });
+                return;
+              }
+              addSavedTestCase(
+                {
+                  name: 'New test case',
+                  vcdName: '',
+                  binName: '',
+                  linName: '',
+                  tryCount: 1,
+                  extraColumns: {},
+                  commands: [],
+                  createdAt: new Date().toISOString(),
+                },
+                { insertAt: ix }
+              );
+              addToast({ type: 'success', message: 'เพิ่มแถวใหม่เหนือรายการนี้แล้ว' });
+              return;
+            }
+            if (tc._source === 'set' && tc._setId != null && tc._itemIndex != null) {
+              const set = (savedTestCaseSets || []).find((s) => s.id === tc._setId);
+              if (!set || !Array.isArray(set.items)) return;
+              const setName = (set.name || '').trim() || 'Set';
+              const st = (setStatusByName.get(setName) || '').toLowerCase();
+              if (st === 'running' || st === 'pending') {
+                addToast({ type: 'warning', message: 'Set กำลังรัน/รอ — เพิ่มแถวใน set ไม่ได้' });
+                return;
+              }
+              if (savedTestCaseSetPendingById?.[String(tc._setId)]) {
+                addToast({ type: 'info', message: 'กำลังบันทึก set — รอสักครู่' });
+                return;
+              }
+              const canEdit = set._ownerId == null || String(set._ownerId) === String(activeProfileId);
+              if (!canEdit) {
+                addToast({ type: 'warning', message: 'ไม่ใช่ set ของโปรไฟล์นี้' });
+                return;
+              }
+              const items = [...set.items];
+              const used = new Set(items.map((t) => String(t.name || '').trim()).filter(Boolean));
+              const finalName = pickUniqueNameForAppend('New test case', used);
+              const newItem = cloneSavedLibraryTcToSetItem(
+                { name: '', vcdName: '', binName: '', linName: '', tryCount: 1, extraColumns: {}, commands: [] },
+                finalName
+              );
+              items.splice(tc._itemIndex, 0, newItem);
+              updateSavedTestCaseSet(tc._setId, { items });
+              addToast({ type: 'success', message: 'เพิ่มแถวใน set เหนือรายการนี้แล้ว' });
+            }
+          };
+
+          const selectedRowsForInsert = libraryFilteredRows.filter((r) => selectedSet.has(r._key));
+          const insertAnchorTc = selectedRowsForInsert.length === 1 ? selectedRowsForInsert[0] : null;
+          const insertSetNm =
+            insertAnchorTc && insertAnchorTc._source === 'set' && insertAnchorTc._setId
+              ? String((savedTestCaseSets || []).find((s) => s.id === insertAnchorTc._setId)?.name || '').trim()
+              : '';
+          const insertSetSt = insertSetNm ? (setStatusByName.get(insertSetNm) || '').toLowerCase() : '';
+          const insertSetBusy =
+            insertAnchorTc &&
+            insertAnchorTc._source === 'set' &&
+            insertAnchorTc._setId &&
+            savedTestCaseSetPendingById?.[String(insertAnchorTc._setId)];
+          const insertToolbarCanInsert =
+            Boolean(insertAnchorTc) &&
+            String(insertAnchorTc._ownerId || '') === String(activeProfileId || '') &&
+            !(
+              insertAnchorTc._source === 'set' &&
+              (insertSetSt === 'running' || insertSetSt === 'pending' || insertSetBusy)
+            );
+
+          const runInsertRowFromToolbar = (position) => {
+            setLibraryRawTcInsertMenuOpen(false);
+            if (selectedRowsForInsert.length === 0) {
+              addToast({
+                type: 'info',
+                message: 'เลือกแถวในตารางก่อน แล้วค่อย Insert row (เหมือน Excel — เลือกแถว แล้วใช้เมนู Insert)',
+              });
+              return;
+            }
+            if (selectedRowsForInsert.length > 1) {
+              addToast({
+                type: 'info',
+                message: 'Select one row first — then select Insert row above or below',
+              });
+              return;
+            }
+            const tc = selectedRowsForInsert[0];
+            if (!insertToolbarCanInsert) {
+              addToast({
+                type: 'warning',
+                message: 'Cannot insert — must be owner of test case and set must not be running/pending',
+              });
+              return;
+            }
+            if (position === 'above') handleInsertRowAboveRawTc(tc);
+            else handleInsertRowBelowRawTc(tc);
+          };
+
           return (
             <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
               <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-600">
@@ -4223,13 +4462,20 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
               </div>
               <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-700 flex flex-wrap items-center gap-3">
                 <select
-                  value={libraryCreatedByFilter}
-                  onChange={(e) => setLibraryCreatedByFilter(e.target.value)}
+                  value={libraryTestCasesFilter === 'mine' ? '__active__' : libraryTestCasesFilter}
+                  onChange={(e) => setLibraryTestCasesFilter(e.target.value)}
                   className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800"
-                  title="Mine = this profile only. All / Shared = load every profile’s saved test cases from this server (GET /profiles/all-test-cases)."
+                  title="Filter test cases by owner (profile). All owners loads server snapshot (GET /profiles/all-test-cases)."
                 >
-                  <option value="all">All</option>
-                  <option value="mine">Mine</option>
+                  <option value="all">All owners</option>
+                  <option value="__active__">{resolveOwnerDisplayName(activeProfileId, ownerLabelCtx) || activeProfile?.name || 'My profile'}</option>
+                  {allOwnerProfiles
+                    .filter((p) => String(p?.id) !== String(activeProfileId))
+                    .map((p) => (
+                      <option key={`tc-owner-${p.id}`} value={String(p.id)}>
+                        {p.name || p.id}
+                      </option>
+                    ))}
                   <option value="shared">Shared with me</option>
                 </select>
                 <input
@@ -4246,6 +4492,75 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                   placeholder="Filter by tag"
                   className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 w-32"
                 />
+                {(() => {
+                  const selectedKey = String(libraryTcTagColorFilter || '').trim();
+                  const dotKey = TAG_PALETTE_MAP[selectedKey] ? selectedKey : 'mint';
+                  const isAll = !selectedKey;
+                  const q = libraryRawTcTagColorSearch.trim().toLowerCase();
+                  const keys = TAG_PALETTE_KEYS.filter((k) => !q || k.toLowerCase().includes(q));
+                  return (
+                    <div className="relative" data-raw-tc-tagcolor-dropdown-root>
+                      <button
+                        type="button"
+                        onClick={() => setLibraryRawTcTagColorDropdownOpen((v) => !v)}
+                        className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 inline-flex items-center gap-2"
+                        title="Tag color"
+                      >
+                        <span
+                          className={`inline-flex w-2.5 h-2.5 rounded-full ${isAll ? 'bg-slate-400 dark:bg-slate-600' : (TAG_SWATCH_DOT_CLASS[dotKey] || TAG_SWATCH_DOT_CLASS.mint)}`}
+                          aria-hidden
+                        />
+                        <span className="sr-only">{isAll ? 'All tag colors' : selectedKey}</span>
+                      </button>
+                      {libraryRawTcTagColorDropdownOpen && (
+                        <div className="absolute left-0 top-full mt-2 z-50 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg w-[180px] max-h-[320px] overflow-y-auto">
+                          <div className="px-3 py-2 text-[11px] font-semibold text-slate-500 dark:text-slate-400">Tag color</div>
+                          <div className="px-2 pb-2">
+                            <input
+                              type="text"
+                              value={libraryRawTcTagColorSearch}
+                              onChange={(e) => setLibraryRawTcTagColorSearch(e.target.value)}
+                              placeholder="Search color…"
+                              className="w-full px-2 py-1.5 text-xs rounded-md border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200"
+                            />
+                          </div>
+                          <div className="p-2 space-y-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setLibraryTcTagColorFilter('');
+                                setLibraryRawTcTagColorDropdownOpen(false);
+                              }}
+                              className={`w-full flex items-center justify-start px-2 py-2 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 ${isAll ? 'bg-slate-100 dark:bg-slate-700' : ''}`}
+                              title="All tag colors"
+                            >
+                              <span className="inline-flex w-2.5 h-2.5 rounded-full bg-slate-400 dark:bg-slate-600" aria-hidden />
+                              <span className="ml-2 text-xs text-slate-700 dark:text-slate-200">All</span>
+                            </button>
+                            {keys.map((k) => {
+                              const isSelected = selectedKey === k;
+                              return (
+                                <button
+                                  key={k}
+                                  type="button"
+                                  onClick={() => {
+                                    setLibraryTcTagColorFilter(k);
+                                    setLibraryRawTcTagColorDropdownOpen(false);
+                                  }}
+                                  className={`w-full flex items-center justify-start px-2 py-2 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 ${isSelected ? 'bg-slate-100 dark:bg-slate-700' : ''}`}
+                                  title={k}
+                                >
+                                  <span className={`inline-flex w-2.5 h-2.5 rounded-full ${TAG_SWATCH_DOT_CLASS[k] || TAG_SWATCH_DOT_CLASS.mint}`} aria-hidden />
+                                  <span className="ml-2 text-xs text-slate-700 dark:text-slate-200">{k}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
                 <select
                   value={libraryTcStatusFilter}
                   onChange={(e) => setLibraryTcStatusFilter(e.target.value)}
@@ -4256,6 +4571,48 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                   <option value="running">Running</option>
                   <option value="completed">Completed</option>
                 </select>
+                <div className="relative" data-library-raw-tc-insert-menu>
+                  <button
+                    type="button"
+                    onClick={() => setLibraryRawTcInsertMenuOpen((v) => !v)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/80 transition-colors"
+                    title={
+                      insertToolbarCanInsert && insertAnchorTc
+                        ? 'Insert row above/below selected row (Excel-style)'
+                        : 'เลือกแถวเดียวในกริดก่อน — แล้วแทรกเหนือหรือใต้แถวนั้น'
+                    }
+                  >
+                    <Plus size={14} strokeWidth={2.5} className="shrink-0 opacity-80" />
+                    <span className="font-medium">Insert</span>
+                    <ChevronDown size={14} className="shrink-0 opacity-70" />
+                  </button>
+                  {libraryRawTcInsertMenuOpen && (
+                    <div className="absolute left-0 top-full mt-1 z-50 min-w-[220px] rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-lg py-1 text-left">
+                      <button
+                        type="button"
+                        onClick={() => runInsertRowFromToolbar('above')}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/80 text-left"
+                      >
+                        <ArrowUpFromLine size={16} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                        <span>
+                          <span className="font-medium block">Insert row above</span>
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400">Insert row above selected row</span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => runInsertRowFromToolbar('below')}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/80 text-left border-t border-slate-100 dark:border-slate-700"
+                      >
+                        <ArrowDownFromLine size={16} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                        <span>
+                          <span className="font-medium block">Insert row below</span>
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400">Insert row below selected row</span>
+                        </span>
+                      </button>
+                    </div>
+                  )}
+                </div>
                 <button
                   type="button"
                   onClick={handleDeleteSelected}
@@ -4281,7 +4638,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                 )}
               </div>
               <div className="flex flex-col xl:flex-row gap-4 px-4 pb-4 xl:items-start">
-                {libraryCreatedByFilter !== 'mine' && !globalTestCaseDataLoaded && (
+                {libraryTestCasesFilter !== 'mine' &&
+                  libraryTestCasesFilter !== '__active__' &&
+                  !globalTestCaseDataLoaded && (
                   <div className="w-full text-xs text-amber-600 dark:text-amber-400 px-1">
                     Syncing server snapshot… (local + server rows shown)
                   </div>
@@ -4329,7 +4688,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                         </td>
                       </tr>
                     ) : (
-                      libraryFilteredRows.map((tc, idx) => {
+                      libraryFilteredRows.flatMap((tc, idx) => {
                         const key = tc._key || `row-${idx}`;
                         const isSelected = selectedSet.has(key);
                         const isRowSelectionDisabled = isTcSelectionDisabled(tc);
@@ -4339,7 +4698,8 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                           tc._source === 'current' && tc.id && testCasePendingById?.[String(tc.id)];
                         const historyCount = getTestCaseHistory(tc).length;
                         const dimProcessRow = isTcInProcess && !isRowSelectionDisabled;
-                        return (
+
+                        return [
                           <tr
                             key={key}
                             title={
@@ -4920,19 +5280,19 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                                 {isTcSystemLocked(tc) ? <Copy size={16} /> : <Pencil size={16} />}
                               </button>
                             </td>
-                            <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-center">
+                            <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-center w-20">
                               <button
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); setTestCaseHistoryFor({ tc }); }}
-                                className="inline-flex items-center justify-center gap-1 px-1.5 py-1 rounded text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+                                className="inline-flex items-center justify-center gap-1 px-1 py-0.5 rounded text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
                                 title="View job/set history for this test case"
                               >
                                 <History size={14} />
                                 {historyCount > 0 && <span className="text-[10px] font-medium">{historyCount}</span>}
                               </button>
                             </td>
-                          </tr>
-                        );
+                          </tr>,
+                        ];
                       })
                     )}
                   </tbody>

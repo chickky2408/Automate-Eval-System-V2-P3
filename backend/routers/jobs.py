@@ -90,16 +90,36 @@ def _to_iso(dt: Optional[datetime]) -> Optional[str]:
     return dt.isoformat() + "Z"
 
 
+def _collect_job_board_ids(job) -> List[str]:
+    """IDs to show when meta.boards is empty: assigned, explicit target, and broadcast targets."""
+    ids: List[str] = []
+    aid = getattr(job, "assigned_board_id", None)
+    if aid:
+        ids.append(str(aid))
+    tid = getattr(job, "target_board_id", None)
+    if tid:
+        ids.append(str(tid))
+    raw_list = getattr(job, "target_board_ids", None) or []
+    if isinstance(raw_list, list):
+        for x in raw_list:
+            if x:
+                ids.append(str(x))
+    seen = set()
+    out: List[str] = []
+    for i in ids:
+        if i not in seen:
+            seen.add(i)
+            out.append(i)
+    return out
+
+
 async def _resolve_boards(job, meta: dict) -> List[str]:
     boards = list(meta.get("boards") or [])
     if boards:
         return boards
 
-    board_ids = [job.assigned_board_id or job.target_board_id]
-    resolved = []
-    for board_id in board_ids:
-        if not board_id:
-            continue
+    resolved: List[str] = []
+    for board_id in _collect_job_board_ids(job):
         board = await board_manager.get_board(board_id)
         resolved.append(board.name if board else board_id)
     return resolved
@@ -130,11 +150,18 @@ async def _build_fe_job(job, profile_name_map: Optional[Dict[str, str]] = None) 
         default_file_name=job.vcd_filename,
         pairs_data=getattr(job, "pairs_data", None),  # Restore from DB after restart
     )
-    if job.tag:
-        meta.setdefault("tag", job.tag)
-    tc = getattr(job, "tag_color", None)
-    if tc:
-        meta.setdefault("tagColor", tc)
+    # ORM tag/tag_color are persisted; in-memory meta often has tag=None from create_from_payload.
+    # setdefault() does NOT override None — merge explicitly so list_jobs returns tags after restart.
+    orm_tag = (getattr(job, "tag", None) or "").strip() or None
+    if orm_tag and not (meta.get("tag") or "").strip():
+        meta["tag"] = orm_tag
+    orm_tc = (getattr(job, "tag_color", None) or "").strip() or None
+    if orm_tc and not (meta.get("tagColor") or "").strip():
+        meta["tagColor"] = orm_tc
+    # Rebuild tags[] for FE when only legacy DB columns exist (multi-tag JSON is not on ORM).
+    tags_meta = meta.get("tags")
+    if orm_tag and (not isinstance(tags_meta, list) or len(tags_meta) == 0):
+        meta["tags"] = [{"tag": orm_tag, "tagColor": orm_tc or None}]
     if job.client_id:
         meta["clientId"] = job.client_id
     pid = getattr(job, "profile_id", None)
