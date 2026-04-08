@@ -688,6 +688,40 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
     }, 1600);
     return () => clearTimeout(t);
   }, [pointerLibraryTcKey, pointerLibrarySetId]);
+
+  const openTcTagEditorFromAnywhere = useCallback((tcLike) => {
+    const nm = String(tcLike?.name || '').trim();
+    const v = String(tcLike?.vcdName || '').trim();
+    const b = String(tcLike?.binName || '').trim();
+    const l = String(tcLike?.linName || '').trim();
+    const idStr = tcLike?.id != null ? String(tcLike.id) : '';
+    const row =
+      (libraryRawRows || []).find((r) => (idStr && r?.id != null && String(r.id) === idStr)) ||
+      (libraryRawRows || []).find((r) => {
+        if (nm && String(r?.name || '').trim() !== nm) return false;
+        if (v && String(r?.vcdName || '').trim() !== v) return false;
+        if (b && String(r?.binName || '').trim() !== b) return false;
+        if (l && String(r?.linName || '').trim() !== l) return false;
+        return true;
+      }) ||
+      null;
+    if (!row?._key) {
+      setLibraryView('rawTestCases');
+      return;
+    }
+    setLibraryView('rawTestCases');
+    setSelectedLibraryTcKeys([row._key]);
+    setPointerLibraryTcKey(row._key);
+    setLibraryRawTcTagOverflowKey(row._key);
+    queueMicrotask(() => {
+      try {
+        const el = document.querySelector(`[data-library-tc-row-key="${String(row._key)}"]`);
+        el?.scrollIntoView?.({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+      } catch {
+        // ignore
+      }
+    });
+  }, []);
   const [libraryRawTcTagPlusKey, setLibraryRawTcTagPlusKey] = useState(null);
   const [libraryRawTcTagPlusDraft, setLibraryRawTcTagPlusDraft] = useState('');
   const [libraryRawTcTagHistoryOpenKey, setLibraryRawTcTagHistoryOpenKey] = useState(null);
@@ -3717,23 +3751,31 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                             const raw = (set.tag || '').trim();
                             const tags = splitTagsComma(raw);
                             if (!tags.length) {
-                              return <span className="text-[11px] text-slate-400 dark:text-slate-500">No tag</span>;
+                              return (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border border-dashed border-slate-400/60 text-slate-400 dark:text-slate-500">
+                                  No tag
+                                </span>
+                              );
                             }
                             const colors = normalizeTagColorList(
                               { tagColor: set.tagColor, tagColorList: set.tagColorList },
                               tags.length
                             );
+                            const firstCls = jobTagPillClasses(colors[0] || set.tagColor || 'mint');
+                            const more = tags.length > 1;
                             return (
-                              <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-                                {tags.map((t, ti) => (
-                                  <span
-                                    key={`${set.id}-settag-${ti}`}
-                                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${jobTagPillClasses(colors[ti])}`}
-                                    title="Tag set (same as Run Set / job tag when synced)"
-                                  >
-                                    {t}
+                              <div className="flex flex-wrap items-center gap-1 min-w-0">
+                                <span
+                                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border max-w-[160px] truncate ${firstCls}`}
+                                  title={tags[0]}
+                                >
+                                  {tags[0]}
+                                </span>
+                                {more ? (
+                                  <span className="text-[11px] text-slate-400 dark:text-slate-500" title={tags.join(', ')}>
+                                    … +{tags.length - 1}
                                   </span>
-                                ))}
+                                ) : null}
                               </div>
                             );
                           })()}
@@ -4024,23 +4066,48 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                                         const rawTag = (tc.extraColumns && (tc.extraColumns.tag || tc.extraColumns.Tag)) || '';
                                         const tags = splitTags(rawTag);
                                         if (!tags.length) {
-                                          return <span className="text-slate-400 text-xs">No tag</span>;
+                                          return (
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                openTcTagEditorFromAnywhere(tc);
+                                              }}
+                                              className="inline-flex items-center px-2 py-0.5 rounded-full border border-dashed border-slate-400/50 text-[11px] text-slate-400 dark:text-slate-500 hover:border-slate-300/70 hover:text-slate-300 transition-colors"
+                                              title="Edit tags"
+                                            >
+                                              No tag
+                                            </button>
+                                          );
                                         }
                                         const colors = normalizeTagColorList(tc.extraColumns || {}, tags.length);
                                         const firstClass = TAG_PALETTE_MAP[colors[0]] || TAG_PALETTE_MAP.mint;
                                         const more = tags.length > 1;
                                         return (
                                           <div className="flex flex-wrap items-center gap-1 min-w-0">
-                                            <span
-                                              className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${firstClass}`}
-                                              title={tags[0]}
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                openTcTagEditorFromAnywhere(tc);
+                                              }}
+                                              className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border max-w-[160px] truncate hover:brightness-95 ${firstClass}`}
+                                              title="Edit tags"
                                             >
                                               <span className="max-w-[160px] truncate">{tags[0]}</span>
-                                            </span>
+                                            </button>
                                             {more ? (
-                                              <span className="text-[11px] text-slate-400" title={tags.join(', ')}>
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  openTcTagEditorFromAnywhere(tc);
+                                                }}
+                                                className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold border border-slate-200 dark:border-slate-700 bg-white/60 dark:bg-slate-800 text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700"
+                                                title={tags.join(', ')}
+                                              >
                                                 … +{tags.length - 1}
-                                              </span>
+                                              </button>
                                             ) : null}
                                           </div>
                                         );
