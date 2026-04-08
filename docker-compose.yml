@@ -9,7 +9,7 @@ services:
   eval:
     build: .
     ports:
-      - "8000:8000"
+      - "8001:8000"
     environment:
       USE_SQLITE_DEMO: "1"
     # volumes:
