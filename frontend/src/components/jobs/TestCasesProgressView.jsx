@@ -22,9 +22,7 @@ const TestCasesProgressView = ({
   onOpenInLibrary, // open in File Library (legacy)
   onOpenInTestCasesLibrary, // navigate to Test Cases tab and auto-select this test case row
   onDeleteFile, // remove a pending test case from this batch only
-  // Report batch actions (show at top only; when provided, show Select all / Clear / Download report)
-  onReportSelectAll,
-  onReportClear,
+  // Report: Download report in list header (per-row report checkboxes still drive "selected" count)
   onReportDownload,
   reportSelectedCount = 0,
 }) => {
@@ -76,22 +74,18 @@ const TestCasesProgressView = ({
   return (
   <div className="border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900">
       <div className="p-4 sm:p-6 max-w-6xl mx-auto">
-        {/* Header: title (details are controlled by outer job card) */}
+        {/* Summary: boards + test case counts (job name shown on outer card) */}
         <div className="mb-4">
-          <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
-            <h4 className="text-base font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2 min-w-0">
-              <Activity size={18} className="text-blue-600 dark:text-blue-400 shrink-0" />
-              <span className="truncate">Test Cases Progress - {job.name}</span>
-            </h4>
-          </div>
-
-          <>
-              {/* Batch summary (Firmware, Boards, Progress, Files, date) */}
           <div className="flex items-center gap-3 text-xs text-slate-600 dark:text-slate-300 flex-wrap mb-3">
-                <span>Firmware: <strong className="text-slate-800 dark:text-slate-100">{job.firmware}</strong></span>
-                <span>Boards: <strong className="text-slate-800 dark:text-slate-100">{job.boards?.join(', ')}</strong></span>
-                <span>Progress: <strong className="text-slate-800 dark:text-slate-100">{job.progress}%</strong></span>
-                <span>Files: <strong className="text-slate-800 dark:text-slate-100">{job.completedFiles}/{job.totalFiles}</strong></span>
+                <span className="text-slate-600 dark:text-slate-300">
+                  Boards:{' '}
+                  <strong className="text-slate-800 dark:text-slate-100">{job.boards?.join(', ') || '—'}</strong>
+                  <span className="mx-2 text-slate-400 dark:text-slate-600">·</span>
+                  Test cases:{' '}
+                  <strong className="text-slate-800 dark:text-slate-100">
+                    {job.completedFiles}/{job.totalFiles}
+                  </strong>
+                </span>
                 {(job.completedAt || job.startedAt) && (
                   <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded text-xs font-semibold">
                     {(() => {
@@ -107,7 +101,6 @@ const TestCasesProgressView = ({
                   </span>
                 )}
               </div>
-            </>
           {/* Statistics Cards */}
           <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-3">
                 <div className="bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm shadow-slate-900/40 min-w-0">
@@ -122,17 +115,17 @@ const TestCasesProgressView = ({
                   <div className="text-[10px] font-bold text-blue-700 dark:text-sky-400 uppercase tracking-tight truncate">Run</div>
                   <div className="text-lg font-bold text-blue-700 dark:text-sky-300">{files.filter(f => f.status === 'running').length}</div>
                 </div>
-                <div className="bg-yellow-50 p-2 rounded-lg border border-yellow-200 min-w-0">
-                  <div className="text-[10px] font-bold text-yellow-600 uppercase tracking-tight truncate">Pending</div>
-                  <div className="text-lg font-bold text-yellow-700">{files.filter(f => f.status === 'pending').length}</div>
+                <div className="bg-yellow-50 dark:bg-amber-950/35 p-2 rounded-lg border border-yellow-200 dark:border-amber-700/60 min-w-0">
+                  <div className="text-[10px] font-bold text-yellow-600 dark:text-amber-300 uppercase tracking-tight truncate">Pending</div>
+                  <div className="text-lg font-bold text-yellow-700 dark:text-amber-200">{files.filter(f => f.status === 'pending').length}</div>
                 </div>
-                <div className="bg-red-50 p-2 rounded-lg border border-red-200 min-w-0">
-                  <div className="text-[10px] font-bold text-red-600 uppercase tracking-tight truncate">Failed</div>
-                  <div className="text-lg font-bold text-red-700">{files.filter(f => f.result === 'fail').length}</div>
+                <div className="bg-red-50 dark:bg-red-950/35 p-2 rounded-lg border border-red-200 dark:border-red-800/60 min-w-0">
+                  <div className="text-[10px] font-bold text-red-600 dark:text-red-300 uppercase tracking-tight truncate">Failed</div>
+                  <div className="text-lg font-bold text-red-700 dark:text-red-200">{files.filter(f => f.result === 'fail').length}</div>
                 </div>
-                <div className="bg-slate-50 p-2 rounded-lg border border-slate-200 min-w-0">
-                  <div className="text-[10px] font-bold text-slate-600 uppercase tracking-tight truncate">Stop</div>
-                  <div className="text-lg font-bold text-slate-700">{files.filter(f => f.status === 'stopped').length}</div>
+                <div className="bg-slate-50 dark:bg-slate-800/80 p-2 rounded-lg border border-slate-200 dark:border-slate-600 min-w-0">
+                  <div className="text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-tight truncate">Stop</div>
+                  <div className="text-lg font-bold text-slate-700 dark:text-slate-200">{files.filter(f => f.status === 'stopped').length}</div>
                 </div>
               </div>
           {/* Overall progress bar removed per UX request */}
@@ -140,7 +133,7 @@ const TestCasesProgressView = ({
           {/* Search and Filter */}
           <div className="flex gap-3 items-center">
             <div className="flex-1 relative">
-              <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
               <input
                 type="text"
                 placeholder="Search by name or tag..."
@@ -154,7 +147,7 @@ const TestCasesProgressView = ({
             <select
               value={filter}
               onChange={(e) => onFilterChange(e.target.value)}
-              className="px-4 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="all">All Status</option>
               <option value="running">Running</option>
@@ -228,10 +221,10 @@ const TestCasesProgressView = ({
         </div>
         
         {/* Test Cases List */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-600 shadow-sm dark:shadow-slate-950/40">
           {/* Select All Header (if there are files) */}
           {filteredFiles.length > 0 && (
-            <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between flex-wrap gap-2">
+            <div className="px-4 py-2 bg-slate-50 dark:bg-slate-800/95 border-b border-slate-200 dark:border-slate-600 flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -243,10 +236,10 @@ const TestCasesProgressView = ({
                       setSelectedFileIds(filteredFiles.map(f => f.id));
                     }
                   }}
-                  className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                  className="w-4 h-4 rounded border-slate-300 dark:border-slate-500 dark:bg-slate-900 text-blue-600 focus:ring-blue-500 cursor-pointer"
                   title="Select all test cases"
                 />
-                <span className="text-xs font-semibold text-slate-600">
+                <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
                   {selectedFileIds.length > 0 
                     ? `${selectedFileIds.length} of ${filteredFiles.length} selected`
                     : `Select All (${filteredFiles.length} test cases)`}
@@ -254,12 +247,10 @@ const TestCasesProgressView = ({
               </div>
               {typeof onReportDownload === 'function' && (
                 <div className="flex items-center gap-2 flex-wrap">
-                  <button type="button" onClick={() => onReportSelectAll?.()} className="text-xs font-bold text-blue-600 hover:text-blue-800 dark:text-blue-400">Select all</button>
-                  <button type="button" onClick={() => onReportClear?.()} className="text-xs font-bold text-slate-600 hover:text-slate-800 dark:text-slate-400">Clear</button>
                   <button
                     type="button"
                     onClick={() => onReportDownload?.()}
-                    className="text-xs font-bold text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 flex items-center gap-1"
+                    className="text-xs font-bold text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300 flex items-center gap-1"
                   >
                     <Download size={12} />
                     Download report {reportSelectedCount > 0 ? `(${reportSelectedCount} selected)` : '(all)'}
@@ -270,13 +261,13 @@ const TestCasesProgressView = ({
           )}
           <div className="max-h-[600px] overflow-y-auto">
             {filteredFiles.length === 0 ? (
-              <div className="p-12 text-center text-slate-400">
+              <div className="p-12 text-center text-slate-400 dark:text-slate-500">
                 <FileCode size={48} className="mx-auto mb-4 opacity-50" />
                 <p>No test cases found</p>
                 {search && <p className="text-xs mt-2">Try adjusting your search or filter</p>}
               </div>
             ) : (
-              <div className="divide-y divide-slate-100">
+              <div className="divide-y divide-slate-100 dark:divide-slate-600/80">
                 {filteredFiles.map((file, index) => {
                   const isRunning = file.status === 'running';
                   const isFailed = file.result === 'fail' || file.status === 'error';
@@ -320,10 +311,10 @@ const TestCasesProgressView = ({
                       ref={isRunning ? runningFileRef : null}
                       className={`p-4 transition-all ${
                         isRunning 
-                          ? 'bg-blue-50 border-l-4 border-blue-500' 
+                          ? 'bg-blue-50 dark:bg-blue-950/35 border-l-4 border-blue-500' 
                           : selectedFileIds.includes(file.id)
-                          ? 'bg-blue-50/50 border-l-2 border-blue-300'
-                          : 'hover:bg-slate-50'
+                          ? 'bg-blue-50/50 dark:bg-blue-950/25 border-l-2 border-blue-300 dark:border-blue-500'
+                          : 'hover:bg-slate-50 dark:hover:bg-slate-700/35'
                       }`}
                     >
                       <div className="flex items-center gap-4 min-w-0">
@@ -339,7 +330,7 @@ const TestCasesProgressView = ({
                                 : [...prev, file.id]
                             );
                           }}
-                          className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                          className="w-5 h-5 rounded border-slate-300 dark:border-slate-500 dark:bg-slate-900 text-blue-600 focus:ring-blue-500 cursor-pointer"
                           title="Select this test case"
                         />
                         
@@ -351,7 +342,7 @@ const TestCasesProgressView = ({
                             ? 'bg-emerald-500 text-white'
                             : file.status === 'stopped'
                             ? 'bg-red-500 text-white'
-                            : 'bg-slate-200 text-slate-600'
+                            : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-200'
                         }`}>
                           {file.order || fileIndex + 1}
                         </div>
@@ -378,25 +369,25 @@ const TestCasesProgressView = ({
                               title={getTestCaseDisplayName(file)}
                             >
                               <FileCode size={18} className="text-blue-500 shrink-0" />
-                              <span className="font-bold text-slate-800 text-sm truncate group-hover:underline">
+                              <span className="font-bold text-slate-800 dark:text-slate-100 text-sm truncate group-hover:underline">
                                 {getTestCaseDisplayName(file)}
                               </span>
                             </button>
                             {/* VCD/ERoM/ULP as secondary when different from display name */}
                             {file.vcd && (file.testCaseName !== file.vcd) && (
-                              <div className="flex items-center gap-1 min-w-0 max-w-full text-xs text-slate-500">
+                              <div className="flex items-center gap-1 min-w-0 max-w-full text-xs text-slate-500 dark:text-slate-400">
                                 <span>VCD: {file.vcd}</span>
                               </div>
                             )}
                             {file.erom && (
-                              <div className="flex items-center gap-1 min-w-0 max-w-full text-xs text-slate-500">
-                                <span className="text-slate-400 shrink-0">+</span>
+                              <div className="flex items-center gap-1 min-w-0 max-w-full text-xs text-slate-500 dark:text-slate-400">
+                                <span className="text-slate-400 dark:text-slate-500 shrink-0">+</span>
                                 <span title={file.erom}>{file.erom}</span>
                               </div>
                             )}
                             {file.ulp && (
-                              <div className="flex items-center gap-1 min-w-0 max-w-full text-xs text-slate-500">
-                                <span className="text-slate-400 shrink-0">+</span>
+                              <div className="flex items-center gap-1 min-w-0 max-w-full text-xs text-slate-500 dark:text-slate-400">
+                                <span className="text-slate-400 dark:text-slate-500 shrink-0">+</span>
                                 <span title={file.ulp}>{file.ulp}</span>
                               </div>
                             )}
@@ -406,7 +397,7 @@ const TestCasesProgressView = ({
                               </span>
                             )}
                           </div>
-                          <div className="text-xs text-slate-500">
+                          <div className="text-xs text-slate-500 dark:text-slate-400">
                             Test Case #{file.order || fileIndex + 1} of {files.length}
                             {file.try_count && file.try_count > 1 && ` • ${file.try_count} rounds`}
                           </div>
@@ -416,19 +407,19 @@ const TestCasesProgressView = ({
                         <div className="flex items-center gap-2 shrink-0">
                           {!isRunning && (
                           <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase border-2 ${
-                            file.status === 'completed' ? 'bg-emerald-100 text-emerald-700 border-emerald-300' :
-                            file.status === 'stopped' ? 'bg-red-100 text-red-700 border-red-300' :
-                            file.status === 'pending' ? 'bg-yellow-100 text-yellow-700 border-yellow-300' :
-                            'bg-slate-100 text-slate-700 border-slate-300'
+                            file.status === 'completed' ? 'bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-700' :
+                            file.status === 'stopped' ? 'bg-red-100 text-red-700 border-red-300 dark:bg-red-950/50 dark:text-red-300 dark:border-red-700' :
+                            file.status === 'pending' ? 'bg-yellow-100 text-yellow-700 border-yellow-300 dark:bg-amber-950/45 dark:text-amber-200 dark:border-amber-700' :
+                            'bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-700/80 dark:text-slate-200 dark:border-slate-500'
                           }`}>
                             {file.status}
                           </span>
                           )}
                           {file.result && (
                             <span className={`px-3 py-1 rounded text-xs font-bold ${
-                              file.result === 'pass' ? 'bg-emerald-50 text-emerald-700' :
-                              file.result === 'fail' ? 'bg-red-50 text-red-700' :
-                              'bg-slate-50 text-slate-400'
+                              file.result === 'pass' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' :
+                              file.result === 'fail' ? 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300' :
+                              'bg-slate-50 text-slate-400 dark:bg-slate-800 dark:text-slate-500'
                             }`}>
                               {file.result.toUpperCase()}
                             </span>
@@ -449,7 +440,7 @@ const TestCasesProgressView = ({
                         {isRunning && (
                           <button
                             onClick={() => onStopFile(file.id)}
-                            className="px-3 py-1.5 bg-red-100 text-red-700 rounded-lg text-xs font-bold hover:bg-red-200 transition-all flex items-center gap-1"
+                            className="px-3 py-1.5 bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300 rounded-lg text-xs font-bold hover:bg-red-200 dark:hover:bg-red-900/40 transition-all flex items-center gap-1"
                           >
                             <StopCircle size={14} />
                             Stop
@@ -458,7 +449,7 @@ const TestCasesProgressView = ({
                         {file.status === 'stopped' && onRerunFile && (
                           <button
                             onClick={() => onRerunFile(file.id)}
-                            className="px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-lg text-xs font-bold hover:bg-emerald-200 transition-all flex items-center gap-1"
+                            className="px-3 py-1.5 bg-emerald-100 text-emerald-700 dark:bg-emerald-950/45 dark:text-emerald-300 rounded-lg text-xs font-bold hover:bg-emerald-200 dark:hover:bg-emerald-900/35 transition-all flex items-center gap-1"
                             title="Re-run this test case"
                           >
                             <Play size={14} />
@@ -476,10 +467,10 @@ const TestCasesProgressView = ({
         
         {/* Current Running Indicator */}
         {currentRunningIndex >= 0 && (
-          <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-lg">
             <div className="flex items-center gap-2 text-sm min-w-0">
-              <Activity size={16} className="text-blue-600 animate-pulse shrink-0" />
-              <span className="font-bold text-blue-700 min-w-0 truncate" title={getTestCaseDisplayName(filteredFiles[currentRunningIndex])}>
+              <Activity size={16} className="text-blue-600 dark:text-blue-400 animate-pulse shrink-0" />
+              <span className="font-bold text-blue-700 dark:text-blue-200 min-w-0 truncate" title={getTestCaseDisplayName(filteredFiles[currentRunningIndex])}>
                 Currently running: Test Case #{filteredFiles[currentRunningIndex].order || currentRunningIndex + 1} — {getTestCaseDisplayName(filteredFiles[currentRunningIndex])}
               </span>
             </div>

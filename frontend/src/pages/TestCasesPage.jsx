@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
     ArrowUp, ArrowDown, Copy, FileUp, FolderOpen, Globe, GripVertical, Lock, Plus, Save, Trash2, X, Play
 } from 'lucide-react';
@@ -287,6 +288,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
   const libraryEditContext = useTestStore((s) => s.libraryEditContext);
   const clearLibraryEditContext = useTestStore((s) => s.clearLibraryEditContext);
   const testCaseLibraryFocusOnNavigate = useTestStore((s) => s.testCaseLibraryFocusOnNavigate);
+  const setTestCaseLibraryFocusOnNavigate = useTestStore((s) => s.setTestCaseLibraryFocusOnNavigate);
   const clearTestCaseLibraryFocusOnNavigate = useTestStore((s) => s.clearTestCaseLibraryFocusOnNavigate);
   const fileToTestCaseDraft = useTestStore((s) => s.fileToTestCaseDraft);
   const clearFileToTestCaseDraft = useTestStore((s) => s.clearFileToTestCaseDraft);
@@ -547,6 +549,20 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
   useEffect(() => {
     if (!libraryPickerOpen) libraryPickerDragSelectRef.current = false;
   }, [libraryPickerOpen]);
+
+  useEffect(() => {
+    if (tcTagOverflowTcId === null) return;
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      setTcTagOverflowTcId(null);
+      setTcTagModalAddDraft('');
+      setTcTagModalEditIndex(null);
+      setTcTagModalEditDraft('');
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [tcTagOverflowTcId]);
 
   // When navigating from Jobs (click test case name): auto-select the matching row so user sees which one was pointed to
   useEffect(() => {
@@ -1045,7 +1061,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
     return testCaseFileKeysInUseByBatch.has(baseKey);
   };
 
-  /** Tag column: first tag + … (if >1) + + — same idea as File Library; คลิก tag แรกหรือ … เปิด modal แก้ไขได้ */
+  /** Tag column: first tag + … (if ≥1 tag) + + — คลิก pill หรือ … เปิด modal (สี/แก้ชื่อ tag); ถ้ามีแค่ 1 tag ก็แสดง … เพื่อไม่ให้ user หาปุ่มไม่เจอ */
   const renderTestCaseTagCell = (tc) => {
     const raw = (tc.extraColumns && (tc.extraColumns.tag || tc.extraColumns.Tag)) || '';
     const tags = splitTags(raw);
@@ -1065,7 +1081,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
       setTcTagModalEditDraft('');
     };
 
-    const showEllipsis = tags.length > 1;
+    const showEllipsis = tags.length >= 1;
 
     return (
       <div className="flex flex-wrap items-center gap-1 min-w-0">
@@ -1116,7 +1132,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                   openTagModal();
                 }}
                 className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold border border-slate-200 dark:border-slate-700 bg-white/60 dark:bg-slate-800 text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 shrink-0"
-                title="Show all tags"
+                title="Tags & colors"
               >
                 …
               </button>
@@ -1911,39 +1927,114 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
       if (uploaded > 0) addToast({ type: 'success', message: `${uploaded} file(s) uploaded to library` });
     }
     if (toSave.length > 0) {
-      const existingSaved = useTestStore.getState().savedTestCases || [];
+      // Prevent duplicates by:
+      // - identical full file-set (VCD/ERoM/ULP + extra VCD2/ERoM2/ULP2/MDI..)
+      // - identical name (global)
+      const stateNow = useTestStore.getState();
+      const localSaved = Array.isArray(stateNow.savedTestCases) ? stateNow.savedTestCases : [];
+      const globalSaved = Array.isArray(stateNow.globalSavedTestCases) ? stateNow.globalSavedTestCases : [];
+      const existingSaved = [...localSaved, ...globalSaved];
       const existingByKey = new Map(
         existingSaved.map((t) => [getFullTestCaseFileKeyFromMerged(t, mergeCommandsIntoExtraForSave(t)), t])
       );
-      const skipped = [];
+      const usedNames = stateNow.getAllGlobalTestCaseNames(null, { extraTestCaseLists: [] });
+      const skipped = []; // { reason, tcName?, existingId?, existingName? }
       const created = [];
       toSave.forEach((tc) => {
         const { id, commands, ...rest } = tc;
+        const nm = String(rest?.name || '').trim();
+        if (nm && usedNames.has(nm)) {
+          skipped.push({ reason: 'name', tcName: nm });
+          return;
+        }
         const extraColumns = mergeCommandsIntoExtraForSave(tc);
         const key = getFullTestCaseFileKeyFromMerged(rest, extraColumns);
-        if (existingByKey.get(key)) {
-          skipped.push(key);
+        const existing = existingByKey.get(key);
+        if (existing) {
+          skipped.push({
+            reason: 'files',
+            tcName: nm,
+            existingId: String(existing?.id || ''),
+            existingName: String(existing?.name || '').trim() || String(existing?.id || ''),
+          });
           return;
         }
         const newId = addSavedTestCase({
           ...rest,
           extraColumns: Object.keys(extraColumns).length ? extraColumns : undefined,
         });
-        created.push(newId);
+        // addSavedTestCase can still refuse identical saves (safety net) and return existing id.
+        if (localSaved.some((t) => String(t.id) === String(newId)) || globalSaved.some((t) => String(t.id) === String(newId))) {
+          skipped.push({ reason: 'files', tcName: nm, existingId: String(newId), existingName: String(newId) });
+        } else {
+          created.push(newId);
+        }
       });
-      setPendingDraftTestCases([]);
-      setTableClearedMode(true);
-      setSetupClearedPersisted(activeProfileId, true);
-      setSelectedTestCaseIds([]);
+      // Only clear drafts if we actually created something (otherwise user can fix & retry)
+      if (created.length > 0) {
+        setPendingDraftTestCases([]);
+        setTableClearedMode(true);
+        setSetupClearedPersisted(activeProfileId, true);
+        setSelectedTestCaseIds([]);
+      }
       if (refreshFiles) await refreshFiles();
       const total = useTestStore.getState().savedTestCases?.length || 0;
       if (created.length > 0) {
         addToast({ type: 'success', message: `Test cases saved to library (${total} case(s))` });
-        if (skipped.length > 0) {
-          addToast({ type: 'info', message: `${skipped.length} test case(s) already existed (same VCD/ERoM/ULP) — not duplicated` });
+        const skippedFiles = skipped.filter((s) => s.reason === 'files');
+        const skippedNames = skipped.filter((s) => s.reason === 'name');
+        if (skippedFiles.length > 0) {
+          const names = [...new Set(skippedFiles.map((s) => s.existingName).filter(Boolean))].slice(0, 3);
+          addToast({
+            type: 'info',
+            message: `${skippedFiles.length} test case(s) duplicate file-set — matches: ${names.join(', ')}${skippedFiles.length > names.length ? ' …' : ''}`,
+          });
+        }
+        if (skippedNames.length > 0) {
+          addToast({ type: 'warning', message: `${skippedNames.length} test case(s) have duplicate names — please rename before saving` });
         }
       } else if (skipped.length > 0) {
-        addToast({ type: 'info', message: `All ${skipped.length} test case(s) already in library — no new entries` });
+        const skippedFiles = skipped.filter((s) => s.reason === 'files');
+        const skippedNames = skipped.filter((s) => s.reason === 'name');
+        if (skippedFiles.length > 0 && skippedNames.length === 0) {
+          const names = [...new Set(skippedFiles.map((s) => s.existingName).filter(Boolean))].slice(0, 3);
+          addToast({
+            type: 'info',
+            message: `Duplicate file-set — matches: ${names.join(', ')}${skippedFiles.length > names.length ? ' …' : ''}`,
+          });
+        } else if (skippedNames.length > 0 && skippedFiles.length === 0) {
+          addToast({ type: 'warning', message: `All ${skippedNames.length} test case(s) have duplicate names — rename to save` });
+        } else {
+          addToast({ type: 'warning', message: `No new entries created — some are duplicate names and some are duplicate file-sets` });
+        }
+
+        // Pointer: auto-select the duplicate TC checkbox (if it exists in current table)
+        if (skippedFiles.length > 0) {
+          const first = skippedFiles.find((s) => s.existingId) || null;
+          if (first?.existingId) {
+            const found = (displayedSavedTestCases || []).find((t) => String(t.id) === String(first.existingId));
+            if (found) {
+              setSelectedTestCaseIds([found.id]);
+              setDuplicateHighlightIds([found.id]);
+              queueMicrotask(() => {
+                try {
+                  const el = document.querySelector(`[data-tc-row-id="${String(found.id)}"]`);
+                  if (el && typeof el.scrollIntoView === 'function') {
+                    el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+                  }
+                } catch {
+                  // ignore
+                }
+              });
+            }
+            setTestCaseLibraryFocusOnNavigate({
+              name: first.existingName || '',
+              vcdName: found?.vcdName || '',
+              binName: found?.binName || '',
+              linName: found?.linName || '',
+            });
+          }
+        }
       }
     } else {
       if (refreshFiles) await refreshFiles();
@@ -2494,8 +2585,10 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
           </div>
         </div>
       )}
-      {tcTagOverflowTcId && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+      {tcTagOverflowTcId !== null &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
           <div
             className="absolute inset-0 bg-black/50"
             onClick={() => {
@@ -2508,10 +2601,18 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
           />
           <div
             className="relative w-[min(520px,calc(100vw-2rem))] rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="test-case-tags-dialog-title"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2 flex-wrap overflow-visible">
-              <div className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">Tags</div>
+              <div
+                id="test-case-tags-dialog-title"
+                className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate"
+              >
+                Tags
+              </div>
               {(() => {
                 const hdr = displayedSavedTestCases.find((t) => String(t.id) === String(tcTagOverflowTcId));
                 const hdrLocked = !hdr || isTestCaseInUseByBatch(hdr) || isViewingShared;
@@ -2533,7 +2634,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                     <TagColorSwatchPicker
                       size="sm"
                       value={safeDisplayKey}
-                      menuZClass="z-[130]"
+                      menuZClass="z-[250]"
                       onChange={(k) => {
                         if (!hdr) return;
                         const r = (hdr.extraColumns && (hdr.extraColumns.tag || hdr.extraColumns.Tag)) || '';
@@ -2713,8 +2814,9 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
               })()}
             </div>
           </div>
-        </div>
-      )}
+        </div>,
+          document.body
+        )}
       {libraryPickerTcOverflowFileName && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
           <div
@@ -3111,6 +3213,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                   return (
                   <tr
                     key={tc.id}
+                    data-tc-row-id={String(tc.id)}
                     onDragEnter={(e) => e.preventDefault()}
                     onDragOver={(e) => handleRowDragOver(e, idx)}
                     onDrop={(e) => handleRowDrop(e, idx)}
@@ -3158,8 +3261,10 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                         title={isTestCaseInUseByBatch(tc) ? 'ล็อก — test case อยู่ใน process (running/pending)' : 'Use a unique name for this test case'}
                       />
                     </td>
-                    <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 min-w-[100px]">
-                      {renderTestCaseTagCell(tc)}
+                    <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 min-w-[120px] align-middle">
+                      <div className="flex items-center justify-center min-h-[30px]">
+                        {renderTestCaseTagCell(tc)}
+                      </div>
                     </td>
                     <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-500 dark:text-slate-400 text-xs text-center whitespace-nowrap">
                       {(tc.updatedAt || tc.createdAt) ? new Date(tc.updatedAt || tc.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '—'}
@@ -3484,37 +3589,18 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                     </span>
 
                     <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                      {/* Name row: input grows; tag strip must not shrink to 0 (was breaking + / tag clicks in Vertical) */}
+                      <div className="flex flex-wrap items-center gap-2">
                         <span className="text-xs font-semibold text-slate-500 shrink-0">#{displayIdx + 1}</span>
                         <input
                           type="text"
                           value={tc.name || ''}
                           onChange={(e) => handleNameChange(tc.id, e.target.value, tc.name || '')}
-                          className="flex-1 min-w-[120px] px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800 font-medium"
+                          className="min-w-[100px] flex-1 basis-0 px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800 font-medium"
                           placeholder="Test case name"
                           title="Use a unique name"
                         />
-                        {/* Tag: after name (same header) */}
-                        <div className="min-w-0">{renderTestCaseTagCell(tc)}</div>
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-xs text-slate-400">
-                          Date:{' '}
-                          {(tc.updatedAt || tc.createdAt)
-                            ? new Date(tc.updatedAt || tc.createdAt).toLocaleDateString(undefined, {
-                                year: 'numeric',
-                                month: 'short',
-                                day: 'numeric',
-                              })
-                            : '—'}
-                        </span>
-                        <span className="text-xs text-slate-500">Try: {tc.tryCount ?? 1}</span>
-                        {isTestCaseLocked(tc.id) && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-700 text-[10px] font-semibold">
-                            Locked in set
-                          </span>
-                        )}
+                        <div className="shrink-0 min-w-0 relative z-10">{renderTestCaseTagCell(tc)}</div>
                       </div>
                     </div>
 
@@ -3626,27 +3712,48 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                         </select>
                       </div>
                     </div>
-                    {tc.extraColumns && Object.keys(tc.extraColumns).length > 0 ? (
+                    {/* Date / Try / lock — full-width strip under files (not under name) */}
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-2 mt-1 border-t border-slate-100 dark:border-slate-800/90 text-[10px] text-slate-500 dark:text-slate-400">
+                      <span>
+                        Date:{' '}
+                        {(tc.updatedAt || tc.createdAt)
+                          ? new Date(tc.updatedAt || tc.createdAt).toLocaleDateString(undefined, {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric',
+                            })
+                          : '—'}
+                      </span>
+                      <span className="text-slate-400 dark:text-slate-500" aria-hidden>
+                        ·
+                      </span>
+                      <span>Try {tc.tryCount ?? 1}</span>
+                      {isTestCaseLocked(tc.id) && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-700 text-[10px] font-semibold">
+                          Locked in set
+                        </span>
+                      )}
+                    </div>
+                    {(() => {
+                      const verticalExtraRows = Object.entries(tc.extraColumns || {}).filter(([col, val]) => {
+                        if (isExtraColumnHiddenFromLibraryTable(col)) return false;
+                        const m = col.match(/^(VCD|ERoM|ULP|MDI)(\d+)$/);
+                        if (!m) return true;
+                        if (!String(val || '').trim()) return false;
+                        if (m[1] === 'MDI') {
+                          const idx = parseInt(m[2], 10) - 1;
+                          const mdis = (tc.commands || []).filter((c) => c.type === 'mdi');
+                          return idx >= mdis.length;
+                        }
+                        const type = m[1] === 'VCD' ? 'vcd' : m[1] === 'ERoM' ? 'erom' : 'ulp';
+                        const idx = parseInt(m[2], 10) - 2;
+                        const cmds = (tc.commands || []).filter((c) => c.type === type && (c.file || '').trim());
+                        return idx >= cmds.length;
+                      });
+                      if (verticalExtraRows.length === 0) return null;
+                      return (
                       <div className="grid grid-cols-1 gap-y-1.5">
-                        {Object.entries(tc.extraColumns)
-                          .filter(([col, val]) => {
-                            const m = col.match(/^(VCD|ERoM|ULP|MDI)(\d+)$/);
-                            if (!m) return true;
-                            // Avoid duplicate "empty" columns:
-                            // - The command section already renders dropdowns for added commands (even when file is empty)
-                            // - So in this extraColumns block, only show file columns when the value is not empty.
-                            if (!String(val || '').trim()) return false;
-                            if (m[1] === 'MDI') {
-                              const idx = parseInt(m[2], 10) - 1;
-                              const mdis = (tc.commands || []).filter((c) => c.type === 'mdi');
-                              return idx >= mdis.length;
-                            }
-                            const type = m[1] === 'VCD' ? 'vcd' : m[1] === 'ERoM' ? 'erom' : 'ulp';
-                            const idx = parseInt(m[2], 10) - 2;
-                            const cmds = (tc.commands || []).filter((c) => c.type === type && (c.file || '').trim());
-                            return idx >= cmds.length;
-                          })
-                          .map(([col, val]) => {
+                        {verticalExtraRows.map(([col, val]) => {
                           const isFileCol = /^(VCD|ERoM|ULP|MDI)\d+$/.test(col);
                           const fileList = col.startsWith('VCD') ? vcdFilesList : col.startsWith('ERoM') ? binFilesList : col.startsWith('MDI') ? mdiFilesList : linFilesList;
                           const displayVal = (() => {
@@ -3679,9 +3786,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                           return (
                             <div key={col} className="flex items-center gap-2 min-w-0">
                               <span className="text-xs font-semibold text-slate-500 shrink-0">{col}:</span>
-                              {/^tag$/i.test(col) ? (
-                                <div className="flex-1 min-w-0">{renderTestCaseTagCell(tc)}</div>
-                              ) : isFileCol ? (
+                              {isFileCol ? (
                                 <select
                                   value={displayVal}
                                   onChange={(e) => handleExtraColumnChange(tc.id, col, e.target.value)}
@@ -3714,7 +3819,8 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                           );
                         })}
                       </div>
-                    ) : null}
+                      );
+                    })()}
                   </div>
                   {/* Command section: compact — only + button when empty; list when commands exist */}
                   <div className="px-3 py-1 border-t border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/30">

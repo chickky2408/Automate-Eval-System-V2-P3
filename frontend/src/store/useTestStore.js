@@ -622,7 +622,8 @@ const getTestCaseFilesKey = (tc) => {
   const lin = normalizeFilenameForKey(tc.linName);
   const ex = tc.extraColumns && typeof tc.extraColumns === 'object' ? tc.extraColumns : {};
   const extraPairs = Object.keys(ex)
-    .filter((k) => /^(erom|ulp|mdi)\d+$/i.test(String(k)))
+    // include extra VCD/ERoM/ULP/MDI columns (e.g. VCD2, ERoM2, ULP2, MDI1)
+    .filter((k) => /^(vcd|erom|ulp|mdi)\d+$/i.test(String(k)))
     .map((k) => {
       const vv = normalizeFilenameForKey(ex[k]);
       return vv ? `${String(k).toUpperCase()}=${vv}` : null;
@@ -976,6 +977,32 @@ export const useTestStore = create((set, get) => {
           ? updater(prev)
           : { ...prev, ...(updater && typeof updater === 'object' ? updater : {}) };
       return { dashboardSystemSummary: next };
+    }),
+
+  /** Jobs Manager page — filters, expanded details, selection; persists across SPA tab switches (survives unmount) */
+  jobsPageSession: {
+    expandedJobs: [],
+    expandedDetailsJobs: [],
+    testCasesView: null,
+    testCasesFilter: 'all',
+    testCasesSearch: '',
+    selectedJobIds: [],
+    jobsSearch: '',
+    jobsStatusFilter: 'all',
+    jobsTagFilter: '',
+    jobsTagColorFilter: '', // '' = all palette colors
+    jobsTimeFilter: 'all',
+    editingTag: null,
+    tagInput: '',
+  },
+  setJobsPageSession: (updater) =>
+    set((state) => {
+      const prev = state.jobsPageSession;
+      const next =
+        typeof updater === 'function'
+          ? updater(prev)
+          : { ...prev, ...(updater && typeof updater === 'object' ? updater : {}) };
+      return { jobsPageSession: next };
     }),
 
   // When Library sends selected test cases to Run Set page (right panel)
@@ -1572,7 +1599,9 @@ export const useTestStore = create((set, get) => {
     });
     return id;
   },
-  updateSavedTestCase: (id, updates) => set((state) => {
+  updateSavedTestCase: (id, updates) => {
+    let blocked = false;
+    set((state) => {
     if (updates.name !== undefined) {
       const newName = normalizeTestCaseName(updates.name);
       if (newName) {
@@ -1584,6 +1613,7 @@ export const useTestStore = create((set, get) => {
               message: 'That name already exists (across all profiles). Please use a different name.',
             });
           });
+          blocked = true;
           return state;
         }
       }
@@ -1591,6 +1621,41 @@ export const useTestStore = create((set, get) => {
     const idStr = id == null ? '' : String(id);
     const matchId = (t) => String(t.id) === idStr;
     const patch = { ...updates, updatedAt: testCaseNowIso() };
+    // Prevent editing a TC into a duplicate of another TC (same full file-set),
+    // regardless of whether it's in savedTestCases or loadedSetTable.
+    try {
+      const current =
+        (Array.isArray(state.savedTestCases) ? state.savedTestCases : []).find(matchId) ||
+        (Array.isArray(state.loadedSetTable) ? state.loadedSetTable : []).find(matchId) ||
+        null;
+      const candidate = current ? { ...current, ...patch } : patch;
+      const candKey = getTestCaseFilesKey(candidate);
+      if (candKey) {
+        const localList = Array.isArray(state.savedTestCases) ? state.savedTestCases : [];
+        const globalList =
+          state.globalTestCaseDataLoaded && Array.isArray(state.globalSavedTestCases)
+            ? state.globalSavedTestCases
+            : [];
+        const setList = Array.isArray(state.loadedSetTable) ? state.loadedSetTable : [];
+        const dup =
+          localList.find((t) => String(t.id) !== idStr && getTestCaseFilesKey(t) === candKey) ||
+          globalList.find((t) => String(t.id) !== idStr && getTestCaseFilesKey(t) === candKey) ||
+          setList.find((t) => String(t.id) !== idStr && getTestCaseFilesKey(t) === candKey);
+        if (dup) {
+          queueMicrotask(() => {
+            get().addToast({
+              type: 'warning',
+              message: `Cannot save changes — files match existing test case "${String(dup?.name || dup?.id || '').trim()}". Please change files.`,
+            });
+          });
+          blocked = true;
+          return state;
+        }
+      }
+    } catch {
+      // ignore and allow update
+    }
+
     // Library / File Library แก้ saved test case ต้องอัปเดต savedTestCases เสมอ — แม้จะมี loadedSetId จากหน้า Create Test Case อยู่
     const inSaved = (state.savedTestCases || []).some(matchId);
     if (inSaved) {
@@ -1605,7 +1670,9 @@ export const useTestStore = create((set, get) => {
     const next = state.savedTestCases.map((t) => (matchId(t) ? { ...t, ...patch } : t));
     saveSavedTestCases(next);
     return { savedTestCases: next };
-  }),
+    });
+    return !blocked;
+  },
   removeSavedTestCase: (id) => {
     if (id == null || id === '') return;
     if (!beginTestCasePending(id, 'delete')) return;

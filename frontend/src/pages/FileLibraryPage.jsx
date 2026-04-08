@@ -639,6 +639,8 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
   /** Ellipsis on TC chips — was wrongly opening Tags modal; use file name to list test cases */
   const [showAllUsedByTcForFileName, setShowAllUsedByTcForFileName] = useState(null);
   const [showAllSetsForFileName, setShowAllSetsForFileName] = useState(null);
+  const [pointerLibraryTcKey, setPointerLibraryTcKey] = useState(null); // rawTestCases table row _key
+  const [pointerLibrarySetId, setPointerLibrarySetId] = useState(null); // sets tab set.id
   const [bulkTagInput, setBulkTagInput] = useState('');
   const [fileSort, setFileSort] = useState('time');
   const [fileViewMode, setFileViewMode] = useState('all'); // 'all' | 'bySet'
@@ -665,7 +667,10 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
   const [addTcsPickerTagQ, setAddTcsPickerTagQ] = useState('');
   const [addTcsPickerOwnerQ, setAddTcsPickerOwnerQ] = useState('');
   const [addTcsPickerTimeQ, setAddTcsPickerTimeQ] = useState('');
-  const [rawTcFilePicker, setRawTcFilePicker] = useState(null); // { kind: 'bin'|'vcd'|'lin', q: string } | null
+  // Raw test case editor: browse file picker
+  // kind: 'bin'(ERoM) | 'vcd' | 'lin'(ULP) | 'mdi'(text)
+  // target: which field to fill when a row is clicked
+  const [rawTcFilePicker, setRawTcFilePicker] = useState(null); // { kind, q, target?: { type: 'main'|'slot', field?: 'binName'|'vcdName'|'linName', slotId?: string } }
   /** Edit TC panel: … opens tag color tools (same picker as TC column Tags modal). */
   const [rawTcEditorTagToolsOpen, setRawTcEditorTagToolsOpen] = useState(false);
   const rawTcEditorTagToolsRef = useRef(null);
@@ -674,6 +679,15 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
   const [libraryRawTcTagModalAddDraft, setLibraryRawTcTagModalAddDraft] = useState('');
   const [libraryRawTcTagModalEditIndex, setLibraryRawTcTagModalEditIndex] = useState(null);
   const [libraryRawTcTagModalEditDraft, setLibraryRawTcTagModalEditDraft] = useState('');
+
+  useEffect(() => {
+    if (!pointerLibraryTcKey && !pointerLibrarySetId) return;
+    const t = setTimeout(() => {
+      setPointerLibraryTcKey(null);
+      setPointerLibrarySetId(null);
+    }, 1600);
+    return () => clearTimeout(t);
+  }, [pointerLibraryTcKey, pointerLibrarySetId]);
   const [libraryRawTcTagPlusKey, setLibraryRawTcTagPlusKey] = useState(null);
   const [libraryRawTcTagPlusDraft, setLibraryRawTcTagPlusDraft] = useState('');
   const [libraryRawTcTagHistoryOpenKey, setLibraryRawTcTagHistoryOpenKey] = useState(null);
@@ -1923,6 +1937,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
       if (ext === 'vcd') return 'vcd';
       if (['bin', 'hex', 'elf', 'erom'].includes(ext)) return 'bin';
       if (['lin', 'ulp'].includes(ext)) return 'lin';
+      if (ext === 'txt') return 'mdi';
       return null;
     };
     const matchQ = (f) => {
@@ -1953,9 +1968,22 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
     if (!rawTcFilePicker) return;
     const name = String(fileObj.name);
     const kind = rawTcFilePicker.kind;
-    if (kind === 'bin') setRawTcEditorDraft((d) => (d ? { ...d, binName: name } : d));
-    if (kind === 'vcd') setRawTcEditorDraft((d) => (d ? { ...d, vcdName: name } : d));
-    if (kind === 'lin') setRawTcEditorDraft((d) => (d ? { ...d, linName: name } : d));
+    const tgt = rawTcFilePicker.target || { type: 'main' };
+    if (tgt.type === 'slot' && tgt.slotId) {
+      setRawTcEditorDraft((d) =>
+        d
+          ? {
+              ...d,
+              extraSlots: (d.extraSlots || []).map((s) => (s.id === tgt.slotId ? { ...s, file: name } : s)),
+            }
+          : d
+      );
+    } else {
+      if (kind === 'bin') setRawTcEditorDraft((d) => (d ? { ...d, binName: name } : d));
+      if (kind === 'vcd') setRawTcEditorDraft((d) => (d ? { ...d, vcdName: name } : d));
+      if (kind === 'lin') setRawTcEditorDraft((d) => (d ? { ...d, linName: name } : d));
+      // MDI in this editor is used only for extra slots (text file), but keep safe no-op for main.
+    }
     setRawTcFilePicker(null);
   }, [rawTcFilePicker]);
 
@@ -2108,7 +2136,8 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
     }
 
     if (row._source === 'current' && row.id) {
-      updateSavedTestCase(row.id, payload);
+      const ok = updateSavedTestCase(row.id, payload);
+      if (!ok) return;
       addToast({ type: 'success', message: 'บันทึกเทสต์เคสแล้ว' });
       closeRawTcEditor();
       return;
@@ -3170,20 +3199,68 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                 if ((list?.length || 0) === 0) {
                   list = getJobRefsUsingFile(showAllUsedByTcForFileName, jobs).usedByTcs;
                 }
-                return list.length === 0 ? (
+                const byName = new Map();
+                (list || []).forEach((u) => {
+                  const nm = String(u?.name || '').trim();
+                  if (!nm) return;
+                  const setName = u?.set ? String(u.set) : '';
+                  const key = nm.toLowerCase();
+                  const prev = byName.get(key) || { name: nm, sets: [] };
+                  if (setName) {
+                    const s = String(setName);
+                    if (!prev.sets.includes(s)) prev.sets.push(s);
+                  }
+                  byName.set(key, prev);
+                });
+                const uniq = Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
+                return uniq.length === 0 ? (
                   <div className="text-sm text-slate-500 dark:text-slate-400">—</div>
                 ) : (
                   <ul className="space-y-2 text-sm text-slate-700 dark:text-slate-200">
-                    {list.map((u, idx) => (
+                    {uniq.map((u, idx) => (
                       <li
-                        key={`lib-tc-all-${idx}-${u.name}-${u.set || ''}`}
+                        key={`lib-tc-all-${showAllUsedByTcForFileName}-${idx}-${u.name}`}
                         className="flex flex-col gap-0.5 border-b border-slate-100 dark:border-slate-700 pb-2 last:border-0 last:pb-0"
                       >
-                        <span className="font-medium text-emerald-700 dark:text-emerald-300">{u.name}</span>
-                        {u.set && (
-                          <span className="text-xs text-slate-500 dark:text-slate-400">
-                            {String(u.set).startsWith('Current') ? u.set : `Set: ${u.set}`}
-                          </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // Pointer to TC row in this page (Test Cases tab)
+                            const row =
+                              (libraryRawRows || []).find((r) => String(r?.name || '').trim() === u.name) ||
+                              (libraryFilteredRows || []).find((r) => String(r?.name || '').trim() === u.name) ||
+                              null;
+                            if (row?._key) {
+                              setLibraryView('rawTestCases');
+                              setSelectedLibraryTcKeys([row._key]);
+                              setPointerLibraryTcKey(row._key);
+                              queueMicrotask(() => {
+                                try {
+                                  const el = document.querySelector(`[data-library-tc-row-key="${String(row._key)}"]`);
+                                  el?.scrollIntoView?.({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+                                } catch {
+                                  // ignore
+                                }
+                              });
+                            } else {
+                              setLibraryView('rawTestCases');
+                            }
+                            setShowAllUsedByTcForFileName(null);
+                          }}
+                          className="text-left font-medium text-emerald-700 dark:text-emerald-300 hover:underline"
+                          title="Go to this test case"
+                        >
+                          {u.name}
+                        </button>
+                        {u.sets.length > 0 && (
+                          <div className="text-xs text-slate-500 dark:text-slate-400 flex flex-wrap gap-x-2 gap-y-0.5">
+                            {u.sets.slice(0, 3).map((sn) => (
+                              <span key={`${u.name}-set-${sn}`} className="whitespace-nowrap">
+                                {String(sn).startsWith('Current') ? sn : `Set: ${sn}`}
+                              </span>
+                            ))}
+                            {u.sets.length > 3 && <span className="text-slate-400">…</span>}
+                          </div>
                         )}
                       </li>
                     ))}
@@ -3229,8 +3306,39 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                       return (
                         <li
                           key={`lib-set-all-${showAllSetsForFileName}-${sn}`}
-                          className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${getSetJobStatusPillClass(st)}`}
+                          className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${getSetJobStatusPillClass(st)} cursor-pointer`}
                           title={st ? `Job status: ${st}` : 'No active job for this set name'}
+                          onClick={() => {
+                            const setObj =
+                              (fileReferenceTestCaseSets || []).find((s) => String(s?.name || '').trim() === String(sn).trim()) ||
+                              (savedTestCaseSets || []).find((s) => String(s?.name || '').trim() === String(sn).trim()) ||
+                              null;
+                            setLibraryView('testCases'); // Sets tab
+                            setShowAllSetsForFileName(null);
+                            if (setObj?.id) {
+                              setPointerLibrarySetId(setObj.id);
+                              // Also tick at least one checkbox row in that set so user can see "which set"
+                              try {
+                                const items = Array.isArray(setObj.items) ? setObj.items : [];
+                                if (items.length > 0) {
+                                  const firstKey = `${setObj.id}::${items[0]._origIndex ?? 0}`;
+                                  setSelectedLibrarySetTcKeys([firstKey]);
+                                } else {
+                                  setSelectedLibrarySetTcKeys([]);
+                                }
+                              } catch {
+                                // ignore
+                              }
+                              queueMicrotask(() => {
+                                try {
+                                  const el = document.querySelector(`[data-library-set-id="${String(setObj.id)}"]`);
+                                  el?.scrollIntoView?.({ block: 'start', inline: 'nearest', behavior: 'smooth' });
+                                } catch {
+                                  // ignore
+                                }
+                              });
+                            }
+                          }}
                         >
                           {sn}
                         </li>
@@ -3590,7 +3698,11 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                     !setBusy &&
                     (set._ownerId == null || String(set._ownerId) === String(activeProfileId));
                   return (
-                    <div key={set.id} className={`bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden ${setBusy ? 'ring-1 ring-amber-400/50 dark:ring-amber-500/40' : ''}`}>
+                    <div
+                      key={set.id}
+                      data-library-set-id={String(set.id)}
+                      className={`bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden ${setBusy ? 'ring-1 ring-amber-400/50 dark:ring-amber-500/40' : ''} ${pointerLibrarySetId === set.id ? 'animate-pulse ring-1 ring-emerald-400' : ''}`}
+                    >
                       <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-600 flex items-center justify-between">
                         <div className="flex items-center gap-2 min-w-0">
                           <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">
@@ -3906,8 +4018,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                                           {isSystemLocked ? <Lock size={14} /> : isClosed ? <Lock size={14} /> : <Globe size={14} />}
                                       </button>
                                     </td>
-                                    <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 min-w-[160px]">
-                                      {(() => {
+                                    <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 min-w-[160px] align-middle">
+                                      <div className="flex items-center justify-center min-h-[32px]">
+                                        {(() => {
                                         const rawTag = (tc.extraColumns && (tc.extraColumns.tag || tc.extraColumns.Tag)) || '';
                                         const tags = splitTags(rawTag);
                                         if (!tags.length) {
@@ -3931,7 +4044,8 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                                             ) : null}
                                           </div>
                                         );
-                                      })()}
+                                        })()}
+                                      </div>
                                     </td>
                                     <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-center text-slate-500 dark:text-slate-400 text-xs">{(tc.updatedAt || tc.createdAt) ? new Date(tc.updatedAt || tc.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '—'}</td>
                                     <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300">
@@ -4702,6 +4816,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                         return [
                           <tr
                             key={key}
+                            data-library-tc-row-key={String(key)}
                             title={
                               dimProcessRow
                                 ? 'Running / Pending — แถวสีเทาเพื่อให้เห็นว่ามี process อยู่ (ยังเลือกได้)'
@@ -4709,7 +4824,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                                   ? 'Test case is locked (running/pending or Vis=close)'
                                   : 'Double click to edit in this page'
                             }
-                            className={`border-b border-slate-100 dark:border-slate-700 select-none ${isRowSelectionDisabled ? 'opacity-75 bg-slate-50 dark:bg-slate-800/50 cursor-not-allowed' : 'cursor-pointer'} ${tcRowBusy ? 'ring-1 ring-amber-400/50 dark:ring-amber-500/40' : ''} ${dimProcessRow ? '[&_td]:text-slate-500 dark:[&_td]:text-slate-400 [&_a]:text-slate-500 dark:[&_a]:text-slate-400 [&_td:not(:nth-child(5))_button]:text-slate-500 dark:[&_td:not(:nth-child(5))_button]:text-slate-400' : ''} ${isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : dimProcessRow ? 'bg-slate-50/90 dark:bg-slate-900/50' : !isRowSelectionDisabled ? 'hover:bg-slate-50 dark:hover:bg-slate-800/50' : ''}`}
+                            className={`border-b border-slate-100 dark:border-slate-700 select-none ${isRowSelectionDisabled ? 'opacity-75 bg-slate-50 dark:bg-slate-800/50 cursor-not-allowed' : 'cursor-pointer'} ${tcRowBusy ? 'ring-1 ring-amber-400/50 dark:ring-amber-500/40' : ''} ${pointerLibraryTcKey === key ? 'animate-pulse ring-1 ring-emerald-400' : ''} ${dimProcessRow ? '[&_td]:text-slate-500 dark:[&_td]:text-slate-400 [&_a]:text-slate-500 dark:[&_a]:text-slate-400 [&_td:not(:nth-child(5))_button]:text-slate-500 dark:[&_td:not(:nth-child(5))_button]:text-slate-400' : ''} ${isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : dimProcessRow ? 'bg-slate-50/90 dark:bg-slate-900/50' : !isRowSelectionDisabled ? 'hover:bg-slate-50 dark:hover:bg-slate-800/50' : ''}`}
                             onClick={(e) => {
                               if (
                                 e.target.closest('input[type="checkbox"]') ||
@@ -5497,10 +5612,10 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                     {rawTcFilePicker && (
                       <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
                         <div className="absolute inset-0 bg-black/50" onClick={() => setRawTcFilePicker(null)} role="presentation" />
-                        <div className="relative w-[min(980px,calc(100vw-2rem))] max-h-[80vh] overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl flex flex-col">
+                        <div className="relative w-full max-w-6xl max-h-[85vh] overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl flex flex-col">
                           <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
                             <div className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">
-                              Browse file — {rawTcFilePicker.kind === 'bin' ? 'ERoM' : rawTcFilePicker.kind === 'vcd' ? 'VCD' : 'ULP'}
+                              Browse file — {rawTcFilePicker.kind === 'bin' ? 'ERoM' : rawTcFilePicker.kind === 'vcd' ? 'VCD' : rawTcFilePicker.kind === 'mdi' ? 'MDI' : 'ULP'}
                             </div>
                             <input
                               type="text"
@@ -5842,25 +5957,49 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                                 <option value="ulp">ULP</option>
                                 <option value="mdi">MDI</option>
                               </select>
-                              <input
-                                type="text"
-                                list={listId}
-                                value={slot.file}
-                                onChange={(e) =>
-                                  setRawTcEditorDraft((d) =>
-                                    d
-                                      ? {
-                                          ...d,
-                                          extraSlots: d.extraSlots.map((s) =>
-                                            s.id === slot.id ? { ...s, file: e.target.value } : s
-                                          ),
-                                        }
-                                      : d
-                                  )
-                                }
-                                className="box-border h-9 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 text-sm text-slate-900 placeholder:text-slate-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
-                                placeholder={slot.kind === 'mdi' ? `${columnLabel} — select or drop` : 'select file'}
-                              />
+                              <div className="relative flex-1 min-w-0">
+                                <input
+                                  type="text"
+                                  list={listId}
+                                  value={slot.file}
+                                  onChange={(e) =>
+                                    setRawTcEditorDraft((d) =>
+                                      d
+                                        ? {
+                                            ...d,
+                                            extraSlots: d.extraSlots.map((s) =>
+                                              s.id === slot.id ? { ...s, file: e.target.value } : s
+                                            ),
+                                          }
+                                        : d
+                                    )
+                                  }
+                                  className="box-border h-9 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2 pr-10 text-sm text-slate-900 placeholder:text-slate-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
+                                  placeholder={slot.kind === 'mdi' ? `${columnLabel} — select or drop` : 'select file'}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const pickerKind =
+                                      slot.kind === 'erom'
+                                        ? 'bin'
+                                        : slot.kind === 'ulp'
+                                          ? 'lin'
+                                          : slot.kind === 'mdi'
+                                            ? 'mdi'
+                                            : 'vcd';
+                                    setRawTcFilePicker({
+                                      kind: pickerKind,
+                                      q: slot.file || '',
+                                      target: { type: 'slot', slotId: slot.id },
+                                    });
+                                  }}
+                                  className="absolute inset-y-0 right-0 px-2 inline-flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                                  title="Browse from Library"
+                                >
+                                  <ChevronDown size={16} />
+                                </button>
+                              </div>
                               <button
                                 type="button"
                                 onClick={() =>

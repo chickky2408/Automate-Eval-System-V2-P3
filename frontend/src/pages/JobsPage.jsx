@@ -5,16 +5,21 @@ import {
   CheckCircle2, AlertCircle, Clock, Zap, Database, ChevronRight,
   Grid3x3, List, Filter, Terminal, Wifi, WifiOff, HardDrive,
   RefreshCw, Download, Activity, XCircle, Eye, MoreVertical,
-  ArrowUp, ArrowDown, Square, Tag, FileJson, StopCircle, Plus,
+  ArrowUp, ArrowDown, Square, Tag, StopCircle, Plus,
   Command, Copy, Play, Layers, Monitor, ChevronDown, ChevronUp, GripVertical, ChevronLeft, CheckSquare, Pencil,
   Pause, ZoomIn, ZoomOut, Trash2, Gauge, User, UserPlus, LogOut, Save, FileDown, FileUp, FolderOpen,
   Lock, Globe, Users
 } from 'lucide-react';
 import TestCasesProgressView from '../components/jobs/TestCasesProgressView';
-import { FileRow } from '../components/jobs/TestCasesProgressView';
 import { useTestStore } from '../store/useTestStore';
 import api from '../services/api';
-import { jobTagPillClasses } from '../utils/tagPalette';
+import {
+  jobTagPillClasses,
+  TAG_PALETTE_MAP,
+  TAG_PALETTE_KEYS,
+  TAG_SWATCH_DOT_CLASS,
+  jobHasAnyTagColor,
+} from '../utils/tagPalette';
 
 // 3. JOBS PAGE (Enhanced)
 const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNavigateToFileLibrary, onNavigateToTestCases }) => {
@@ -35,56 +40,56 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
     deleteJobFile,
     updateJobTag,
     updateJobTags,
-    exportJobToJSON,
     deleteJob,
     loading,
     errors
   } = useTestStore();
   const addToast = useTestStore((state) => state.addToast);
-  
-  const [expandedJobs, setExpandedJobs] = useState([]);
-  const [editingTag, setEditingTag] = useState(null);
-  const [tagInput, setTagInput] = useState('');
-  const [testCasesView, setTestCasesView] = useState(null); // jobId ที่กำลังดู test cases
-  const [expandedDetailsJobs, setExpandedDetailsJobs] = useState([]); // job ids ที่แสดง details (Firmware, Boards, Progress, Files)
-  const [testCasesFilter, setTestCasesFilter] = useState('all'); // 'all' | 'running' | 'completed' | 'pending' | 'failed'
-  const [testCasesSearch, setTestCasesSearch] = useState('');
+
+  /** Persisted across leaving Jobs page (Zustand); survives SPA navigation without losing filters/expanded rows */
+  const jobsPageSession = useTestStore((s) => s.jobsPageSession);
+  const setJobsPageSession = useTestStore((s) => s.setJobsPageSession);
+  const upd = useCallback(
+    (key, update) =>
+      setJobsPageSession((prev) => ({
+        ...prev,
+        [key]: typeof update === 'function' ? update(prev[key]) : update,
+      })),
+    [setJobsPageSession]
+  );
+  const assignSession = useCallback(
+    (patch) => setJobsPageSession((prev) => ({ ...prev, ...patch })),
+    [setJobsPageSession]
+  );
+
+  const {
+    expandedDetailsJobs,
+    testCasesFilter,
+    testCasesSearch,
+    selectedJobIds,
+    jobsSearch,
+    jobsStatusFilter,
+    jobsTagFilter,
+    jobsTagColorFilter,
+    jobsTimeFilter,
+    editingTag,
+    tagInput,
+  } = jobsPageSession;
+
   const [isRunningBatch, setIsRunningBatch] = useState(false);
   const [isStoppingAll, setIsStoppingAll] = useState(false);
   const [isStoppingSelected, setIsStoppingSelected] = useState(false);
-  const [selectedJobIds, setSelectedJobIds] = useState([]); // สำหรับเลือก batch ที่ต้องการ run
-  const [selectAllColumn, setSelectAllColumn] = useState('pending'); // 'pending' | 'running' | 'error' | 'completed'
   const [dragStartIndex, setDragStartIndex] = useState(null); // สำหรับ drag selection
   const [isDragging, setIsDragging] = useState(false); // track ว่ากำลัง drag อยู่หรือไม่
-  // Single search + dropdown filters for Job Management
-  const [jobsSearch, setJobsSearch] = useState('');
-  const [jobsStatusFilter, setJobsStatusFilter] = useState('all'); // 'all' | 'pending' | 'running' | 'error' | 'completed'
-  const [jobsTagFilter, setJobsTagFilter] = useState('');
-  const [jobsConfigFilter, setJobsConfigFilter] = useState('');
-  const [jobsTimeFilter, setJobsTimeFilter] = useState('all'); // 'today' | 'week' | 'month' | 'all'
   const [draggingJobId, setDraggingJobId] = useState(null);
   const [highlightJobId, setHighlightJobId] = useState(null);
   const [testCaseErrorModal, setTestCaseErrorModal] = useState(null); // { file, job, index } when showing error modal per test case
   const [rerunFailedModal, setRerunFailedModal] = useState(null); // { job, failedFiles } when selecting VCD/ERoM/ULP per test case before re-run
   const [rerunSelections, setRerunSelections] = useState([]); // [{ vcd, erom, ulp }] per failed file for rerun modal
-  const [selectedReportFileIds, setSelectedReportFileIds] = useState({}); // { [jobId]: fileId[] } for download report per test case
+  const [jobsTagColorDropdownOpen, setJobsTagColorDropdownOpen] = useState(false);
+  const [jobsTagColorSearch, setJobsTagColorSearch] = useState('');
   const uploadedFiles = useTestStore((s) => s.uploadedFiles) || [];
   const fileTags = useTestStore((s) => s.fileTags) || {};
-
-  const toggleReportFile = (jobId, fileId) => {
-    setSelectedReportFileIds((prev) => {
-      const arr = prev[jobId] || [];
-      const next = arr.includes(fileId) ? arr.filter((id) => id !== fileId) : [...arr, fileId];
-      return { ...prev, [jobId]: next };
-    });
-  };
-  const selectAllReportFiles = (jobId, fileIds) => {
-    setSelectedReportFileIds((prev) => ({ ...prev, [jobId]: [...(fileIds || [])] }));
-  };
-  const clearReportFiles = (jobId) => {
-    setSelectedReportFileIds((prev) => ({ ...prev, [jobId]: [] }));
-  };
-  const getReportSelectedForJob = (jobId) => new Set(selectedReportFileIds[jobId] || []);
 
   const getTestCaseDisplayNameForReport = (f) => (f?.testCaseName || (f?.order != null ? `Test case ${f.order}` : '—'));
 
@@ -146,13 +151,39 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
     );
   }, [rerunFailedModal]);
 
+  // Drop selections/expansion for job ids that no longer exist (after delete / refresh)
+  useEffect(() => {
+    const valid = new Set(jobs.map((j) => j.id));
+    setJobsPageSession((prev) => {
+      const selectedJobIds = prev.selectedJobIds.filter((id) => valid.has(id));
+      const expandedJobs = prev.expandedJobs.filter((id) => valid.has(id));
+      const expandedDetailsJobs = prev.expandedDetailsJobs.filter((id) => valid.has(id));
+      const testCasesView =
+        prev.testCasesView != null && valid.has(prev.testCasesView) ? prev.testCasesView : null;
+      if (
+        selectedJobIds.length === prev.selectedJobIds.length &&
+        expandedJobs.length === prev.expandedJobs.length &&
+        expandedDetailsJobs.length === prev.expandedDetailsJobs.length &&
+        testCasesView === prev.testCasesView
+      ) {
+        return prev;
+      }
+      return { ...prev, selectedJobIds, expandedJobs, expandedDetailsJobs, testCasesView };
+    });
+  }, [jobs, setJobsPageSession]);
+
   // จาก History: เปิด job นั้นและโฟกัสที่ test cases/files (เปิด Details ด้วย)
   useEffect(() => {
     if (!expandJobId) return;
     const idStr = String(expandJobId);
-    setExpandedJobs(prev => prev.includes(expandJobId) ? prev : [...prev, expandJobId]);
-    setExpandedDetailsJobs(prev => prev.includes(expandJobId) ? prev : [...prev, expandJobId]);
-    setTestCasesView(expandJobId);
+    setJobsPageSession((prev) => ({
+      ...prev,
+      expandedJobs: prev.expandedJobs.includes(expandJobId) ? prev.expandedJobs : [...prev.expandedJobs, expandJobId],
+      expandedDetailsJobs: prev.expandedDetailsJobs.includes(expandJobId)
+        ? prev.expandedDetailsJobs
+        : [...prev.expandedDetailsJobs, expandJobId],
+      testCasesView: expandJobId,
+    }));
     requestAnimationFrame(() => {
       const el = document.getElementById(`job-${expandJobId}`);
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -161,16 +192,25 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
     const t = window.setTimeout(() => setHighlightJobId(null), 3500);
     onExpandComplete();
     return () => window.clearTimeout(t);
-  }, [expandJobId, onExpandComplete]);
+  }, [expandJobId, onExpandComplete, setJobsPageSession]);
 
-  const toggleJobExpanded = (jobId) => {
-    setExpandedJobs(prev => 
-      prev.includes(jobId) 
-        ? prev.filter(id => id !== jobId)
-        : [...prev, jobId]
-    );
-  };
-  
+  useEffect(() => {
+    if (!jobsTagColorDropdownOpen) return;
+    const onDoc = (e) => {
+      const root = e.target?.closest?.('[data-jobs-tagcolor-dropdown-root]');
+      if (!root) setJobsTagColorDropdownOpen(false);
+    };
+    const onEsc = (e) => {
+      if (e.key === 'Escape') setJobsTagColorDropdownOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onEsc);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onEsc);
+    };
+  }, [jobsTagColorDropdownOpen]);
+
   const handleStopAll = async () => {
     if (window.confirm('ต้องการหยุดทุก job ที่กำลังรันทั้งหมดใช่หรือไม่?')) {
       if (isStoppingAll) return;
@@ -203,10 +243,10 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
     const failed = results.length - ok;
     if (failed === 0) {
       addToast({ type: 'success', message: `หยุด ${ok} batch แล้ว` });
-      setSelectedJobIds((prev) => prev.filter((id) => !runningSelected.includes(id)));
+      upd('selectedJobIds', (prev) => prev.filter((id) => !runningSelected.includes(id)));
     } else if (ok > 0) {
       addToast({ type: 'warning', message: `หยุดได้ ${ok} batch, ล้มเหลว ${failed} รายการ` });
-      setSelectedJobIds((prev) => prev.filter((id) => !runningSelected.includes(id)));
+      upd('selectedJobIds', (prev) => prev.filter((id) => !runningSelected.includes(id)));
     } else {
       addToast({ type: 'error', message: 'หยุด batch ที่เลือกไม่สำเร็จ' });
     }
@@ -234,27 +274,11 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
     const job = jobs.find((j) => j.id === jobId);
     if (!job) return;
     if (job.status === 'running') return; // ห้ามเลือก job ที่กำลังรันอยู่
-    setSelectedJobIds(prev =>
+    upd('selectedJobIds', (prev) =>
       prev.includes(jobId)
         ? prev.filter(id => id !== jobId)
         : [...prev, jobId]
     );
-  };
-
-  const toggleSelectAllJobs = (columnIds) => {
-    if (!columnIds || columnIds.length === 0) return;
-    // ไม่ให้เลือก job ที่กำลังรันอยู่ในชุด Select All
-    const selectableIds = columnIds.filter((id) => {
-      const job = jobs.find((j) => j.id === id);
-      return job && job.status !== 'running';
-    });
-    if (selectableIds.length === 0) return;
-    const allInColumnSelected = selectableIds.every(id => selectedJobIds.includes(id));
-    if (allInColumnSelected) {
-      setSelectedJobIds(prev => prev.filter(id => !selectableIds.includes(id)));
-    } else {
-      setSelectedJobIds(prev => [...new Set([...prev.filter(id => !selectableIds.includes(id)), ...selectableIds])]);
-    }
   };
 
   // Functions สำหรับ drag selection (deprecated - ใช้ onClick แทน)
@@ -301,7 +325,7 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
       }
       const { refreshJobs } = useTestStore.getState();
       await refreshJobs();
-      if (!fileModified) setSelectedJobIds([]);
+      if (!fileModified) upd('selectedJobIds', []);
     } catch (error) {
       console.error('Failed to start selected jobs', error);
       const d = error?.detail;
@@ -317,14 +341,12 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
   };
   
   const handleEditTag = (job) => {
-    setEditingTag(job.id);
-    setTagInput(job.tag || '');
+    assignSession({ editingTag: job.id, tagInput: job.tag || '' });
   };
   
   const handleSaveTag = (jobId) => {
     updateJobTag(jobId, tagInput);
-    setEditingTag(null);
-    setTagInput('');
+    assignSession({ editingTag: null, tagInput: '' });
   };
 
   const getJobTagsArray = (job) => {
@@ -345,8 +367,7 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
   };
   
   const handleCancelTag = () => {
-    setEditingTag(null);
-    setTagInput('');
+    assignSession({ editingTag: null, tagInput: '' });
   };
 
   // delete job function
@@ -385,7 +406,7 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
     if (deletedIds.length > 0) {
       await doRefreshJobs();
     }
-    setSelectedJobIds((prev) => prev.filter((id) => !deletedIds.includes(id)));
+    upd('selectedJobIds', (prev) => prev.filter((id) => !deletedIds.includes(id)));
 
     if (failed === 0) {
       addToast({ type: 'success', message: `Deleted ${ok} Sets successfully` });
@@ -492,11 +513,8 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
         const jobTag = (job.tag || '').toLowerCase();
         if (!jobTag.includes(jobsTagFilter.toLowerCase())) return false;
       }
-      // Config
-      if (jobsConfigFilter) {
-        const jobConfig = (job.configName || '').trim();
-        if (jobConfig !== jobsConfigFilter) return false;
-      }
+      // Tag color (any tag on the job, including multi-tag + legacy job.tagColor)
+      if (jobsTagColorFilter && !jobHasAnyTagColor(job, jobsTagColorFilter)) return false;
       // Time (by job date)
       if (jobsTimeFilter !== 'all') {
         const jobDate = getJobDate(job);
@@ -607,26 +625,26 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
   const displayCompletedJobs = [DEMO_COMPLETED_JOB, DEMO_COMPLETED_JOB_2, ...filteredCompletedSuccess];
   const displayErrorJobs = [DEMO_FAILED_JOB, DEMO_FAILED_JOB_2, ...filteredErrorJobs];
 
-  // Unique tags and configs from all jobs (for dropdowns)
+  // Unique tags from all jobs (for dropdown)
   const uniqueTags = [...new Set(jobs.map(j => j.tag).filter(Boolean))].sort();
-  const uniqueConfigs = [...new Set(jobs.map(j => j.configName).filter(Boolean))].sort();
   const hasActiveFilters = !!(
     jobsSearch.trim() ||
     jobsTagFilter ||
-    jobsConfigFilter ||
+    jobsTagColorFilter ||
     jobsTimeFilter !== 'all' ||
     jobsStatusFilter !== 'all'
   );
 
   // Component สำหรับ render job card (ใช้ซ้ำได้)
   const toggleDetails = (jobId) => {
-    setExpandedDetailsJobs(prev => prev.includes(jobId) ? prev.filter(id => id !== jobId) : [...prev, jobId]);
+    upd('expandedDetailsJobs', (prev) =>
+      prev.includes(jobId) ? prev.filter((id) => id !== jobId) : [...prev, jobId]
+    );
   };
 
   const renderJobCard = (job, jobIndex, allJobs, column) => {
     const isDemoJob = isDemoJobId(job.id);
     const sortedFiles = getSortedFiles(job);
-    const isExpanded = expandedJobs.includes(job.id);
     const showDetails = expandedDetailsJobs.includes(job.id);
     const runningFiles = sortedFiles.filter(f => f.status === 'running');
     
@@ -804,51 +822,14 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
                   )}
             </div>
             {showDetails && (
-              <div className="mt-1 pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2 text-xs text-slate-600 dark:text-slate-300">
-                {/* Summary line */}
-              <div className="flex items-center gap-3 flex-wrap">
-                  <span>Boards: <strong className="text-slate-700 dark:text-slate-200">{job.boards?.join(', ')}</strong></span>
-                <span>Test cases: <strong className="text-slate-700 dark:text-slate-200">{job.completedFiles}/{job.totalFiles}</strong></span>
-                  {(job.completedAt || job.startedAt) && (
-                    <span className="px-2 py-0.5 bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 rounded text-xs font-semibold">
-                      {(() => {
-                        const date = job.completedAt ? new Date(job.completedAt) : new Date(job.startedAt);
-                        const now = new Date();
-                        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                        const jobDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-                        if (jobDate.getTime() === today.getTime()) {
-                          return `Today ${date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
-                        }
-                        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
-                      })()}
-                    </span>
-                  )}
-                </div>
-
-                {/* Actions under Details: Export only */}
-                <div className="flex items-center gap-2 flex-wrap" data-no-select>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      exportJobToJSON(job.id);
-                    }}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    className="px-2 py-1 bg-blue-100 text-blue-700 rounded-lg text-xs font-bold hover:bg-blue-200 transition-all flex items-center gap-1 shrink-0"
-                  >
-                    <FileJson size={12} />
-                    Export JSON
-                  </button>
-                </div>
-
-                {/* Progress view + all test cases (files) inside Details */}
+              <div className="mt-1 pt-2 border-t border-slate-100 dark:border-slate-800">
                 <TestCasesProgressView
                   job={job}
                   files={sortedFiles}
                   filter={testCasesFilter}
                   search={testCasesSearch}
-                  onFilterChange={setTestCasesFilter}
-                  onSearchChange={setTestCasesSearch}
+                  onFilterChange={(v) => upd('testCasesFilter', v)}
+                  onSearchChange={(v) => upd('testCasesSearch', v)}
                   onStopFile={(fileId) => stopFile(job.id, fileId)}
                   onRerunFile={(fileId) => rerunFile(job.id, fileId)}
                   onRerunFailedFile={(fileIds) => {
@@ -873,13 +854,7 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
                   onOpenInLibrary={onNavigateToFileLibrary}
                   onOpenInTestCasesLibrary={onNavigateToTestCases}
                   onDeleteFile={(fileId) => deleteJobFile(job.id, fileId)}
-                  onReportSelectAll={() => { selectAllReportFiles(job.id, sortedFiles.map((f) => f.id)); }}
-                  onReportClear={() => clearReportFiles(job.id)}
-                  onReportDownload={() => {
-                    const sel = getReportSelectedForJob(job.id);
-                    downloadReportForJob(job.id, sel.size > 0 ? [...sel] : null);
-                  }}
-                  reportSelectedCount={getReportSelectedForJob(job.id).size}
+                  onReportDownload={() => downloadReportForJob(job.id, null)}
                 />
               </div>
             )}
@@ -1112,44 +1087,6 @@ Duration: ${file.duration || 'N/A'}
           <p className="text-slate-500 dark:text-slate-400 mt-0.5 text-xs sm:text-sm">Manage and monitor all test jobs</p>
         </div>
       <div className="flex flex-wrap gap-2 sm:gap-3 items-center">
-        {/* Select All: เลือก column ก่อน แล้วกด Select All จะเลือกเฉพาะ batch ใน column นั้น */}
-        {jobs.length > 0 && (() => {
-          const selectAllColumnIds =
-            selectAllColumn === 'pending'
-              ? filteredPendingJobs.map((j) => j.id)
-              : selectAllColumn === 'running'
-                ? filteredRunningJobs.map((j) => j.id)
-                : selectAllColumn === 'error'
-                  ? displayErrorJobs.filter((j) => !isDemoJobId(j.id)).map((j) => j.id)
-                  : displayCompletedJobs.filter((j) => !isDemoJobId(j.id)).map((j) => j.id);
-          const allSelectedInColumn = selectAllColumnIds.length > 0 && selectAllColumnIds.every(id => selectedJobIds.includes(id));
-          return (
-            <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-lg border border-slate-200 dark:bg-slate-900 dark:border-slate-700">
-              <select
-                value={selectAllColumn}
-                onChange={(e) => setSelectAllColumn(e.target.value)}
-                className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm font-semibold bg-white text-slate-700 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
-                title="Select column first then click Select All"
-              >
-                <option value="pending">Pending</option>
-                <option value="running">Running</option>
-                <option value="error">Error</option>
-                <option value="completed">Completed</option>
-              </select>
-              <input
-                type="checkbox"
-                checked={allSelectedInColumn}
-                onChange={() => toggleSelectAllJobs(selectAllColumnIds)}
-                className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                title={`Select all batches in ${selectAllColumn} column`}
-              />
-              <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                {selectedJobIds.length > 0 ? `${selectedJobIds.length} selected` : `Select All (in ${selectAllColumn})`}
-              </span>
-            </div>
-          );
-        })()}
-        
         {/* Run Selected Button */}
         {selectedJobIds.length > 0 && (
           <button
@@ -1205,14 +1142,14 @@ Duration: ${file.duration || 'N/A'}
           <input
           type="text"
           value={jobsSearch}
-          onChange={(e) => setJobsSearch(e.target.value)}
+          onChange={(e) => upd('jobsSearch', e.target.value)}
           placeholder="Search by name, ID, firmware, boards..."
           className="w-full pl-8 pr-2 py-1 border border-slate-300 dark:border-slate-700 rounded-md text-xs bg-white text-slate-700 dark:bg-slate-900 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
         <select
           value={jobsStatusFilter}
-          onChange={(e) => setJobsStatusFilter(e.target.value)}
+          onChange={(e) => upd('jobsStatusFilter', e.target.value)}
           className="px-2 py-1 border border-slate-300 dark:border-slate-700 rounded-md text-xs font-medium bg-white text-slate-700 dark:bg-slate-900 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer max-w-[140px]"
           title="Column / Status"
         >
@@ -1224,7 +1161,7 @@ Duration: ${file.duration || 'N/A'}
         </select>
         <select
           value={jobsTagFilter}
-          onChange={(e) => setJobsTagFilter(e.target.value)}
+          onChange={(e) => upd('jobsTagFilter', e.target.value)}
           className="px-2 py-1 border border-slate-300 dark:border-slate-700 rounded-md text-xs font-medium bg-white text-slate-700 dark:bg-slate-900 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer min-w-[100px] max-w-[130px]"
           title="Tag"
         >
@@ -1233,20 +1170,78 @@ Duration: ${file.duration || 'N/A'}
             <option key={tag} value={tag}>{tag}</option>
           ))}
         </select>
-        <select
-          value={jobsConfigFilter}
-          onChange={(e) => setJobsConfigFilter(e.target.value)}
-          className="px-2 py-1 border border-slate-300 dark:border-slate-700 rounded-md text-xs font-medium bg-white text-slate-700 dark:bg-slate-900 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer min-w-[100px] max-w-[130px]"
-          title="Config"
-        >
-          <option value="">All Configs</option>
-          {uniqueConfigs.map(config => (
-            <option key={config} value={config}>{config}</option>
-          ))}
-        </select>
+        {(() => {
+          const selectedKey = String(jobsTagColorFilter || '').trim();
+          const dotKey = TAG_PALETTE_MAP[selectedKey] ? selectedKey : 'mint';
+          const isAll = !selectedKey;
+          const q = jobsTagColorSearch.trim().toLowerCase();
+          const keys = TAG_PALETTE_KEYS.filter((k) => !q || k.toLowerCase().includes(q));
+          return (
+            <div className="relative shrink-0" data-jobs-tagcolor-dropdown-root>
+              <button
+                type="button"
+                onClick={() => setJobsTagColorDropdownOpen((v) => !v)}
+                className="px-2 py-1 text-xs rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 inline-flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-800"
+                title="Filter by tag color"
+              >
+                <span
+                  className={`inline-flex w-2.5 h-2.5 rounded-full ${isAll ? 'bg-slate-400 dark:bg-slate-600' : (TAG_SWATCH_DOT_CLASS[dotKey] || TAG_SWATCH_DOT_CLASS.mint)}`}
+                  aria-hidden
+                />
+                <span className="hidden sm:inline max-w-[72px] truncate">{isAll ? 'Tag color' : selectedKey}</span>
+              </button>
+              {jobsTagColorDropdownOpen && (
+                <div className="absolute left-0 top-full mt-1 z-50 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg w-[180px] max-h-[280px] overflow-y-auto">
+                  <div className="px-3 py-2 text-[11px] font-semibold text-slate-500 dark:text-slate-400">Tag color</div>
+                  <div className="px-2 pb-2">
+                    <input
+                      type="text"
+                      value={jobsTagColorSearch}
+                      onChange={(e) => setJobsTagColorSearch(e.target.value)}
+                      placeholder="Search color…"
+                      className="w-full px-2 py-1.5 text-xs rounded-md border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200"
+                    />
+                  </div>
+                  <div className="p-2 space-y-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        upd('jobsTagColorFilter', '');
+                        setJobsTagColorDropdownOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-start px-2 py-2 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 ${isAll ? 'bg-slate-100 dark:bg-slate-700' : ''}`}
+                      title="All tag colors"
+                    >
+                      <span className="inline-flex w-2.5 h-2.5 rounded-full bg-slate-400 dark:bg-slate-600" aria-hidden />
+                      <span className="ml-2 text-xs text-slate-700 dark:text-slate-200">All</span>
+                    </button>
+                    {keys.map((k) => {
+                      const isSelected = selectedKey === k;
+                      return (
+                        <button
+                          key={k}
+                          type="button"
+                          onClick={() => {
+                            upd('jobsTagColorFilter', k);
+                            setJobsTagColorDropdownOpen(false);
+                          }}
+                          className={`w-full flex items-center justify-start px-2 py-2 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 ${isSelected ? 'bg-slate-100 dark:bg-slate-700' : ''}`}
+                          title={k}
+                        >
+                          <span className={`inline-flex w-2.5 h-2.5 rounded-full ${TAG_SWATCH_DOT_CLASS[k] || TAG_SWATCH_DOT_CLASS.mint}`} aria-hidden />
+                          <span className="ml-2 text-xs text-slate-700 dark:text-slate-200">{k}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
         <select
           value={jobsTimeFilter}
-          onChange={(e) => setJobsTimeFilter(e.target.value)}
+          onChange={(e) => upd('jobsTimeFilter', e.target.value)}
           className="px-2 py-1 border border-slate-300 dark:border-slate-700 rounded-md text-xs font-medium bg-white text-slate-700 dark:bg-slate-900 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
           title="Time"
         >
@@ -1257,13 +1252,15 @@ Duration: ${file.duration || 'N/A'}
         </select>
         {hasActiveFilters && (
           <button
-            onClick={() => {
-              setJobsSearch('');
-              setJobsTagFilter('');
-              setJobsConfigFilter('');
-              setJobsTimeFilter('all');
-              setJobsStatusFilter('all');
-            }}
+            onClick={() =>
+              assignSession({
+                jobsSearch: '',
+                jobsTagFilter: '',
+                jobsTagColorFilter: '',
+                jobsTimeFilter: 'all',
+                jobsStatusFilter: 'all',
+              })
+            }
             className="px-2 py-1.5 bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 flex items-center gap-1"
             title="Clear all filters"
           >
