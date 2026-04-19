@@ -855,6 +855,7 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
                   onOpenInTestCasesLibrary={onNavigateToTestCases}
                   onDeleteFile={(fileId) => deleteJobFile(job.id, fileId)}
                   onReportDownload={() => downloadReportForJob(job.id, null)}
+                  compactKanbanDetails={jobsStatusFilter === 'all'}
                 />
               </div>
             )}

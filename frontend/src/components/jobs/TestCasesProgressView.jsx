@@ -25,12 +25,22 @@ const TestCasesProgressView = ({
   // Report: Download report in list header (per-row report checkboxes still drive "selected" count)
   onReportDownload,
   reportSelectedCount = 0,
+  /** When Jobs page shows all Kanban columns at once, use a denser row (name + tooltip) so cards stay readable */
+  compactKanbanDetails = false,
 }) => {
   const runningFileRef = useRef(null);
   const [selectedFileIds, setSelectedFileIds] = useState([]);
 
   const getTestCaseDisplayName = (file) => formatTestCaseDisplayNameRaw(file?.testCaseName || (file?.order != null ? `Test case ${file.order}` : '—'));
-  
+
+  const getFileAttachmentsTooltip = (file) => {
+    const lines = [];
+    if (file.vcd) lines.push(`VCD: ${file.vcd}`);
+    if (file.erom) lines.push(`ERoM: ${file.erom}`);
+    if (file.ulp) lines.push(`ULP: ${file.ulp}`);
+    return lines.length ? lines.join('\n') : '';
+  };
+
   // Filter and search files
   const filteredFiles = files.filter(file => {
     // Status filter
@@ -73,10 +83,10 @@ const TestCasesProgressView = ({
   
   return (
   <div className="border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900">
-      <div className="p-4 sm:p-6 max-w-6xl mx-auto">
+      <div className={compactKanbanDetails ? 'w-full min-w-0 p-3 sm:p-4' : 'p-4 sm:p-6 max-w-6xl mx-auto'}>
         {/* Summary: boards + test case counts (job name shown on outer card) */}
-        <div className="mb-4">
-          <div className="flex items-center gap-3 text-xs text-slate-600 dark:text-slate-300 flex-wrap mb-3">
+        <div className={compactKanbanDetails ? 'mb-3' : 'mb-4'}>
+          <div className={`flex items-center gap-2 sm:gap-3 text-xs text-slate-600 dark:text-slate-300 flex-wrap ${compactKanbanDetails ? 'mb-2' : 'mb-3'}`}>
                 <span className="text-slate-600 dark:text-slate-300">
                   Boards:{' '}
                   <strong className="text-slate-800 dark:text-slate-100">{job.boards?.join(', ') || '—'}</strong>
@@ -101,53 +111,150 @@ const TestCasesProgressView = ({
                   </span>
                 )}
               </div>
-          {/* Statistics Cards */}
-          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-3">
-                <div className="bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm shadow-slate-900/40 min-w-0">
-                  <div className="text-[10px] font-bold text-slate-500 dark:text-slate-500 uppercase tracking-tight truncate">Total</div>
-                  <div className="text-lg font-bold text-slate-900 dark:text-slate-100">{files.length}</div>
+          {/* Statistics: full grid when one column; flex-wrap when All columns so labels are never "T.." */}
+          <div
+            className={
+              compactKanbanDetails
+                ? 'flex flex-wrap gap-2 mb-2'
+                : 'grid grid-cols-3 sm:grid-cols-6 gap-2 mb-3'
+            }
+          >
+                <div
+                  className={
+                    compactKanbanDetails
+                      ? 'bg-white dark:bg-slate-900 px-2 py-2 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm min-w-[4.75rem] flex-[1_1_5rem] text-center'
+                      : 'bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm shadow-slate-900/40 min-w-0'
+                  }
+                >
+                  <div
+                    className={
+                      compactKanbanDetails
+                        ? 'text-[9px] font-bold text-slate-500 dark:text-slate-500 uppercase tracking-wide leading-tight'
+                        : 'text-[10px] font-bold text-slate-500 dark:text-slate-500 uppercase tracking-tight truncate'
+                    }
+                    title="Total"
+                  >
+                    Total
+                  </div>
+                  <div className={`font-bold text-slate-900 dark:text-slate-100 tabular-nums ${compactKanbanDetails ? 'text-base mt-0.5' : 'text-lg'}`}>{files.length}</div>
                 </div>
-                <div className="bg-emerald-50 dark:bg-slate-900 p-2 rounded-lg border border-emerald-200 dark:border-emerald-600 shadow-sm shadow-slate-950/40 min-w-0">
-                  <div className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-tight truncate">Done</div>
-                  <div className="text-lg font-bold text-emerald-700 dark:text-emerald-300">{files.filter(f => f.status === 'completed').length}</div>
+                <div
+                  className={
+                    compactKanbanDetails
+                      ? 'bg-emerald-50 dark:bg-slate-900 px-2 py-2 rounded-lg border border-emerald-200 dark:border-emerald-600 shadow-sm min-w-[4.75rem] flex-[1_1_5rem] text-center'
+                      : 'bg-emerald-50 dark:bg-slate-900 p-2 rounded-lg border border-emerald-200 dark:border-emerald-600 shadow-sm shadow-slate-950/40 min-w-0'
+                  }
+                >
+                  <div
+                    className={
+                      compactKanbanDetails
+                        ? 'text-[9px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide leading-tight'
+                        : 'text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-tight truncate'
+                    }
+                    title="Done"
+                  >
+                    Done
+                  </div>
+                  <div className={`font-bold text-emerald-700 dark:text-emerald-300 tabular-nums ${compactKanbanDetails ? 'text-base mt-0.5' : 'text-lg'}`}>{files.filter(f => f.status === 'completed').length}</div>
                 </div>
-                <div className="bg-blue-50 dark:bg-slate-900 p-2 rounded-lg border border-blue-200 dark:border-blue-600 shadow-sm shadow-slate-950/40 min-w-0">
-                  <div className="text-[10px] font-bold text-blue-700 dark:text-sky-400 uppercase tracking-tight truncate">Run</div>
-                  <div className="text-lg font-bold text-blue-700 dark:text-sky-300">{files.filter(f => f.status === 'running').length}</div>
+                <div
+                  className={
+                    compactKanbanDetails
+                      ? 'bg-blue-50 dark:bg-slate-900 px-2 py-2 rounded-lg border border-blue-200 dark:border-blue-600 shadow-sm min-w-[4.75rem] flex-[1_1_5rem] text-center'
+                      : 'bg-blue-50 dark:bg-slate-900 p-2 rounded-lg border border-blue-200 dark:border-blue-600 shadow-sm shadow-slate-950/40 min-w-0'
+                  }
+                >
+                  <div
+                    className={
+                      compactKanbanDetails
+                        ? 'text-[9px] font-bold text-blue-700 dark:text-sky-400 uppercase tracking-wide leading-tight'
+                        : 'text-[10px] font-bold text-blue-700 dark:text-sky-400 uppercase tracking-tight truncate'
+                    }
+                    title="Run"
+                  >
+                    Run
+                  </div>
+                  <div className={`font-bold text-blue-700 dark:text-sky-300 tabular-nums ${compactKanbanDetails ? 'text-base mt-0.5' : 'text-lg'}`}>{files.filter(f => f.status === 'running').length}</div>
                 </div>
-                <div className="bg-yellow-50 dark:bg-amber-950/35 p-2 rounded-lg border border-yellow-200 dark:border-amber-700/60 min-w-0">
-                  <div className="text-[10px] font-bold text-yellow-600 dark:text-amber-300 uppercase tracking-tight truncate">Pending</div>
-                  <div className="text-lg font-bold text-yellow-700 dark:text-amber-200">{files.filter(f => f.status === 'pending').length}</div>
+                <div
+                  className={
+                    compactKanbanDetails
+                      ? 'bg-yellow-50 dark:bg-amber-950/35 px-2 py-2 rounded-lg border border-yellow-200 dark:border-amber-700/60 shadow-sm min-w-[4.75rem] flex-[1_1_5rem] text-center'
+                      : 'bg-yellow-50 dark:bg-amber-950/35 p-2 rounded-lg border border-yellow-200 dark:border-amber-700/60 min-w-0'
+                  }
+                >
+                  <div
+                    className={
+                      compactKanbanDetails
+                        ? 'text-[9px] font-bold text-yellow-600 dark:text-amber-300 uppercase tracking-wide leading-tight'
+                        : 'text-[10px] font-bold text-yellow-600 dark:text-amber-300 uppercase tracking-tight truncate'
+                    }
+                    title="Pending"
+                  >
+                    Pending
+                  </div>
+                  <div className={`font-bold text-yellow-700 dark:text-amber-200 tabular-nums ${compactKanbanDetails ? 'text-base mt-0.5' : 'text-lg'}`}>{files.filter(f => f.status === 'pending').length}</div>
                 </div>
-                <div className="bg-red-50 dark:bg-red-950/35 p-2 rounded-lg border border-red-200 dark:border-red-800/60 min-w-0">
-                  <div className="text-[10px] font-bold text-red-600 dark:text-red-300 uppercase tracking-tight truncate">Failed</div>
-                  <div className="text-lg font-bold text-red-700 dark:text-red-200">{files.filter(f => f.result === 'fail').length}</div>
+                <div
+                  className={
+                    compactKanbanDetails
+                      ? 'bg-red-50 dark:bg-red-950/35 px-2 py-2 rounded-lg border border-red-200 dark:border-red-800/60 shadow-sm min-w-[4.75rem] flex-[1_1_5rem] text-center'
+                      : 'bg-red-50 dark:bg-red-950/35 p-2 rounded-lg border border-red-200 dark:border-red-800/60 min-w-0'
+                  }
+                >
+                  <div
+                    className={
+                      compactKanbanDetails
+                        ? 'text-[9px] font-bold text-red-600 dark:text-red-300 uppercase tracking-wide leading-tight'
+                        : 'text-[10px] font-bold text-red-600 dark:text-red-300 uppercase tracking-tight truncate'
+                    }
+                    title="Failed"
+                  >
+                    Failed
+                  </div>
+                  <div className={`font-bold text-red-700 dark:text-red-200 tabular-nums ${compactKanbanDetails ? 'text-base mt-0.5' : 'text-lg'}`}>{files.filter(f => f.result === 'fail').length}</div>
                 </div>
-                <div className="bg-slate-50 dark:bg-slate-800/80 p-2 rounded-lg border border-slate-200 dark:border-slate-600 min-w-0">
-                  <div className="text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-tight truncate">Stop</div>
-                  <div className="text-lg font-bold text-slate-700 dark:text-slate-200">{files.filter(f => f.status === 'stopped').length}</div>
+                <div
+                  className={
+                    compactKanbanDetails
+                      ? 'bg-slate-50 dark:bg-slate-800/80 px-2 py-2 rounded-lg border border-slate-200 dark:border-slate-600 min-w-[4.75rem] flex-[1_1_5rem] text-center'
+                      : 'bg-slate-50 dark:bg-slate-800/80 p-2 rounded-lg border border-slate-200 dark:border-slate-600 min-w-0'
+                  }
+                >
+                  <div
+                    className={
+                      compactKanbanDetails
+                        ? 'text-[9px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide leading-tight'
+                        : 'text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-tight truncate'
+                    }
+                    title="Stop"
+                  >
+                    Stop
+                  </div>
+                  <div className={`font-bold text-slate-700 dark:text-slate-200 tabular-nums ${compactKanbanDetails ? 'text-base mt-0.5' : 'text-lg'}`}>{files.filter(f => f.status === 'stopped').length}</div>
                 </div>
               </div>
           {/* Overall progress bar removed per UX request */}
 
-          {/* Search and Filter */}
-          <div className="flex gap-3 items-center">
-            <div className="flex-1 relative">
-              <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+          {/* Search and Filter — compact: search + filter บรรทัดเดียวเหมือนมุมมองคอลัมน์เดียว */}
+          <div className={`flex gap-2 sm:gap-3 items-stretch min-w-0 ${compactKanbanDetails ? 'flex-wrap' : 'items-center'}`}>
+            <div className={`min-w-0 relative ${compactKanbanDetails ? 'flex-1 basis-[min(100%,12rem)]' : 'flex-1'}`}>
+              <Search size={compactKanbanDetails ? 16 : 18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none" />
               <input
                 type="text"
                 placeholder="Search by name or tag..."
                 value={search}
                 onChange={(e) => onSearchChange(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                  compactKanbanDetails ? 'pl-9 pr-3 py-1.5 text-xs' : 'pl-10 pr-4 py-2 text-sm'
+                }`}
               />
             </div>
-            {/* Status dropdown: ไม่แสดงเมื่อ batch ยัง Pending เพราะ test cases ทั้งหมดเป็น pending อยู่แล้ว */}
-            {(job.status || '').toLowerCase() !== 'pending' && (
+            {(job.status || '').toLowerCase() !== 'pending' ? (
             <select
               value={filter}
               onChange={(e) => onFilterChange(e.target.value)}
-              className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className={`shrink-0 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 ${compactKanbanDetails ? 'min-w-[8.5rem] px-2.5 py-1.5 text-xs' : 'px-4 py-2 text-sm'}`}
             >
               <option value="all">All Status</option>
               <option value="running">Running</option>
@@ -155,7 +262,14 @@ const TestCasesProgressView = ({
               <option value="pending">Pending</option>
               <option value="stopped">Stopped</option>
             </select>
-            )}
+            ) : compactKanbanDetails ? (
+            <div
+              className="shrink-0 min-w-[8.5rem] px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-100/90 dark:bg-slate-800/90 text-xs font-bold text-slate-500 dark:text-slate-400 text-center select-none"
+              title="Batch not started — all test cases are pending"
+            >
+              Pending only
+            </div>
+            ) : null}
             {/* Actions for selected test cases */}
             {selectedFileIds.length > 0 && (
               <div className="flex items-center gap-2 flex-wrap">
@@ -221,10 +335,10 @@ const TestCasesProgressView = ({
         </div>
         
         {/* Test Cases List */}
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-600 shadow-sm dark:shadow-slate-950/40">
+        <div className={`bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 shadow-sm dark:shadow-slate-950/40 ${compactKanbanDetails ? 'rounded-lg' : 'rounded-xl'}`}>
           {/* Select All Header (if there are files) */}
           {filteredFiles.length > 0 && (
-            <div className="px-4 py-2 bg-slate-50 dark:bg-slate-800/95 border-b border-slate-200 dark:border-slate-600 flex items-center justify-between flex-wrap gap-2">
+            <div className={`bg-slate-50 dark:bg-slate-800/95 border-b border-slate-200 dark:border-slate-600 flex items-center justify-between flex-wrap gap-2 ${compactKanbanDetails ? 'px-3 py-1.5' : 'px-4 py-2'}`}>
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -309,14 +423,153 @@ const TestCasesProgressView = ({
                         } catch (_) {}
                       }}
                       ref={isRunning ? runningFileRef : null}
-                      className={`p-4 transition-all ${
+                      className={`${compactKanbanDetails ? 'p-2' : 'p-4'} transition-all ${
                         isRunning 
-                          ? 'bg-blue-50 dark:bg-blue-950/35 border-l-4 border-blue-500' 
+                          ? `bg-blue-50 dark:bg-blue-950/35 border-blue-500 ${compactKanbanDetails ? 'border-l-[3px]' : 'border-l-4'}` 
                           : selectedFileIds.includes(file.id)
                           ? 'bg-blue-50/50 dark:bg-blue-950/25 border-l-2 border-blue-300 dark:border-blue-500'
                           : 'hover:bg-slate-50 dark:hover:bg-slate-700/35'
                       }`}
                     >
+                      {(() => {
+                        const openLibrary = () => {
+                          if (onOpenInTestCasesLibrary) {
+                            onOpenInTestCasesLibrary({
+                              name: file.testCaseName || getTestCaseDisplayName(file),
+                              vcdName: file.vcd || file.vcdName,
+                              binName: file.erom || file.binName,
+                              linName: file.ulp || file.linName,
+                            });
+                          } else if (onOpenInLibrary) {
+                            onOpenInLibrary(file.vcd || file.erom || file.ulp || file.name);
+                          }
+                        };
+                        const attachTooltip = getFileAttachmentsTooltip(file);
+                        const attachCount = [file.vcd, file.erom, file.ulp].filter(Boolean).length;
+                        const nameTitle = [getTestCaseDisplayName(file), attachTooltip].filter(Boolean).join('\n\n');
+
+                        if (compactKanbanDetails) {
+                          return (
+                      <div className="flex items-center gap-1.5 min-w-0 w-full">
+                        <input
+                          type="checkbox"
+                          checked={selectedFileIds.includes(file.id)}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            setSelectedFileIds(prev => 
+                              prev.includes(file.id)
+                                ? prev.filter(id => id !== file.id)
+                                : [...prev, file.id]
+                            );
+                          }}
+                          className="w-3.5 h-3.5 rounded border-slate-300 dark:border-slate-500 dark:bg-slate-900 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
+                          title="Select this test case"
+                        />
+                        <div className={`w-7 h-7 shrink-0 rounded-md flex items-center justify-center text-[10px] font-bold leading-none ${
+                          isRunning 
+                            ? 'bg-blue-500 text-white animate-pulse' 
+                            : file.status === 'completed'
+                            ? 'bg-emerald-500 text-white'
+                            : file.status === 'stopped'
+                            ? 'bg-red-500 text-white'
+                            : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-200'
+                        }`}>
+                          {file.order || fileIndex + 1}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1 min-w-0 flex-wrap">
+                            <button
+                              type="button"
+                              className="flex items-center gap-0.5 min-w-0 max-w-full group text-left"
+                              onClick={openLibrary}
+                              title={nameTitle}
+                            >
+                              <FileCode size={12} className="text-blue-500 shrink-0" />
+                              <span className="font-semibold text-slate-800 dark:text-slate-100 text-[11px] leading-snug truncate group-hover:underline">
+                                {getTestCaseDisplayName(file)}
+                              </span>
+                            </button>
+                            {attachCount > 0 && (
+                              <span
+                                className="shrink-0 text-[9px] font-semibold px-1 py-px rounded bg-slate-200/80 dark:bg-slate-700/90 text-slate-600 dark:text-slate-300 tabular-nums"
+                                title={attachTooltip || undefined}
+                              >
+                                ×{attachCount}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[9px] text-slate-500 dark:text-slate-400 mt-0.5 leading-tight">
+                            #{file.order || fileIndex + 1}/{files.length}
+                            {file.try_count && file.try_count > 1 ? ` · ${file.try_count}r` : ''}
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-end gap-1 shrink-0">
+                          {isRunning && (
+                            <span
+                              className="px-1.5 py-px bg-blue-500 text-white rounded text-[9px] font-bold animate-pulse whitespace-nowrap"
+                              title="Running now"
+                            >
+                              RUN
+                            </span>
+                          )}
+                          {!isRunning && (
+                          <span className={`px-1.5 py-px rounded-full text-[9px] font-bold uppercase border whitespace-nowrap ${
+                            file.status === 'completed' ? 'bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-700' :
+                            file.status === 'stopped' ? 'bg-red-100 text-red-700 border-red-300 dark:bg-red-950/50 dark:text-red-300 dark:border-red-700' :
+                            file.status === 'pending' ? 'bg-yellow-100 text-yellow-700 border-yellow-300 dark:bg-amber-950/45 dark:text-amber-200 dark:border-amber-700' :
+                            'bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-700/80 dark:text-slate-200 dark:border-slate-500'
+                          }`}>
+                            {file.status}
+                          </span>
+                          )}
+                          {file.result && (
+                            <span className={`px-1.5 py-px rounded text-[9px] font-bold ${
+                              file.result === 'pass' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' :
+                              file.result === 'fail' ? 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300' :
+                              'bg-slate-50 text-slate-400 dark:bg-slate-800 dark:text-slate-500'
+                            }`}>
+                              {file.result.toUpperCase()}
+                            </span>
+                          )}
+                          {isFailed && onRerunFailedFile && (
+                            <button
+                              type="button"
+                              onClick={() => onRerunFailedFile([file.id])}
+                              className="p-1 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 transition-colors inline-flex items-center justify-center"
+                              title="Re-run failed test case"
+                              aria-label="Re-run failed"
+                            >
+                              <Play size={12} />
+                            </button>
+                          )}
+                          {isRunning && (
+                            <button
+                              type="button"
+                              onClick={() => onStopFile(file.id)}
+                              className="p-1 rounded-md bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/40 transition-colors inline-flex items-center justify-center"
+                              title="Stop"
+                              aria-label="Stop"
+                            >
+                              <StopCircle size={14} strokeWidth={2.25} />
+                            </button>
+                          )}
+                          {file.status === 'stopped' && onRerunFile && (
+                            <button
+                              type="button"
+                              onClick={() => onRerunFile(file.id)}
+                              className="p-1 rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950/45 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/35 transition-colors inline-flex items-center justify-center"
+                              title="Re-run this test case"
+                              aria-label="Re-run"
+                            >
+                              <Play size={12} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                          );
+                        }
+
+                        return (
                       <div className="flex items-center gap-4 min-w-0">
                         {/* Checkbox for selection */}
                         <input
@@ -354,18 +607,7 @@ const TestCasesProgressView = ({
                             <button
                               type="button"
                               className="flex items-center gap-1 min-w-0 max-w-full group"
-                              onClick={() => {
-                                if (onOpenInTestCasesLibrary) {
-                                  onOpenInTestCasesLibrary({
-                                    name: file.testCaseName || getTestCaseDisplayName(file),
-                                    vcdName: file.vcd || file.vcdName,
-                                    binName: file.erom || file.binName,
-                                    linName: file.ulp || file.linName,
-                                  });
-                                } else if (onOpenInLibrary) {
-                                  onOpenInLibrary(file.vcd || file.erom || file.ulp || file.name);
-                                }
-                              }}
+                              onClick={openLibrary}
                               title={getTestCaseDisplayName(file)}
                             >
                               <FileCode size={18} className="text-blue-500 shrink-0" />
@@ -391,11 +633,6 @@ const TestCasesProgressView = ({
                                 <span title={file.ulp}>{file.ulp}</span>
                               </div>
                             )}
-                            {isRunning && (
-                              <span className="px-2 py-0.5 bg-blue-500 text-white rounded text-xs font-bold animate-pulse shrink-0">
-                                RUNNING NOW
-                              </span>
-                            )}
                           </div>
                           <div className="text-xs text-slate-500 dark:text-slate-400">
                             Test Case #{file.order || fileIndex + 1} of {files.length}
@@ -403,8 +640,13 @@ const TestCasesProgressView = ({
                           </div>
                         </div>
                         
-                        {/* Status & Result (ซ่อน status badge เมื่อเป็น running เพราะมี RUNNING NOW ด้านบนแล้ว) */}
-                        <div className="flex items-center gap-2 shrink-0">
+                        {/* สถานะ + ปุ่ม ริมขวา กลุ่มเดียว — จัดกึ่งกลางแนวตั้งของแถว (เหมือนมุมมอง compact) */}
+                        <div className="flex flex-wrap items-center gap-2 shrink-0 justify-end">
+                          {isRunning && (
+                            <span className="px-2 py-0.5 bg-blue-500 text-white rounded text-xs font-bold animate-pulse shrink-0 whitespace-nowrap">
+                              RUNNING NOW
+                            </span>
+                          )}
                           {!isRunning && (
                           <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase border-2 ${
                             file.status === 'completed' ? 'bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-700' :
@@ -424,9 +666,6 @@ const TestCasesProgressView = ({
                               {file.result.toUpperCase()}
                             </span>
                           )}
-                        </div>
-                        
-                        {/* Actions */}
                         {isFailed && onRerunFailedFile && (
                           <button
                             onClick={() => onRerunFailedFile([file.id])}
@@ -456,7 +695,10 @@ const TestCasesProgressView = ({
                             Re-run
                           </button>
                         )}
+                        </div>
                       </div>
+                        );
+                      })()}
                     </div>
                   );
                 })}
