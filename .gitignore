@@ -53,3 +53,11 @@ Thumbs.db
 **/*.tmp
 **/*.temp
 .cache/
+
+# Playwright regression
+/test-results/
+/playwright-report/
+/playwright/.cache/
+/blob-report/
+/.playwright-browsers/
+/e2e/screenshots/

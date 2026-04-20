@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Activity, AlertCircle, ArrowDown, ArrowDownFromLine, ArrowUp, ArrowUpFromLine, Bell, CheckCircle2, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, Copy, Cpu, Download, Eye, FileCode, FileDown, FileJson, FileUp, Filter, FolderOpen, Globe, GripVertical, Grid3x3, HardDrive, History, Layers, LayoutDashboard, List, Lock, LogOut, Menu, Monitor, MoreVertical, Pause, Pencil, Play, PlayCircle, Plus, RefreshCw, Save, Search, Settings, Square, StopCircle, Tag, Terminal, Trash2, Upload, User, UserPlus, Users, Wifi, WifiOff, X, XCircle, Zap
 } from 'lucide-react';
@@ -620,6 +621,38 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
   const [fileTagColorFilter, setFileTagColorFilter] = useState(''); // '' = all
   const [fileTagColorDropdownOpen, setFileTagColorDropdownOpen] = useState(false);
   const [fileTagColorSearch, setFileTagColorSearch] = useState('');
+  // Files tab lives inside a horizontally-scrolling toolbar (overflow-x-auto),
+  // which clips absolutely-positioned popovers. Render the popover in a portal
+  // with fixed positioning computed from the button's bounding rect.
+  const fileTagColorBtnRef = useRef(null);
+  const [fileTagColorAnchorRect, setFileTagColorAnchorRect] = useState(null);
+  useEffect(() => {
+    if (!fileTagColorDropdownOpen) return;
+    const update = () => {
+      if (fileTagColorBtnRef.current) {
+        setFileTagColorAnchorRect(fileTagColorBtnRef.current.getBoundingClientRect());
+      }
+    };
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+    };
+  }, [fileTagColorDropdownOpen]);
+  useEffect(() => {
+    if (!fileTagColorDropdownOpen) return;
+    const onClick = (e) => {
+      const root = document.querySelector('[data-file-tagcolor-dropdown-root]');
+      const pop = document.querySelector('[data-file-tagcolor-dropdown-pop]');
+      if (root && root.contains(e.target)) return;
+      if (pop && pop.contains(e.target)) return;
+      setFileTagColorDropdownOpen(false);
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [fileTagColorDropdownOpen]);
   const [fileSizeSearch, setFileSizeSearch] = useState('');
   const [fileOwnerSearch, setFileOwnerSearch] = useState('');
   const [fileTcSearch, setFileTcSearch] = useState('');
@@ -6342,6 +6375,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                       return (
                         <div className="relative shrink-0" data-file-tagcolor-dropdown-root>
                           <button
+                            ref={fileTagColorBtnRef}
                             type="button"
                             onClick={() => setFileTagColorDropdownOpen((v) => !v)}
                             className="h-8 w-8 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 inline-flex items-center justify-center"
@@ -6353,52 +6387,67 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                             />
                             <span className="sr-only">{isAll ? 'All tag colors' : selectedKey}</span>
                           </button>
-                          {fileTagColorDropdownOpen && (
-                            <div className="absolute left-0 top-full mt-2 z-50 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg w-[200px] max-h-[320px] overflow-y-auto">
-                              <div className="px-3 py-2 text-[11px] font-semibold text-slate-500 dark:text-slate-400">Tag color</div>
-                              <div className="px-2 pb-2">
-                                <input
-                                  type="text"
-                                  value={fileTagColorSearch}
-                                  onChange={(e) => setFileTagColorSearch(e.target.value)}
-                                  placeholder="Search color…"
-                                  className="w-full h-8 px-2 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200"
-                                />
-                              </div>
-                              <div className="p-2 space-y-1">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setFileTagColorFilter('');
-                                    setFileTagColorDropdownOpen(false);
-                                  }}
-                                  className={`w-full flex items-center justify-start px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 ${isAll ? 'bg-slate-100 dark:bg-slate-700' : ''}`}
-                                  title="All tag colors"
-                                >
-                                  <span className="inline-flex w-2.5 h-2.5 rounded-full bg-slate-400 dark:bg-slate-600" aria-hidden />
-                                  <span className="ml-2 text-xs text-slate-700 dark:text-slate-200">All</span>
-                                </button>
-                                {keys.map((k) => {
-                                  const isSelected = selectedKey === k;
-                                  return (
-                                    <button
-                                      key={k}
-                                      type="button"
-                                      onClick={() => {
-                                        setFileTagColorFilter(k);
-                                        setFileTagColorDropdownOpen(false);
-                                      }}
-                                      className={`w-full flex items-center justify-start px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 ${isSelected ? 'bg-slate-100 dark:bg-slate-700' : ''}`}
-                                      title={k}
-                                    >
-                                      <span className={`inline-flex w-2.5 h-2.5 rounded-full ${TAG_SWATCH_DOT_CLASS[k] || TAG_SWATCH_DOT_CLASS.mint}`} aria-hidden />
-                                      <span className="ml-2 text-xs text-slate-700 dark:text-slate-200">{k}</span>
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
+                          {fileTagColorDropdownOpen && fileTagColorAnchorRect && typeof document !== 'undefined' &&
+                            createPortal(
+                              <div
+                                data-file-tagcolor-dropdown-pop
+                                className="fixed z-[200] bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg w-[200px] max-h-[320px] overflow-y-auto"
+                                style={{
+                                  top: Math.min(
+                                    fileTagColorAnchorRect.bottom + 8,
+                                    window.innerHeight - 340
+                                  ),
+                                  left: Math.max(
+                                    8,
+                                    Math.min(fileTagColorAnchorRect.left, window.innerWidth - 208)
+                                  ),
+                                }}
+                              >
+                                <div className="px-3 py-2 text-[11px] font-semibold text-slate-500 dark:text-slate-400">Tag color</div>
+                                <div className="px-2 pb-2">
+                                  <input
+                                    type="text"
+                                    value={fileTagColorSearch}
+                                    onChange={(e) => setFileTagColorSearch(e.target.value)}
+                                    placeholder="Search color…"
+                                    className="w-full h-8 px-2 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200"
+                                  />
+                                </div>
+                                <div className="p-2 space-y-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setFileTagColorFilter('');
+                                      setFileTagColorDropdownOpen(false);
+                                    }}
+                                    className={`w-full flex items-center justify-start px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 ${isAll ? 'bg-slate-100 dark:bg-slate-700' : ''}`}
+                                    title="All tag colors"
+                                  >
+                                    <span className="inline-flex w-2.5 h-2.5 rounded-full bg-slate-400 dark:bg-slate-600" aria-hidden />
+                                    <span className="ml-2 text-xs text-slate-700 dark:text-slate-200">All</span>
+                                  </button>
+                                  {keys.map((k) => {
+                                    const isSelected = selectedKey === k;
+                                    return (
+                                      <button
+                                        key={k}
+                                        type="button"
+                                        onClick={() => {
+                                          setFileTagColorFilter(k);
+                                          setFileTagColorDropdownOpen(false);
+                                        }}
+                                        className={`w-full flex items-center justify-start px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 ${isSelected ? 'bg-slate-100 dark:bg-slate-700' : ''}`}
+                                        title={k}
+                                      >
+                                        <span className={`inline-flex w-2.5 h-2.5 rounded-full ${TAG_SWATCH_DOT_CLASS[k] || TAG_SWATCH_DOT_CLASS.mint}`} aria-hidden />
+                                        <span className="ml-2 text-xs text-slate-700 dark:text-slate-200">{k}</span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>,
+                              document.body
+                            )}
                         </div>
                       );
                     })()}

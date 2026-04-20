@@ -1,22 +1,59 @@
-# Eval System V2 — DEMO (SQLite, single container)
+# Eval System V2 — LOCAL DEV (PostgreSQL + app in one stack)
+#
 # Run:   docker compose up --build -d
 # Open:  http://localhost:8001
 #
-# For production with PostgreSQL use docker-compose.prod.yml instead.
+# Only-DB mode (run backend natively via `pipenv run uvicorn ...`):
+#   docker compose up -d db
+#   # then from repo root:
+#   export $(cat .env | xargs) && DB_HOST=localhost pipenv run uvicorn main:app --reload
+#
+# For real deployment use docker-compose.prod.yml.
 
 services:
+  db:
+    image: postgres:16-alpine
+    container_name: eval-system-db-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-eval_admin}
+      POSTGRES_PASSWORD: ${DB_PASS:-change_me_strong_password}
+      POSTGRES_DB: ${DB_NAME:-eval_system}
+    ports:
+      # Exposed on host so native `pipenv run uvicorn ...` can connect too.
+      # Using 5433 to avoid colliding with a native PostgreSQL install on the host.
+      # Inside the docker network containers still reach the DB at `db:5432`.
+      - "${DB_PORT:-5433}:5432"
+    volumes:
+      - eval_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-eval_admin} -d ${DB_NAME:-eval_system}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   eval:
     build: .
     image: eval-system:latest
-    container_name: eval-system-demo
+    container_name: eval-system-dev
     restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
-      - "8001:8000"
+      # Host port 8001 → container 8000 (uvicorn). Browser opens http://localhost:8001.
+      - "${APP_PORT:-8001}:8000"
     environment:
-      USE_SQLITE_DEMO: "1"
-      SQLITE_PATH: /app/data/eval_system_demo.db
+      USE_SQLITE_DEMO: "0"
+      DB_USER: ${DB_USER:-eval_admin}
+      DB_PASS: ${DB_PASS:-change_me_strong_password}
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-eval_system}
+      # Printed on startup so the log shows the URL users actually open in the browser
+      APP_EXTERNAL_URL: http://localhost:${APP_PORT:-8001}
     volumes:
-      - eval_data:/app/data        # SQLite DB file
       - eval_uploads:/app/uploads  # Uploaded files (VCD / firmware / etc.)
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
@@ -26,5 +63,5 @@ services:
       start_period: 20s
 
 volumes:
-  eval_data:
+  eval_pg_data:
   eval_uploads:

@@ -13,7 +13,7 @@ FROM python:3.11-slim
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    USE_SQLITE_DEMO=1
+    USE_SQLITE_DEMO=0
 
 # System deps: libpq for PostgreSQL (psycopg2), curl for healthcheck
 RUN apt-get update \

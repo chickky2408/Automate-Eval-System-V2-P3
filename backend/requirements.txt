@@ -5,9 +5,11 @@ uvicorn[standard]>=0.30.0,<0.35.0
 python-multipart>=0.0.9
 sqlalchemy[asyncio]>=2.0.0,<2.1.0
 aiosqlite>=0.19.0
-# PostgreSQL drivers (production)
+# PostgreSQL drivers (default)
 asyncpg>=0.29.0,<0.31.0
 psycopg2-binary>=2.9.9
+# Auto-load .env for native (non-docker) dev runs
+python-dotenv>=1.0.0
 aiofiles>=23.0.0
 httpx>=0.24.0
 pydantic>=2.7.0,<2.10.0

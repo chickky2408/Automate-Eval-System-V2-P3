@@ -1,28 +1,38 @@
 """
 Database configuration and session management.
 
-For the fastest local demo (no PostgreSQL required), this module defaults to
-using a local SQLite file via ``sqlite+aiosqlite``. You can still switch back
-to PostgreSQL later by setting the environment variable
-``USE_SQLITE_DEMO=0``.
+Defaults to PostgreSQL (asyncpg). Credentials are read from the standard
+``DB_USER`` / ``DB_PASS`` / ``DB_HOST`` / ``DB_PORT`` / ``DB_NAME`` env vars,
+matching the values in ``.env.example`` and ``docker-compose*.yml``.
+
+For quick offline/demo runs (no Postgres service required) you can opt in to
+the SQLite fallback by setting the environment variable ``USE_SQLITE_DEMO=1``.
 """
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 import os
 
-# Toggle between SQLite demo mode and PostgreSQL
-USE_SQLITE_DEMO = os.getenv("USE_SQLITE_DEMO", "1") == "1"
+try:
+    # Auto-load .env when present (for local `pipenv run uvicorn ...` dev);
+    # harmless in Docker where env vars are already injected by compose.
+    from dotenv import load_dotenv  # type: ignore
+    load_dotenv()
+except Exception:
+    pass
+
+# Opt-in SQLite fallback — default is PostgreSQL.
+USE_SQLITE_DEMO = os.getenv("USE_SQLITE_DEMO", "0") == "1"
 
 if USE_SQLITE_DEMO:
-    # Single-file SQLite DB for quick demo runs (no external service needed).
+    # Single-file SQLite DB for quick offline demos (no external service needed).
     # SQLITE_PATH lets docker-compose mount a persistent volume for the DB file.
     SQLITE_PATH = os.getenv("SQLITE_PATH", "./eval_system_demo.db")
     DATABASE_URL = f"sqlite+aiosqlite:///{SQLITE_PATH}"
 else:
-    # PostgreSQL configuration (production / real deployment)
+    # PostgreSQL configuration (default)
     DB_USER = os.getenv("DB_USER", "eval_admin")
-    DB_PASS = os.getenv("DB_PASS", "secure_pass")
+    DB_PASS = os.getenv("DB_PASS", "change_me_strong_password")
     DB_HOST = os.getenv("DB_HOST", "localhost")
     DB_PORT = os.getenv("DB_PORT", "5432")
     DB_NAME = os.getenv("DB_NAME", "eval_system")

@@ -16,6 +16,7 @@ asyncpg = "*"
 aiofiles = "*"
 h5py = "*"
 httpx = "*"
+python-dotenv = "*"
 
 [dev-packages]
 pytest = "*"

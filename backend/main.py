@@ -23,6 +23,12 @@ async def lifespan(app: FastAPI):
     await init_db()
     # Initialize services
     await job_queue_service.initialize()
+    # Print the actual URL users should open in their browser. Uvicorn only
+    # knows the in-container bind address (0.0.0.0:8000); when running under
+    # docker-compose the host may map this to a different port.
+    external_url = os.getenv("APP_EXTERNAL_URL")
+    if external_url:
+        print(f"[STARTUP] Open in browser: {external_url}")
     yield
     # Cleanup
     print("[SHUTDOWN] Eval System V2 Backend shutting down...")

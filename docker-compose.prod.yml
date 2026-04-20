@@ -23,10 +23,12 @@ services:
       POSTGRES_DB: ${DB_NAME:-eval_system}
     volumes:
       - pg_data:/var/lib/postgresql/data
-    # Expose only on the internal docker network by default.
-    # Uncomment to access Postgres from the host (psql / pgAdmin):
-    # ports:
-    #   - "5432:5432"
+    # Expose Postgres on the host so a native dev backend (pipenv run uvicorn)
+    # can share the same DB as the Docker app — matches DB_PORT=5433 in .env.
+    # Port 5433 on the host (instead of 5432) avoids colliding with a native
+    # PostgreSQL that some devs already have running locally.
+    ports:
+      - "5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-eval_admin} -d ${DB_NAME:-eval_system}"]
       interval: 10s
@@ -51,6 +53,8 @@ services:
       DB_HOST: db
       DB_PORT: "5432"
       DB_NAME: ${DB_NAME:-eval_system}
+      # Printed on startup so the log shows the URL users actually open in the browser
+      APP_EXTERNAL_URL: http://localhost:${APP_PORT:-8000}
     volumes:
       - eval_uploads:/app/uploads
     healthcheck:
@@ -82,6 +86,27 @@ services:
       eval:
         condition: service_healthy
     command: tunnel --no-autoupdate --url http://eval:8000
+
+  # ----------------------------------------------------------------------
+  # pgweb — browser-based DB viewer (optional, debug only)
+  # Enable with:
+  #   docker compose -f docker-compose.prod.yml --profile debug up -d pgweb
+  # Then open http://localhost:8081 — auto-connects to the `db` service.
+  # Disable again with:
+  #   docker compose -f docker-compose.prod.yml --profile debug down pgweb
+  # ----------------------------------------------------------------------
+  pgweb:
+    image: sosedoff/pgweb:latest
+    container_name: eval-system-pgweb
+    restart: unless-stopped
+    profiles: ["debug"]
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    environment:
+      DATABASE_URL: postgres://${DB_USER:-eval_admin}:${DB_PASS:-change_me_strong_password}@db:5432/${DB_NAME:-eval_system}?sslmode=disable
 
 volumes:
   pg_data:
