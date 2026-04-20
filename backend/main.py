@@ -3,7 +3,7 @@ Eval System V2 - FastAPI Backend
 Main entry point for the API server.
 """
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.exceptions import HTTPException as FastAPIHTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -91,10 +91,42 @@ async def health_check():
     return {"status": "ok", "version": "2.0.0"}
 
 
-# Serve frontend static files (in production)
-FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "frontend")
-if os.path.exists(FRONTEND_DIR):
-    app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="static")
+# Serve frontend static files (in production, built by Vite → /app/frontend)
+FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend")
+INDEX_HTML = os.path.join(FRONTEND_DIR, "index.html")
+
+if os.path.isdir(FRONTEND_DIR) and os.path.isfile(INDEX_HTML):
+    print(f"[STARTUP] Serving frontend from {FRONTEND_DIR}")
+
+    # Hashed Vite bundles (JS/CSS) under /assets/*
+    assets_dir = os.path.join(FRONTEND_DIR, "assets")
+    if os.path.isdir(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+    def _spa_response(full_path: str = ""):
+        if full_path:
+            candidate = os.path.join(FRONTEND_DIR, full_path)
+            # Prevent path traversal outside the frontend dir
+            if os.path.isfile(candidate) and os.path.commonpath(
+                [os.path.abspath(candidate), FRONTEND_DIR]
+            ) == FRONTEND_DIR:
+                return FileResponse(candidate)
+        return FileResponse(INDEX_HTML)
+
+    # Explicit root (some Starlette versions don't match "/" with {path:path})
+    @app.get("/", include_in_schema=False)
+    @app.head("/", include_in_schema=False)
+    async def serve_spa_root():
+        return _spa_response("")
+
+    # SPA fallback: serve the exact file if present, otherwise index.html
+    # (keeps API routes intact because they were registered before this)
+    @app.get("/{full_path:path}", include_in_schema=False)
+    @app.head("/{full_path:path}", include_in_schema=False)
+    async def serve_spa(full_path: str):
+        return _spa_response(full_path)
+else:
+    print(f"[STARTUP] Frontend dir not found: {FRONTEND_DIR} (API-only mode)")
 
 
 if __name__ == "__main__":

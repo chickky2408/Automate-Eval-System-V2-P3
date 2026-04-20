@@ -15,15 +15,18 @@ import os
 USE_SQLITE_DEMO = os.getenv("USE_SQLITE_DEMO", "1") == "1"
 
 if USE_SQLITE_DEMO:
-    # Single-file SQLite DB for quick demo runs (no external service needed)
-    DATABASE_URL = "sqlite+aiosqlite:///./eval_system_demo.db"
+    # Single-file SQLite DB for quick demo runs (no external service needed).
+    # SQLITE_PATH lets docker-compose mount a persistent volume for the DB file.
+    SQLITE_PATH = os.getenv("SQLITE_PATH", "./eval_system_demo.db")
+    DATABASE_URL = f"sqlite+aiosqlite:///{SQLITE_PATH}"
 else:
     # PostgreSQL configuration (production / real deployment)
     DB_USER = os.getenv("DB_USER", "eval_admin")
     DB_PASS = os.getenv("DB_PASS", "secure_pass")
     DB_HOST = os.getenv("DB_HOST", "localhost")
+    DB_PORT = os.getenv("DB_PORT", "5432")
     DB_NAME = os.getenv("DB_NAME", "eval_system")
-    DATABASE_URL = f"postgresql+asyncpg://{DB_USER}:{DB_PASS}@{DB_HOST}/{DB_NAME}"
+    DATABASE_URL = f"postgresql+asyncpg://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
 # Create async engine
 engine = create_async_engine(

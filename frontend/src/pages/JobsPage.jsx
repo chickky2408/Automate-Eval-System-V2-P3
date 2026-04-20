@@ -152,6 +152,8 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
   }, [rerunFailedModal]);
 
   // Drop selections/expansion for job ids that no longer exist (after delete / refresh)
+  // NOTE: setJobsPageSession is stable (zustand action) — intentionally omitted from deps
+  // to avoid re-running on every parent re-render.
   useEffect(() => {
     const valid = new Set(jobs.map((j) => j.id));
     setJobsPageSession((prev) => {
@@ -170,29 +172,47 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
       }
       return { ...prev, selectedJobIds, expandedJobs, expandedDetailsJobs, testCasesView };
     });
-  }, [jobs, setJobsPageSession]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobs]);
+
+  // Keep the latest onExpandComplete in a ref so the expand effect below can call it
+  // without having onExpandComplete as a dep (parent re-creates it every render).
+  const onExpandCompleteRef = useRef(onExpandComplete);
+  useEffect(() => {
+    onExpandCompleteRef.current = onExpandComplete;
+  }, [onExpandComplete]);
 
   // จาก History: เปิด job นั้นและโฟกัสที่ test cases/files (เปิด Details ด้วย)
+  // Only re-run when expandJobId actually changes — prevents setState loop caused by
+  // unstable onExpandComplete prop identity.
   useEffect(() => {
     if (!expandJobId) return;
     const idStr = String(expandJobId);
-    setJobsPageSession((prev) => ({
-      ...prev,
-      expandedJobs: prev.expandedJobs.includes(expandJobId) ? prev.expandedJobs : [...prev.expandedJobs, expandJobId],
-      expandedDetailsJobs: prev.expandedDetailsJobs.includes(expandJobId)
-        ? prev.expandedDetailsJobs
-        : [...prev.expandedDetailsJobs, expandJobId],
-      testCasesView: expandJobId,
-    }));
+    setJobsPageSession((prev) => {
+      const alreadyExpanded = prev.expandedJobs.includes(expandJobId);
+      const alreadyDetails = prev.expandedDetailsJobs.includes(expandJobId);
+      if (alreadyExpanded && alreadyDetails && prev.testCasesView === expandJobId) {
+        return prev;
+      }
+      return {
+        ...prev,
+        expandedJobs: alreadyExpanded ? prev.expandedJobs : [...prev.expandedJobs, expandJobId],
+        expandedDetailsJobs: alreadyDetails
+          ? prev.expandedDetailsJobs
+          : [...prev.expandedDetailsJobs, expandJobId],
+        testCasesView: expandJobId,
+      };
+    });
     requestAnimationFrame(() => {
       const el = document.getElementById(`job-${expandJobId}`);
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
     setHighlightJobId(idStr);
     const t = window.setTimeout(() => setHighlightJobId(null), 3500);
-    onExpandComplete();
+    onExpandCompleteRef.current?.();
     return () => window.clearTimeout(t);
-  }, [expandJobId, onExpandComplete, setJobsPageSession]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandJobId]);
 
   useEffect(() => {
     if (!jobsTagColorDropdownOpen) return;
