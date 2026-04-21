@@ -9,7 +9,7 @@ from datetime import datetime
 from sqlalchemy import func, select
 
 from db.database import async_session
-from db.orm_models import BoardORM
+from db.orm_models import BoardORM, BoardStatusORM
 
 # Aligns with Fleet Manager mockup: mixed online / busy / error / offline
 _DEFAULT_BOARDS: list[dict] = [
@@ -146,6 +146,20 @@ async def seed_demo_boards_if_empty() -> int:
                     last_heartbeat=now if row["state"] in ("online", "busy") else None,
                     fpga_status=row["fpga_status"],
                     arm_status=row["arm_status"],
+                )
+            )
+            session.add(
+                BoardStatusORM(
+                    board_id=row["id"],
+                    state=row["state"],
+                    cpu_temp=row["cpu_temp"],
+                    cpu_load=row["cpu_load"],
+                    ram_usage=row["ram_usage"],
+                    current_job_id=row["current_job_id"],
+                    last_heartbeat=now if row["state"] in ("online", "busy") else None,
+                    fpga_status=row["fpga_status"],
+                    arm_status=row["arm_status"],
+                    updated_at=now,
                 )
             )
         await session.commit()

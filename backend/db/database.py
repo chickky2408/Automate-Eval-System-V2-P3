@@ -190,6 +190,191 @@ async def init_db():
                             pass
             await conn.run_sync(_add_board_status_columns)
 
+        # Migration: add result file-id columns + backfill ids from files.filename
+        async with engine.begin() as conn:
+            def _add_result_file_id_columns(sync_conn):
+                is_sqlite = "sqlite" in DATABASE_URL
+                if is_sqlite:
+                    cur = sync_conn.execute(text("PRAGMA table_info(results)"))
+                    cols = [row[1] for row in cur.fetchall()]
+                    if "vcd_file_id" not in cols:
+                        sync_conn.execute(text("ALTER TABLE results ADD COLUMN vcd_file_id VARCHAR(36)"))
+                    if "firmware_file_id" not in cols:
+                        sync_conn.execute(text("ALTER TABLE results ADD COLUMN firmware_file_id VARCHAR(36)"))
+                else:
+                    # Use IF NOT EXISTS to avoid aborting the whole transaction.
+                    sync_conn.execute(text("ALTER TABLE results ADD COLUMN IF NOT EXISTS vcd_file_id VARCHAR(36)"))
+                    sync_conn.execute(text("ALTER TABLE results ADD COLUMN IF NOT EXISTS firmware_file_id VARCHAR(36)"))
+                    # Best-effort backfill by filename match.
+                    try:
+                        sync_conn.execute(
+                            text(
+                                """
+                                UPDATE results r
+                                SET vcd_file_id = f.id
+                                FROM files f
+                                WHERE r.vcd_file_id IS NULL
+                                  AND r.vcd_filename IS NOT NULL
+                                  AND f.filename = r.vcd_filename
+                                """
+                            )
+                        )
+                    except Exception:
+                        pass
+                    try:
+                        sync_conn.execute(
+                            text(
+                                """
+                                UPDATE results r
+                                SET firmware_file_id = f.id
+                                FROM files f
+                                WHERE r.firmware_file_id IS NULL
+                                  AND r.firmware_filename IS NOT NULL
+                                  AND f.filename = r.firmware_filename
+                                """
+                            )
+                        )
+                    except Exception:
+                        pass
+                    try:
+                        sync_conn.execute(
+                            text(
+                                """
+                                UPDATE jobs j
+                                SET vcd_file_id = f.id
+                                FROM files f
+                                WHERE j.vcd_file_id IS NULL
+                                  AND j.vcd_filename IS NOT NULL
+                                  AND f.filename = j.vcd_filename
+                                """
+                            )
+                        )
+                    except Exception:
+                        pass
+                    try:
+                        sync_conn.execute(
+                            text(
+                                """
+                                UPDATE jobs j
+                                SET firmware_file_id = f.id
+                                FROM files f
+                                WHERE j.firmware_file_id IS NULL
+                                  AND j.firmware_filename IS NOT NULL
+                                  AND f.filename = j.firmware_filename
+                                """
+                            )
+                        )
+                    except Exception:
+                        pass
+            await conn.run_sync(_add_result_file_id_columns)
+
+        # Migration: create board_status table + backfill latest status from boards.
+        async with engine.begin() as conn:
+            def _create_backfill_board_status(sync_conn):
+                is_sqlite = "sqlite" in DATABASE_URL
+                if is_sqlite:
+                    sync_conn.execute(
+                        text(
+                            """
+                            CREATE TABLE IF NOT EXISTS board_status (
+                                board_id VARCHAR(64) PRIMARY KEY,
+                                state VARCHAR(32),
+                                cpu_temp FLOAT,
+                                cpu_load FLOAT,
+                                ram_usage FLOAT,
+                                current_job_id VARCHAR(32),
+                                last_heartbeat DATETIME,
+                                fpga_status VARCHAR(32),
+                                arm_status VARCHAR(32),
+                                updated_at DATETIME
+                            )
+                            """
+                        )
+                    )
+                    sync_conn.execute(
+                        text(
+                            """
+                            INSERT OR REPLACE INTO board_status
+                            (board_id, state, cpu_temp, cpu_load, ram_usage, current_job_id, last_heartbeat, fpga_status, arm_status, updated_at)
+                            SELECT
+                              b.id,
+                              COALESCE(b.state, 'offline'),
+                              b.cpu_temp,
+                              b.cpu_load,
+                              b.ram_usage,
+                              b.current_job_id,
+                              b.last_heartbeat,
+                              b.fpga_status,
+                              b.arm_status,
+                              CURRENT_TIMESTAMP
+                            FROM boards b
+                            """
+                        )
+                    )
+                else:
+                    sync_conn.execute(
+                        text(
+                            """
+                            CREATE TABLE IF NOT EXISTS board_status (
+                                board_id VARCHAR(64) PRIMARY KEY REFERENCES boards(id) ON DELETE CASCADE,
+                                state VARCHAR(32),
+                                cpu_temp FLOAT,
+                                cpu_load FLOAT,
+                                ram_usage FLOAT,
+                                current_job_id VARCHAR(32),
+                                last_heartbeat TIMESTAMP,
+                                fpga_status VARCHAR(32),
+                                arm_status VARCHAR(32),
+                                updated_at TIMESTAMP DEFAULT NOW()
+                            )
+                            """
+                        )
+                    )
+                    sync_conn.execute(
+                        text(
+                            """
+                            INSERT INTO board_status
+                            (board_id, state, cpu_temp, cpu_load, ram_usage, current_job_id, last_heartbeat, fpga_status, arm_status, updated_at)
+                            SELECT
+                              b.id,
+                              COALESCE(b.state, 'offline'),
+                              b.cpu_temp,
+                              b.cpu_load,
+                              b.ram_usage,
+                              b.current_job_id,
+                              b.last_heartbeat,
+                              b.fpga_status,
+                              b.arm_status,
+                              NOW()
+                            FROM boards b
+                            ON CONFLICT (board_id) DO UPDATE SET
+                              state = EXCLUDED.state,
+                              cpu_temp = EXCLUDED.cpu_temp,
+                              cpu_load = EXCLUDED.cpu_load,
+                              ram_usage = EXCLUDED.ram_usage,
+                              current_job_id = EXCLUDED.current_job_id,
+                              last_heartbeat = EXCLUDED.last_heartbeat,
+                              fpga_status = EXCLUDED.fpga_status,
+                              arm_status = EXCLUDED.arm_status,
+                              updated_at = NOW()
+                            """
+                        )
+                    )
+            await conn.run_sync(_create_backfill_board_status)
+
+        # Final cutover: drop legacy filename columns after file-id migration is in place.
+        async with engine.begin() as conn:
+            def _drop_legacy_filename_columns(sync_conn):
+                if "sqlite" in DATABASE_URL:
+                    # SQLite DROP COLUMN support varies by version and migration complexity.
+                    # Keep legacy columns in SQLite demo DB.
+                    return
+                sync_conn.execute(text("ALTER TABLE jobs DROP COLUMN IF EXISTS vcd_filename"))
+                sync_conn.execute(text("ALTER TABLE jobs DROP COLUMN IF EXISTS firmware_filename"))
+                sync_conn.execute(text("ALTER TABLE results DROP COLUMN IF EXISTS vcd_filename"))
+                sync_conn.execute(text("ALTER TABLE results DROP COLUMN IF EXISTS firmware_filename"))
+            await conn.run_sync(_drop_legacy_filename_columns)
+
         # Seed demo boards when inventory is empty (dev / first boot)
         from db.seed_boards import seed_demo_boards_if_empty
 

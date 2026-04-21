@@ -29,6 +29,8 @@ class TestResult(BaseModel):
     started_at: datetime
     completed_at: datetime
     duration_seconds: float
+    vcd_file_id: Optional[str] = None
+    firmware_file_id: Optional[str] = None
     vcd_filename: str
     firmware_filename: Optional[str] = None
     error_message: Optional[str] = None

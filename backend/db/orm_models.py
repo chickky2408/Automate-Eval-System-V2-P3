@@ -44,10 +44,6 @@ class JobORM(Base):
     vcd_file_id = Column(String(36), ForeignKey("files.id"), nullable=True) # Needs to be optional for "Run Command" jobs
     firmware_file_id = Column(String(36), ForeignKey("files.id"), nullable=True)
     
-    # Legacy fields (kept for compatibility or simple display)
-    vcd_filename = Column(String(255), nullable=True)
-    firmware_filename = Column(String(255), nullable=True)
-
     target_board_id = Column(String(32), nullable=True)
     target_board_ids = Column(JSON, nullable=True)  # For broadcast mode
     assigned_board_id = Column(String(32), nullable=True)
@@ -96,8 +92,8 @@ class ResultORM(Base):
     duration_seconds = Column(Float, nullable=False)
     
     # Test details
-    vcd_filename = Column(String(255), nullable=False)
-    firmware_filename = Column(String(255), nullable=True)
+    vcd_file_id = Column(String(36), ForeignKey("files.id"), nullable=True)
+    firmware_file_id = Column(String(36), ForeignKey("files.id"), nullable=True)
     error_message = Column(Text, nullable=True)
     packet_count = Column(Integer, default=0)
     crc_errors = Column(Integer, default=0)
@@ -142,6 +138,22 @@ class BoardORM(Base):
     arm_status = Column(String(32), nullable=True)   # 'online' | 'busy' | 'error' | 'unknown'
 
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class BoardStatusORM(Base):
+    """Dynamic board telemetry/status (split from boards static metadata)."""
+    __tablename__ = "board_status"
+
+    board_id = Column(String(64), ForeignKey("boards.id"), primary_key=True)
+    state = Column(String(32), default="offline")
+    cpu_temp = Column(Float, nullable=True)
+    cpu_load = Column(Float, nullable=True)
+    ram_usage = Column(Float, nullable=True)
+    current_job_id = Column(String(32), nullable=True)
+    last_heartbeat = Column(DateTime, nullable=True)
+    fpga_status = Column(String(32), nullable=True)
+    arm_status = Column(String(32), nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class TestCaseORM(Base):

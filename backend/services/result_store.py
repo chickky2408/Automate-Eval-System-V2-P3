@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models.result import TestResult, WaveformData, WaveformChannel
 from db.database import async_session
 from db.orm_models import ResultORM
+from db.orm_models import FileORM
 
 class ResultStore:
     """Manages test result storage with Hybrid Strategy (Postgres + HDF5)."""
@@ -44,8 +45,10 @@ class ResultStore:
             started_at=orm.started_at,
             completed_at=orm.completed_at,
             duration_seconds=orm.duration_seconds,
-            vcd_filename=orm.vcd_filename,
-            firmware_filename=orm.firmware_filename,
+            vcd_file_id=getattr(orm, "vcd_file_id", None),
+            firmware_file_id=getattr(orm, "firmware_file_id", None),
+            vcd_filename="",
+            firmware_filename=None,
             error_message=orm.error_message,
             packet_count=orm.packet_count,
             crc_errors=orm.crc_errors,
@@ -164,6 +167,14 @@ class ResultStore:
             self._save_waveform_to_hdf5(hdf5_path, waveform)
 
         async with async_session() as session:
+            vcd_file_id = result.vcd_file_id
+            firmware_file_id = result.firmware_file_id
+            if not vcd_file_id and result.vcd_filename:
+                q = await session.execute(select(FileORM.id).where(FileORM.filename == result.vcd_filename))
+                vcd_file_id = q.scalar_one_or_none()
+            if not firmware_file_id and result.firmware_filename:
+                q = await session.execute(select(FileORM.id).where(FileORM.filename == result.firmware_filename))
+                firmware_file_id = q.scalar_one_or_none()
             orm = ResultORM(
                 id=result.id,
                 job_id=result.job_id,
@@ -174,8 +185,8 @@ class ResultStore:
                 started_at=result.started_at,
                 completed_at=result.completed_at,
                 duration_seconds=result.duration_seconds,
-                vcd_filename=result.vcd_filename,
-                firmware_filename=result.firmware_filename,
+                vcd_file_id=vcd_file_id,
+                firmware_file_id=firmware_file_id,
                 error_message=result.error_message,
                 packet_count=result.packet_count,
                 crc_errors=result.crc_errors,

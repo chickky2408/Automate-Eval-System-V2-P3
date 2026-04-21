@@ -74,6 +74,15 @@ def _model_to_dict(item: BaseModel) -> dict:
     return item.dict()
 
 
+def _resolve_job_file_ids(file_payloads: List[dict], fallback_firmware: Optional[str], library_files: List[dict]) -> tuple[Optional[str], Optional[str], str, str]:
+    name_to_id = {str(f.get("name") or ""): str(f.get("id") or "") for f in (library_files or [])}
+    first_name = file_payloads[0]["name"] if file_payloads else ""
+    fw_name = fallback_firmware or ""
+    vcd_id = name_to_id.get(first_name) or None
+    fw_id = name_to_id.get(fw_name) or None
+    return vcd_id, fw_id, first_name, fw_name
+
+
 def _map_job_state(state: JobState) -> str:
     if state == JobState.PENDING:
         return "pending"
@@ -143,11 +152,21 @@ def _serialize_files(files) -> List[dict]:
     ]
 
 
-async def _build_fe_job(job, profile_name_map: Optional[Dict[str, str]] = None) -> dict:
+def _resolve_display_name_from_ids(job, file_name_map: Dict[str, str]) -> tuple[str, str]:
+    vcd = (file_name_map.get(str(getattr(job, "vcd_file_id", "") or "")) or "").strip()
+    fw = (file_name_map.get(str(getattr(job, "firmware_file_id", "") or "")) or "").strip()
+    return vcd, fw
+
+
+async def _build_fe_job(job, profile_name_map: Optional[Dict[str, str]] = None, file_name_map: Optional[Dict[str, str]] = None) -> dict:
+    if file_name_map is None:
+        lib = await file_store.list_files(set_id=None)
+        file_name_map = {str(f.get("id")): str(f.get("name") or "") for f in (lib or [])}
+    vcd_display, fw_display = _resolve_display_name_from_ids(job, file_name_map)
     meta = fe_job_store.ensure_meta(
         job.id,
-        firmware=job.firmware_filename,
-        default_file_name=job.vcd_filename,
+        firmware=fw_display or None,
+        default_file_name=vcd_display or None,
         pairs_data=getattr(job, "pairs_data", None),  # Restore from DB after restart
     )
     # ORM tag/tag_color are persisted; in-memory meta often has tag=None from create_from_payload.
@@ -192,7 +211,7 @@ async def _build_fe_job(job, profile_name_map: Optional[Dict[str, str]] = None) 
         "profileName": profile_name,
         "totalFiles": len(files),
         "completedFiles": completed_files,
-        "firmware": meta.get("firmware") or job.firmware_filename or "",
+        "firmware": meta.get("firmware") or fw_display or "",
         "boards": boards,
         "startedAt": _to_iso(job.started_at),
         "completedAt": _to_iso(job.completed_at),
@@ -210,9 +229,12 @@ async def list_jobs(
     jobs = await job_queue_service.get_all_jobs()
     profile_ids = {getattr(j, "profile_id", None) for j in jobs if getattr(j, "profile_id", None)}
     name_map = await batch_profile_names_by_ids(profile_ids)
+    file_map = {}
+    for f in await file_store.list_files(set_id=None):
+        file_map[str(f.get("id"))] = str(f.get("name") or "")
     payload = []
     for job in jobs:
-        payload.append(await _build_fe_job(job, profile_name_map=name_map))
+        payload.append(await _build_fe_job(job, profile_name_map=name_map, file_name_map=file_map))
 
     if status:
         payload = [job for job in payload if job["status"] == status]
@@ -236,7 +258,9 @@ async def get_job(job_id: str):
 async def create_job(payload: JobCreatePayload):
     """Create a job using the frontend schema."""
     file_payloads = [_model_to_dict(file_item) for file_item in (payload.files or [])]
-    vcd_filename = file_payloads[0]["name"] if file_payloads else f"{uuid.uuid4().hex}.vcd"
+    library_files = await file_store.list_files(set_id=None)
+    vcd_file_id, firmware_file_id, first_name, fw_name = _resolve_job_file_ids(file_payloads, payload.firmware, library_files)
+    vcd_filename = first_name if first_name else f"{uuid.uuid4().hex}.vcd"
     tags_payload = payload.tags if isinstance(payload.tags, list) else None
     # keep DB tag fields synced with first tag when provided
     if tags_payload and isinstance(tags_payload[0], dict):
@@ -248,7 +272,9 @@ async def create_job(payload: JobCreatePayload):
     job_data = JobCreate(
         name=payload.name,
         vcd_filename=vcd_filename,
-        firmware_filename=payload.firmware,
+        firmware_filename=fw_name or None,
+        vcd_file_id=vcd_file_id,
+        firmware_file_id=firmware_file_id,
         target_board_id=None,
         priority=0,
         timeout_seconds=60,
@@ -295,8 +321,15 @@ async def update_job(job_id: str, payload: JobCreatePayload):
             detail="Only pending jobs can be updated. Stop the job first to edit.",
         )
     file_payloads = [_model_to_dict(f) for f in (payload.files or [])]
-    vcd_filename = file_payloads[0]["name"] if file_payloads else job.vcd_filename or f"{job_id}.vcd"
-    firmware_filename = payload.firmware or ""
+    library_files = await file_store.list_files(set_id=None)
+    vcd_file_id, firmware_file_id, first_name, fw_name = _resolve_job_file_ids(file_payloads, payload.firmware, library_files)
+    vcd_filename = first_name if first_name else getattr(job, "vcd_filename", None) or f"{job_id}.vcd"
+    firmware_filename = fw_name or ""
+    # If no change from payload files, keep existing IDs.
+    if vcd_file_id is None and not first_name:
+        vcd_file_id = getattr(job, "vcd_file_id", None)
+    if firmware_file_id is None and not fw_name:
+        firmware_file_id = getattr(job, "firmware_file_id", None)
     tags_payload = payload.tags if isinstance(payload.tags, list) else None
     if tags_payload and isinstance(tags_payload[0], dict):
         first_tag = (tags_payload[0].get("tag") or tags_payload[0].get("name") or "").strip() or None
@@ -309,8 +342,8 @@ async def update_job(job_id: str, payload: JobCreatePayload):
     await job_queue_service.update_job_meta(
         job_id,
         name=payload.name,
-        vcd_filename=vcd_filename,
-        firmware_filename=firmware_filename or None,
+        vcd_file_id=vcd_file_id,
+        firmware_file_id=firmware_file_id,
         pairs_data=payload.pairsData if payload.pairsData is not None else None,
         client_id=payload.clientId,
         profile_id=payload.profileId,
@@ -347,7 +380,7 @@ async def start_job(job_id: str):
 
     meta = fe_job_store.ensure_meta(
         job.id,
-        default_file_name=job.vcd_filename,
+        default_file_name=getattr(job, "vcd_filename", None),
         pairs_data=getattr(job, "pairs_data", None),
     )
     job_files = fe_job_store.list_files(job.id)
@@ -498,7 +531,7 @@ async def update_job_tag(job_id: str, payload: JobTagUpdate):
             fe_fields["tagColor"] = first_color
     if orm_fields:
         await job_queue_service.update_job_tag_fields(job_id, orm_fields)
-    fe_job_store.ensure_meta(job.id, default_file_name=job.vcd_filename, pairs_data=getattr(job, "pairs_data", None))
+    fe_job_store.ensure_meta(job.id, default_file_name=getattr(job, "vcd_filename", None), pairs_data=getattr(job, "pairs_data", None))
     if fe_fields:
         fe_job_store.apply_tag_patch(job_id, fe_fields)
     job = await job_queue_service.get_job(job_id)
@@ -511,7 +544,7 @@ async def get_job_files(job_id: str):
     job = await job_queue_service.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-    fe_job_store.ensure_meta(job.id, default_file_name=job.vcd_filename, pairs_data=getattr(job, "pairs_data", None))
+    fe_job_store.ensure_meta(job.id, default_file_name=getattr(job, "vcd_filename", None), pairs_data=getattr(job, "pairs_data", None))
     files = fe_job_store.list_files(job.id)
     return _serialize_files(files)
 
@@ -525,7 +558,7 @@ async def get_job_pairs(job_id: str):
     # Restore from DB when fe_job_store is empty (e.g. after restart)
     fe_job_store.ensure_meta(
         job.id,
-        default_file_name=job.vcd_filename,
+        default_file_name=getattr(job, "vcd_filename", None),
         pairs_data=getattr(job, "pairs_data", None),
     )
     pairs_data = fe_job_store.get_pairs_data(job.id)
@@ -543,7 +576,7 @@ async def stop_job_file(job_id: str, file_id: int):
     job = await job_queue_service.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-    fe_job_store.ensure_meta(job.id, default_file_name=job.vcd_filename, pairs_data=getattr(job, "pairs_data", None))
+    fe_job_store.ensure_meta(job.id, default_file_name=getattr(job, "vcd_filename", None), pairs_data=getattr(job, "pairs_data", None))
     file_item = fe_job_store.update_file(job.id, file_id, status="stopped")
     if not file_item:
         raise HTTPException(status_code=404, detail="File not found")
@@ -556,7 +589,7 @@ async def rerun_job_file(job_id: str, file_id: int):
     job = await job_queue_service.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-    fe_job_store.ensure_meta(job.id, default_file_name=job.vcd_filename, pairs_data=getattr(job, "pairs_data", None))
+    fe_job_store.ensure_meta(job.id, default_file_name=getattr(job, "vcd_filename", None), pairs_data=getattr(job, "pairs_data", None))
     files = fe_job_store.list_files(job.id)
     file_before = next((f for f in files if f.id == file_id), None)
     if not file_before:
@@ -573,7 +606,7 @@ async def move_job_file(job_id: str, file_id: int, payload: FileMoveRequest):
     job = await job_queue_service.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-    fe_job_store.ensure_meta(job.id, default_file_name=job.vcd_filename, pairs_data=getattr(job, "pairs_data", None))
+    fe_job_store.ensure_meta(job.id, default_file_name=getattr(job, "vcd_filename", None), pairs_data=getattr(job, "pairs_data", None))
     files = fe_job_store.move_file(job.id, file_id, payload.direction)
     return {
         "success": True,

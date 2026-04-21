@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.board import BoardInfo, BoardStatus, BoardState
 from db.database import async_session
-from db.orm_models import BoardORM
+from db.orm_models import BoardORM, BoardStatusORM
 
 class BoardManager:
     """Manages the fleet of Zybo boards."""
@@ -22,10 +22,12 @@ class BoardManager:
         self.agent_port = 8000
         self.http_client = httpx.AsyncClient(timeout=5.0)
 
-    def _orm_to_model(self, orm: BoardORM) -> BoardInfo:
+    def _orm_to_model(self, orm: BoardORM, status_orm: Optional[BoardStatusORM] = None) -> BoardInfo:
         """Convert ORM object to BoardInfo."""
+        s = status_orm
+        state_raw = (s.state if s else orm.state) or BoardState.OFFLINE.value
         try:
-            state = BoardState(orm.state)
+            state = BoardState(state_raw)
         except ValueError:
             state = BoardState.OFFLINE
 
@@ -40,13 +42,13 @@ class BoardManager:
             connections=orm.connections or [],
             status=BoardStatus(
                 state=state,
-                cpu_temp=orm.cpu_temp,
-                cpu_load=orm.cpu_load,
-                ram_usage=orm.ram_usage,
-                current_job_id=orm.current_job_id,
-                last_heartbeat=orm.last_heartbeat,
-                fpga_status=getattr(orm, 'fpga_status', None),
-                arm_status=getattr(orm, 'arm_status', None),
+                cpu_temp=s.cpu_temp if s else orm.cpu_temp,
+                cpu_load=s.cpu_load if s else orm.cpu_load,
+                ram_usage=s.ram_usage if s else orm.ram_usage,
+                current_job_id=s.current_job_id if s else orm.current_job_id,
+                last_heartbeat=s.last_heartbeat if s else orm.last_heartbeat,
+                fpga_status=(s.fpga_status if s else getattr(orm, 'fpga_status', None)),
+                arm_status=(s.arm_status if s else getattr(orm, 'arm_status', None)),
             ),
         )
 
@@ -55,14 +57,19 @@ class BoardManager:
         async with async_session() as session:
             result = await session.execute(select(BoardORM))
             boards = result.scalars().all()
-            return [self._orm_to_model(b) for b in boards]
+            status_rows = (await session.execute(select(BoardStatusORM))).scalars().all()
+            status_by_id = {s.board_id: s for s in status_rows}
+            return [self._orm_to_model(b, status_by_id.get(b.id)) for b in boards]
 
     async def get_board(self, board_id: str) -> Optional[BoardInfo]:
         """Get a specific board by ID."""
         async with async_session() as session:
             result = await session.execute(select(BoardORM).where(BoardORM.id == board_id))
             board = result.scalar_one_or_none()
-            return self._orm_to_model(board) if board else None
+            if not board:
+                return None
+            s = (await session.execute(select(BoardStatusORM).where(BoardStatusORM.board_id == board_id))).scalar_one_or_none()
+            return self._orm_to_model(board, s)
 
     async def create_board(
         self,
@@ -103,20 +110,57 @@ class BoardManager:
                 last_heartbeat=datetime.utcnow()
             )
             session.add(orm)
+            session.add(
+                BoardStatusORM(
+                    board_id=board_id,
+                    state=state.value,
+                    last_heartbeat=datetime.utcnow(),
+                    cpu_temp=None,
+                    cpu_load=None,
+                    ram_usage=None,
+                    current_job_id=None,
+                )
+            )
             await session.commit()
-            return self._orm_to_model(orm)
+            return self._orm_to_model(orm, (await session.execute(select(BoardStatusORM).where(BoardStatusORM.board_id == board_id))).scalar_one_or_none())
 
     async def update_board(self, board_id: str, updates: dict) -> Optional[BoardInfo]:
         async with async_session() as session:
-            result = await session.execute(
-                update(BoardORM).where(BoardORM.id == board_id).values(**updates)
-            )
-            await session.commit()
-            if result.rowcount <= 0:
+            board_row = (await session.execute(select(BoardORM).where(BoardORM.id == board_id))).scalar_one_or_none()
+            if not board_row:
                 return None
+            status_keys = {"state", "cpu_temp", "cpu_load", "ram_usage", "current_job_id", "last_heartbeat", "fpga_status", "arm_status"}
+            board_updates = {k: v for k, v in updates.items() if k not in status_keys}
+            status_updates = {k: v for k, v in updates.items() if k in status_keys}
+
+            result = None
+            if board_updates:
+                result = await session.execute(
+                    update(BoardORM).where(BoardORM.id == board_id).values(**board_updates)
+                )
+            if status_updates:
+                status_row = (await session.execute(select(BoardStatusORM).where(BoardStatusORM.board_id == board_id))).scalar_one_or_none()
+                if status_row:
+                    await session.execute(update(BoardStatusORM).where(BoardStatusORM.board_id == board_id).values(**status_updates))
+                else:
+                    session.add(
+                        BoardStatusORM(
+                            board_id=board_id,
+                            state=status_updates.get("state", board_row.state or BoardState.OFFLINE.value),
+                            cpu_temp=status_updates.get("cpu_temp"),
+                            cpu_load=status_updates.get("cpu_load"),
+                            ram_usage=status_updates.get("ram_usage"),
+                            current_job_id=status_updates.get("current_job_id"),
+                            last_heartbeat=status_updates.get("last_heartbeat"),
+                            fpga_status=status_updates.get("fpga_status"),
+                            arm_status=status_updates.get("arm_status"),
+                        )
+                    )
+            await session.commit()
             refreshed = await session.execute(select(BoardORM).where(BoardORM.id == board_id))
             orm = refreshed.scalar_one_or_none()
-            return self._orm_to_model(orm) if orm else None
+            s = (await session.execute(select(BoardStatusORM).where(BoardStatusORM.board_id == board_id))).scalar_one_or_none()
+            return self._orm_to_model(orm, s) if orm else None
 
     async def delete_board(self, board_id: str) -> bool:
         async with async_session() as session:
@@ -126,15 +170,13 @@ class BoardManager:
 
     async def get_available_board(self, target_board_id: Optional[str] = None) -> Optional[BoardInfo]:
         """Get a free board. If target_board_id is specified, check if it's free."""
-        async with async_session() as session:
-            query = select(BoardORM).where(BoardORM.state == BoardState.ONLINE.value)
-            
-            if target_board_id:
-                query = query.where(BoardORM.id == target_board_id)
-            
-            result = await session.execute(query.limit(1))
-            board = result.scalar_one_or_none()
-            return self._orm_to_model(board) if board else None
+        boards = await self.get_all_boards()
+        for b in boards:
+            if target_board_id and b.id != target_board_id:
+                continue
+            if b.status.state == BoardState.ONLINE:
+                return b
+        return None
 
     async def update_heartbeat(
         self,
@@ -148,17 +190,24 @@ class BoardManager:
         async with async_session() as session:
             values = {
                 "ip_address": ip,
+            }
+            status_values = {
                 "cpu_temp": temp,
                 "last_heartbeat": datetime.utcnow(),
                 "state": BoardState.ONLINE.value,
             }
             if fpga_status is not None:
-                values["fpga_status"] = fpga_status
+                status_values["fpga_status"] = fpga_status
             if arm_status is not None:
-                values["arm_status"] = arm_status
+                status_values["arm_status"] = arm_status
             result = await session.execute(
                 update(BoardORM).where(BoardORM.id == board_id).values(**values)
             )
+            status_row = (await session.execute(select(BoardStatusORM).where(BoardStatusORM.board_id == board_id))).scalar_one_or_none()
+            if status_row:
+                await session.execute(update(BoardStatusORM).where(BoardStatusORM.board_id == board_id).values(**status_values))
+            else:
+                session.add(BoardStatusORM(board_id=board_id, **status_values))
             await session.commit()
             return result.rowcount > 0
 

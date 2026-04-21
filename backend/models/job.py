@@ -28,6 +28,8 @@ class JobCreate(BaseModel):
     name: str
     vcd_filename: str
     firmware_filename: Optional[str] = None
+    vcd_file_id: Optional[str] = None
+    firmware_file_id: Optional[str] = None
     target_board_id: Optional[str] = None  # None = auto-assign
     target_board_ids: Optional[List[str]] = None  # For broadcast mode
     priority: int = 0  # Higher = more priority

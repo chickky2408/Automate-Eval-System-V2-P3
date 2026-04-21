@@ -45,8 +45,8 @@ class JobQueueService:
         return Job(
             id=orm.id,
             name=orm.name,
-            vcd_filename=orm.vcd_filename, # Legacy support
-            firmware_filename=orm.firmware_filename, # Legacy support
+            vcd_filename="",
+            firmware_filename=None,
             vcd_file_id=orm.vcd_file_id, # File ID
             firmware_file_id=orm.firmware_file_id, # File ID
             target_board_id=orm.target_board_id,
@@ -108,9 +108,9 @@ class JobQueueService:
         """Add a new job to the queue."""
         job_id = str(uuid.uuid4())[:8]
         
-        # Resolve file IDs
-        vcd_file_id = await self._resolve_file_id(job_data.vcd_filename)
-        firmware_file_id = await self._resolve_file_id(job_data.firmware_filename)
+        # Resolve file IDs (prefer explicit IDs from API payload; fallback by filename)
+        vcd_file_id = job_data.vcd_file_id or await self._resolve_file_id(job_data.vcd_filename)
+        firmware_file_id = job_data.firmware_file_id or await self._resolve_file_id(job_data.firmware_filename)
         
         async with async_session() as session:
             # Get max queue position
@@ -124,8 +124,6 @@ class JobQueueService:
                 name=job_data.name,
                 vcd_file_id=vcd_file_id,  # Use file ID
                 firmware_file_id=firmware_file_id,  # Use file ID
-                vcd_filename=job_data.vcd_filename,  # Keep for backward compatibility
-                firmware_filename=job_data.firmware_filename,  # Keep for backward compatibility
                 target_board_id=job_data.target_board_id,
                 target_board_ids=job_data.target_board_ids,  # For broadcast mode
                 priority=job_data.priority,
@@ -183,7 +181,7 @@ class JobQueueService:
 
     async def update_job_meta(
         self, job_id: str, *, name: Optional[str] = None,
-        vcd_filename: Optional[str] = None, firmware_filename: Optional[str] = None,
+        vcd_file_id: Optional[str] = None, firmware_file_id: Optional[str] = None,
         pairs_data: Optional[dict] = None,
         client_id: Optional[str] = None,
         profile_id: Optional[str] = None,
@@ -194,10 +192,10 @@ class JobQueueService:
             values = {}
             if name is not None:
                 values["name"] = name
-            if vcd_filename is not None:
-                values["vcd_filename"] = vcd_filename
-            if firmware_filename is not None:
-                values["firmware_filename"] = firmware_filename
+            if vcd_file_id is not None:
+                values["vcd_file_id"] = vcd_file_id
+            if firmware_file_id is not None:
+                values["firmware_file_id"] = firmware_file_id
             if pairs_data is not None:
                 values["pairs_data"] = pairs_data
             if client_id is not None:
@@ -322,9 +320,9 @@ class JobQueueService:
             # vcd_path = ...
             
             # 2. Flash Firmware (if needed)
-            if job.firmware_filename:
+            if job.firmware_file_id:
                 await self.update_job_status(job.id, JobState.FLASHING, 30, "Programming EROM...")
-                # await board_manager.flash_firmware(board_id, job.firmware_filename)
+                # await board_manager.flash_firmware(board_id, job.firmware_file_id)
 
             # 3. Run Test
             await self.update_job_status(job.id, JobState.RUNNING, 50, "Executing test...")
@@ -343,8 +341,10 @@ class JobQueueService:
                 started_at=datetime.utcnow(),
                 completed_at=datetime.utcnow(),
                 duration_seconds=5.0,
-                vcd_filename=job.vcd_filename,
-                firmware_filename=job.firmware_filename,
+                vcd_file_id=getattr(job, "vcd_file_id", None),
+                firmware_file_id=getattr(job, "firmware_file_id", None),
+                vcd_filename="",  # legacy field kept in API model only
+                firmware_filename=None,
                 packet_count=1000,
                 crc_errors=0
             )

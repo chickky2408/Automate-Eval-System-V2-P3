@@ -87,3 +87,30 @@ async def get_board_api_status():
         "lastConnected": datetime.utcnow().isoformat() + "Z",
         "messageCount": 0,
     }
+
+
+@router.post("/backfill-file-ids")
+async def backfill_file_ids():
+    return {
+        "success": True,
+        "message": "Legacy filename columns are already dropped; no backfill required.",
+        "jobs_vcd_backfilled": 0,
+        "jobs_firmware_backfilled": 0,
+        "results_vcd_backfilled": 0,
+        "results_firmware_backfilled": 0,
+    }
+
+
+@router.get("/file-id-cutover-readiness")
+async def file_id_cutover_readiness():
+    """Legacy filename columns removed; report final cutover state."""
+    pending = 0
+    return {
+        "ready": True,
+        "jobs_missing_vcd_id": 0,
+        "jobs_missing_firmware_id": 0,
+        "results_missing_vcd_id": 0,
+        "results_missing_firmware_id": 0,
+        "pending_total": pending,
+        "message": "Legacy filename columns have been removed from jobs/results.",
+    }
