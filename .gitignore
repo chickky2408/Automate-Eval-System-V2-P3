@@ -24,6 +24,7 @@ venv/
 
 # Uploads / runtime data
 backend/uploads/
+backups/
 
 # Binary blobs
 **/*.bin
