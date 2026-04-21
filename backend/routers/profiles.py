@@ -6,12 +6,13 @@ from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 import uuid
+import hashlib
 
 from sqlalchemy import select, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.database import async_session
-from db.orm_models import ProfileORM
+from db.orm_models import ProfileORM, TestCaseORM, TestSetORM, TestSetItemORM
 
 router = APIRouter()
 
@@ -102,6 +103,107 @@ def _validate_global_unique_test_case_names(
                 if err:
                     return err
     return None
+
+
+def _stable_id(kind: str, profile_id: str, raw_id: str, fallback: str) -> str:
+    """
+    Build deterministic 32-char ids for normalized tables.
+    Table schemas use VARCHAR(32) primary keys.
+    """
+    rid = (raw_id or "").strip()
+    seed = f"{kind}:{profile_id}:{rid if rid else fallback}"
+    return hashlib.md5(seed.encode("utf-8")).hexdigest()[:32]
+
+
+def _extract_tc_tags(tc: Dict[str, Any]) -> str:
+    extra = tc.get("extraColumns") if isinstance(tc.get("extraColumns"), dict) else {}
+    from_extra = (extra.get("tag") or extra.get("Tag") or "").strip() if isinstance(extra, dict) else ""
+    from_root = str(tc.get("tags") or "").strip()
+    return from_extra or from_root or None
+
+
+async def _sync_normalized_test_tables(session: AsyncSession, all_profiles: List[ProfileORM]) -> None:
+    """
+    Mirror profiles.data JSON into normalized tables:
+    - test_cases
+    - test_sets
+    - test_set_items
+    Rebuilt from scratch on each profile data mutation.
+    """
+    tc_by_key: Dict[str, TestCaseORM] = {}
+    set_rows: List[TestSetORM] = []
+    set_item_rows: List[TestSetItemORM] = []
+
+    for p in all_profiles:
+        data = p.data if isinstance(p.data, dict) else {}
+        saved_cases = data.get("savedTestCases") or []
+        saved_sets = data.get("savedTestCaseSets") or []
+
+        def ensure_case(tc: Any, fallback: str) -> Optional[str]:
+            if not isinstance(tc, dict):
+                return None
+            raw_id = str(tc.get("id") or "").strip()
+            tc_id = _stable_id("tc", p.id, raw_id, fallback)
+            if tc_id in tc_by_key:
+                return tc_id
+            name = _normalize_tc_name(tc.get("name")) or f"TC_{tc_id[:8]}"
+            tc_by_key[tc_id] = TestCaseORM(
+                id=tc_id,
+                name=name,
+                vcd_file_id=str(tc.get("vcdId") or tc.get("vcd_file_id") or "").strip() or None,
+                firmware_filename=str(tc.get("binName") or tc.get("firmware_filename") or "").strip() or None,
+                tags=_extract_tc_tags(tc),
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+            return tc_id
+
+        for idx, tc in enumerate(saved_cases):
+            ensure_case(tc, f"saved:{idx}")
+
+        for s_idx, s in enumerate(saved_sets):
+            if not isinstance(s, dict):
+                continue
+            raw_set_id = str(s.get("id") or "").strip()
+            set_id = _stable_id("set", p.id, raw_set_id, f"set:{s_idx}")
+            set_rows.append(
+                TestSetORM(
+                    id=set_id,
+                    name=str(s.get("name") or f"Set {s_idx + 1}").strip() or f"Set {s_idx + 1}",
+                    tags=str(s.get("tag") or s.get("tags") or "").strip() or None,
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow(),
+                )
+            )
+            items = s.get("items") or []
+            for i_idx, tc in enumerate(items):
+                tc_id = ensure_case(tc, f"set:{s_idx}:item:{i_idx}")
+                if not tc_id:
+                    continue
+                item_seed = str(tc.get("id") or tc.get("name") or f"{i_idx}")
+                set_item_rows.append(
+                    TestSetItemORM(
+                        id=_stable_id("set_item", p.id, item_seed, f"{set_id}:{tc_id}:{i_idx}"),
+                        test_set_id=set_id,
+                        test_case_id=tc_id,
+                        execution_order=int(i_idx + 1),
+                        created_at=datetime.utcnow(),
+                    )
+                )
+
+    await session.execute(delete(TestSetItemORM))
+    await session.execute(delete(TestSetORM))
+    await session.execute(delete(TestCaseORM))
+    await session.flush()
+    if tc_by_key:
+        session.add_all(list(tc_by_key.values()))
+    if set_rows:
+        session.add_all(set_rows)
+    # Ensure parent tables are persisted before child rows (FK: test_set_items -> test_sets/test_cases).
+    await session.flush()
+    if set_item_rows:
+        session.add_all(set_item_rows)
+    await session.flush()
 
 
 class ProfileCreate(BaseModel):
@@ -244,6 +346,8 @@ async def put_profile_data(profile_id: str, payload: Dict[str, Any]):
             .where(ProfileORM.id == profile_id)
             .values(data=new_data, updated_at=datetime.utcnow())
         )
+        all_profiles = (await session.execute(select(ProfileORM))).scalars().all()
+        await _sync_normalized_test_tables(session, list(all_profiles))
         await session.commit()
     return {"success": True}
 
@@ -272,6 +376,9 @@ async def update_profile(profile_id: str, payload: ProfileUpdate):
         result = await session.execute(
             update(ProfileORM).where(ProfileORM.id == profile_id).values(**values)
         )
+        if "data" in values:
+            all_profiles = (await session.execute(select(ProfileORM))).scalars().all()
+            await _sync_normalized_test_tables(session, list(all_profiles))
         await session.commit()
 
         if result.rowcount == 0:
@@ -287,9 +394,25 @@ async def delete_profile(profile_id: str):
         result = await session.execute(
             delete(ProfileORM).where(ProfileORM.id == profile_id)
         )
+        all_profiles = (await session.execute(select(ProfileORM))).scalars().all()
+        await _sync_normalized_test_tables(session, list(all_profiles))
         await session.commit()
         
         if result.rowcount == 0:
             raise HTTPException(status_code=404, detail="Profile not found")
         
         return {"success": True}
+
+
+@router.post("/sync-normalized")
+async def sync_normalized_tables():
+    """
+    One-shot admin utility:
+    Rebuild normalized test tables (test_cases/test_sets/test_set_items)
+    from profiles.data for all profiles.
+    """
+    async with async_session() as session:
+        all_profiles = (await session.execute(select(ProfileORM))).scalars().all()
+        await _sync_normalized_test_tables(session, list(all_profiles))
+        await session.commit()
+    return {"success": True, "profiles": len(all_profiles)}

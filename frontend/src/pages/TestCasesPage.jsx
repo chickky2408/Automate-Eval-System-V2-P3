@@ -1052,6 +1052,8 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
     );
   };
   const isTestCaseInUseByBatch = (tc) => {
+    // แถวร่างบนหน้า Create — ลบ/เปลี่ยนไฟล์ได้เสมอ (ไม่ใช่การลบจาก Library)
+    if (tc && isDraftId(tc.id)) return false;
     const v = (tc.vcdName || '').trim();
     const b = (tc.binName || '').trim();
     const l = (tc.linName || '').trim();
@@ -1318,9 +1320,15 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
         const d = Math.abs(orderedFiles.findIndex((f) => f.id === linFile.id) - vcdIndexInOrdered);
         if (d < minLin) { minLin = d; nearestLin = linFile; }
       });
-      const inSaved = (savedTestCases || []).some((t) => t.vcdName === vcdFile.name && t.binName === binFile.name);
-      const inDraft = (pendingDraftTestCases || []).some((t) => t.vcdName === vcdFile.name && t.binName === binFile.name);
-      if (!inSaved && !inDraft) {
+      const pairKey = normalizeTCTestCaseKeyFull({
+        vcdName: vcdFile.name,
+        binName: binFile.name,
+        linName: nearestLin?.name || '',
+      });
+      const libCases = [...(savedTestCases || []), ...(globalSavedTestCases || [])];
+      const inLibrary = libCases.some((t) => normalizeTCTestCaseKeyFull(t) === pairKey);
+      const inDraft = (pendingDraftTestCases || []).some((t) => normalizeTCTestCaseKeyFull(t) === pairKey);
+      if (!inLibrary && !inDraft) {
         const name = getNextTestCaseName();
         const entry = { name, vcdName: vcdFile.name, binName: binFile.name, linName: nearestLin?.name || '', tryCount: 1, createdAt: new Date().toISOString() };
         if (loadedSetId) {
@@ -1332,7 +1340,14 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
     });
     // Do not depend on pendingDraftTestCases.length: deleting a draft row would re-run this effect
     // while the same files stay selected and the pair would be auto-added again.
-  }, [selectedIds.join(','), localDroppedFiles.length, localDroppedFiles.map((f) => f.id).join(','), savedTestCases?.length, loadedSetId]);
+  }, [
+    selectedIds.join(','),
+    localDroppedFiles.length,
+    localDroppedFiles.map((f) => f.id).join(','),
+    savedTestCases?.length,
+    globalSavedTestCases?.length,
+    loadedSetId,
+  ]);
 
   // เมื่อโหลด Set แล้วอัปโหลดไฟล์เพิ่ม — เลือกไฟล์ที่ตรงกับ Set อัตโนมัติ
   useEffect(() => {
@@ -1361,6 +1376,10 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
     const existingByKey = new Map(
       (savedTestCases || []).map((t) => [normalizeTCTestCaseKeyFull(t), t])
     );
+    (globalSavedTestCases || []).forEach((t) => {
+      const k = normalizeTCTestCaseKeyFull(t);
+      if (!existingByKey.has(k)) existingByKey.set(k, t);
+    });
     orderedVcds.forEach((vcdFile, vcdIdx) => {
       const vcdIndexInOrdered = orderedFiles.findIndex((f) => f.id === vcdFile.id);
       let nearestBin = null, minDistance = Infinity;
@@ -1397,15 +1416,21 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
       setTableClearedMode(false);
       addToast({ type: 'success', message: `Added ${added} test case(s) from selection` });
       if (duplicateIds.size > 0) {
-        addToast({ type: 'info', message: `${duplicateIds.size} selection(s) matched existing test case(s) and were skipped` });
+        addToast({
+          type: 'warning',
+          message: `${duplicateIds.size} pair(s) match an existing test case in the library (any owner) — skipped. Choose different files.`,
+        });
       }
     } else if (duplicateIds.size > 0) {
       const ids = Array.from(duplicateIds);
       setSelectedTestCaseIds(ids);
       setDuplicateHighlightIds(ids);
-      addToast({ type: 'info', message: `Test case with the same files already exists (${ids.length})` });
+      addToast({
+        type: 'warning',
+        message: `Same file set as ${ids.length} existing library test case(s) — no new rows. Pick different files.`,
+      });
     } else {
-      addToast({ type: 'info', message: 'All possible pairs already in library' });
+      addToast({ type: 'info', message: 'All possible pairs already exist in the library' });
     }
   };
 
@@ -1461,6 +1486,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
       const existingKeys = new Set();
       (state.loadedSetTable || []).forEach((t) => existingKeys.add(normalizeTCTestCaseKeyFull(t)));
       (savedTestCases || []).forEach((t) => existingKeys.add(normalizeTCTestCaseKeyFull(t)));
+      (globalSavedTestCases || []).forEach((t) => existingKeys.add(normalizeTCTestCaseKeyFull(t)));
       (pendingDraftTestCases || []).forEach((t) => existingKeys.add(normalizeTCTestCaseKeyFull(t)));
 
       const namesUsed = new Set(
@@ -1519,6 +1545,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
     setPendingDraftTestCases((prev) => {
       const existingKeys = new Set();
       (savedTestCases || []).forEach((t) => existingKeys.add(normalizeTCTestCaseKeyFull(t)));
+      (globalSavedTestCases || []).forEach((t) => existingKeys.add(normalizeTCTestCaseKeyFull(t)));
       prev.forEach((t) => existingKeys.add(normalizeTCTestCaseKeyFull(t)));
 
       const namesUsed = new Set(
@@ -1571,7 +1598,11 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
         if (newRows.length) {
           addToast({ type: 'success', message: `created ${newRows.length} test cases from Library (grouped by TCxxxx in file name)` });
         } else if (!skipped.length) {
-          addToast({ type: 'info', message: 'no new rows — file set already exists in the list' });
+          addToast({
+            type: 'warning',
+            message:
+              'All selected file groups already match test cases in the library (any owner). Nothing new added — pick a different file set.',
+          });
         }
       });
       return [...prev, ...newRows];
@@ -1641,13 +1672,17 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
     addToast({ type: 'success', message: `Set try count to ${num} for ${selectedTestCaseIds.length} test case(s)` });
   };
   const handleDeleteSelectedTestCases = () => {
-    if (selectedTestCaseIds.length === 0) { addToast({ type: 'warning', message: 'Select at least one test case to delete' }); return; }
+    if (selectedTestCaseIds.length === 0) {
+      addToast({ type: 'warning', message: 'Select at least one row to remove from this table' });
+      return;
+    }
     if (selectedTestCaseIds.some((tid) => isTcStorePending(tid))) {
       addToast({ type: 'info', message: 'Please wait for the current action to finish on the selected test case(s).' });
       return;
     }
     const selectedTcs = displayedSavedTestCases.filter((t) => selectedTestCaseIds.includes(t.id));
     const inUse = selectedTcs.filter((tc) => {
+      if (isDraftId(tc.id)) return false;
       const v = (tc.vcdName || '').trim();
       const b = (tc.binName || '').trim();
       const l = (tc.linName || '').trim();
@@ -1656,14 +1691,17 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
     if (inUse.length > 0) {
       addToast({
         type: 'warning',
-        message: `${inUse.length} selected test case(s) use files that are in a running or pending set. Wait for the set to finish before deleting them.`,
+        message: `${inUse.length} selected saved test case(s) use files in a running or pending set. Wait for the job to finish before removing them from the library.`,
       });
       return;
     }
     const nDel = selectedTestCaseIds.length;
     selectedTestCaseIds.forEach((id) => removeDisplayedTestCase(id));
     setSelectedTestCaseIds([]);
-    addToast({ type: 'success', message: `Deleted ${nDel} test case(s)` });
+    addToast({
+      type: 'success',
+      message: `Removed ${nDel} row(s) from this table. Nothing was deleted from the File / Test Case library unless you removed saved rows.`,
+    });
   };
 
   const reorderList = (arr, fromIndex, toIndex) => {
@@ -3096,15 +3134,23 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                   title={
                     selectedTestCaseIds.some((tid) => isTcStorePending(tid))
                       ? 'รอให้ action กับ test case ที่เลือกจบก่อน'
-                      : 'Delete selected test cases'
+                      : loadedSetId
+                        ? 'Remove selected rows from this set (saved rows may delete from library)'
+                        : 'Remove selected rows from this table only — does not delete from Library'
                   }
                 >
                   <Trash2 size={12} />
-                  Delete
+                  {loadedSetId ? 'Delete selected' : 'Remove selected'}
                 </button>
               </>
             )}
           </div>
+        )}
+        {!loadedSetId && !isViewingShared && displayedSavedTestCases.length > 0 && (
+          <p className="mb-2 text-[11px] text-slate-500 dark:text-slate-400">
+            Tick rows, then use <span className="font-semibold text-slate-600 dark:text-slate-300">Remove selected</span> to drop only those lines from this page (Library on the server is unchanged).{' '}
+            <span className="font-semibold text-slate-600 dark:text-slate-300">Clear</span> resets the whole table and file selection.
+          </p>
         )}
         <div className="flex min-h-0 flex-1 flex-col">
         {/* Tab switcher: Table (horizontal) | Step (vertical layout per image) + Select all when Step */}
@@ -3525,11 +3571,24 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                             return;
                           }
                           removeDisplayedTestCase(tc.id, idx);
-                          queueMicrotask(() => addToast({ type: 'success', message: 'Removed' }));
+                          queueMicrotask(() =>
+                            addToast({
+                              type: 'success',
+                              message: isDraftId(tc.id) ? 'Row removed from this table (Library unchanged)' : 'Removed',
+                            })
+                          );
                         }}
                         disabled={isTestCaseInUseByBatch(tc) || tcPending}
                         className="p-1 text-red-500 hover:text-red-700 rounded disabled:opacity-40 disabled:cursor-not-allowed"
-                        title={tcPending ? 'กำลังลบ/สำเนา/จัดเรียง — รอสักครู่' : isTestCaseInUseByBatch(tc) ? 'In use by a running or pending set' : 'Delete'}
+                        title={
+                          tcPending
+                            ? 'กำลังลบ/สำเนา/จัดเรียง — รอสักครู่'
+                            : isDraftId(tc.id)
+                              ? 'Remove this row from the table only — does not delete from Library'
+                              : isTestCaseInUseByBatch(tc)
+                                ? 'In use by a running or pending set'
+                                : 'Remove from library'
+                        }
                       >
                         <Trash2 size={14} />
                       </button>
@@ -3626,11 +3685,24 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                             return;
                           }
                           removeDisplayedTestCase(tc.id, originalIndex);
-                          queueMicrotask(() => addToast({ type: 'success', message: 'Removed' }));
+                          queueMicrotask(() =>
+                            addToast({
+                              type: 'success',
+                              message: isDraftId(tc.id) ? 'Row removed from this table (Library unchanged)' : 'Removed',
+                            })
+                          );
                         }}
                         disabled={isTestCaseInUseByBatch(tc) || tcPending}
                         className="p-1 text-red-500 hover:text-red-700 rounded disabled:opacity-40 disabled:cursor-not-allowed"
-                        title={tcPending ? 'กำลังลบ/สำเนา/จัดเรียง — รอสักครู่' : isTestCaseInUseByBatch(tc) ? 'In use by a running or pending set' : 'Delete'}
+                        title={
+                          tcPending
+                            ? 'กำลังลบ/สำเนา/จัดเรียง — รอสักครู่'
+                            : isDraftId(tc.id)
+                              ? 'Remove this row from the table only — does not delete from Library'
+                              : isTestCaseInUseByBatch(tc)
+                                ? 'In use by a running or pending set'
+                                : 'Remove from library'
+                        }
                       >
                         <Trash2 size={14} />
                       </button>
