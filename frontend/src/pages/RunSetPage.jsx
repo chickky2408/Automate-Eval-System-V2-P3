@@ -22,8 +22,24 @@ import {
 } from 'lucide-react';
 import { useTestStore } from '../store/useTestStore';
 import api from '../services/api';
+import { getClientId } from '../utils/sessionStorage';
+import { resolveOwnerDisplayName } from '../utils/profileOwnerLabel';
 import { getFirstTagPillClass, TAG_PALETTE_MAP, jobTagPillClasses, splitTagsComma } from '../utils/tagPalette';
 import TagColorSwatchPicker from '../components/TagColorSwatchPicker';
+
+/** Match dropdown owner filter to row: same id, or same resolved display (e.g. default vs server UUID both "Default"). */
+function rowMatchesOwnerFilter(rowOid, filterProfileId, ownerLabelCtx, activeProfileId, rowOwnerNameHint) {
+  const f = String(filterProfileId ?? '').trim();
+  const o = String(rowOid ?? '').trim();
+  if (o === f) return true;
+  const hint = rowOwnerNameHint && String(rowOwnerNameHint).trim();
+  const dispRow = hint || resolveOwnerDisplayName(o || activeProfileId, ownerLabelCtx);
+  const dispFil = resolveOwnerDisplayName(f, ownerLabelCtx);
+  const dr = String(dispRow || '').trim().toLowerCase();
+  const df = String(dispFil || '').trim().toLowerCase();
+  if (dr && df && dr !== '—' && dr === df) return true;
+  return false;
+}
 
 const RunSetPage = ({ onNavigateJobs }) => {
   const savedTestCaseSets = useTestStore((s) => s.savedTestCaseSets);
@@ -49,14 +65,64 @@ const RunSetPage = ({ onNavigateJobs }) => {
   const runSetImportContext = useTestStore((s) => s.runSetImportContext);
   const clearRunSetImportContext = useTestStore((s) => s.clearRunSetImportContext);
   const addToast = useTestStore((s) => s.addToast);
+  const activeProfileId = useTestStore((s) => s.activeProfileId);
+  const profiles = useTestStore((s) => s.profiles) || [];
+  const sharedProfiles = useTestStore((s) => s.sharedProfiles) || [];
+  const serverProfileDirectory = useTestStore((s) => s.serverProfileDirectory) || [];
+  const globalTestCaseDataLoaded = useTestStore((s) => s.globalTestCaseDataLoaded);
+  const aggregateSavedTestCasesAcrossProfiles = useTestStore((s) => s.aggregateSavedTestCasesAcrossProfiles);
+  const aggregateSavedTestCaseSetsAcrossProfiles = useTestStore((s) => s.aggregateSavedTestCaseSetsAcrossProfiles);
+  const refreshGlobalTestCaseData = useTestStore((s) => s.refreshGlobalTestCaseData);
   const safeSets = Array.isArray(savedTestCaseSets) ? savedTestCaseSets : [];
   const safeCases = Array.isArray(savedTestCases) ? savedTestCases : [];
   const safeFiles = Array.isArray(uploadedFiles) ? uploadedFiles : [];
   const safeBoards = Array.isArray(boards) ? boards : [];
+  const activeProfile = profiles.find((p) => p.id === activeProfileId) || { id: 'default', name: 'Default' };
+
+  const ownerLabelCtx = useMemo(
+    () => ({
+      profiles,
+      sharedProfiles,
+      serverProfileDirectory,
+      activeProfileId,
+      activeProfileName: activeProfile.name,
+      currentClientId: getClientId(),
+    }),
+    [profiles, sharedProfiles, serverProfileDirectory, activeProfileId, activeProfile.name]
+  );
+
+  const allOwnerProfiles = useMemo(() => {
+    const norm = (s) => String(s || '').trim().toLowerCase();
+    const pickKey = (p) => norm(p?.name) || norm(p?.id);
+    const list = [
+      ...(Array.isArray(profiles) ? profiles : []),
+      ...(Array.isArray(sharedProfiles) ? sharedProfiles : []),
+      ...(Array.isArray(serverProfileDirectory) ? serverProfileDirectory : []),
+    ];
+    const byDisplay = new Map();
+    list.forEach((p) => {
+      if (!p || !p.id) return;
+      const k = pickKey(p);
+      if (!k) return;
+      if (!byDisplay.has(k)) byDisplay.set(k, p);
+    });
+    const activeP = (Array.isArray(profiles) ? profiles : []).find((p) => String(p?.id) === String(activeProfileId));
+    if (activeP?.id) {
+      const k = pickKey(activeP);
+      if (k) byDisplay.set(k, activeP);
+    }
+    return Array.from(byDisplay.values()).sort((a, b) =>
+      String(a?.name || a?.id).localeCompare(String(b?.name || b?.id))
+    );
+  }, [profiles, sharedProfiles, serverProfileDirectory, activeProfileId]);
 
   useEffect(() => {
     void silentRefreshBoards();
   }, [silentRefreshBoards]);
+
+  useEffect(() => {
+    void refreshGlobalTestCaseData();
+  }, [refreshGlobalTestCaseData]);
 
   const boardsEmptyPlaceholder = () => {
     if (loading?.boards) {
@@ -93,6 +159,22 @@ const RunSetPage = ({ onNavigateJobs }) => {
   };
 
   const [showBrowseModal, setShowBrowseModal] = useState(false);
+  /** Modal table: click-drag to add rows to selection (primary button held). */
+  const browseDragSelectingRef = useRef(false);
+
+  useEffect(() => {
+    if (!showBrowseModal) return;
+    const endDrag = () => {
+      browseDragSelectingRef.current = false;
+    };
+    window.addEventListener('mouseup', endDrag);
+    window.addEventListener('blur', endDrag);
+    return () => {
+      window.removeEventListener('mouseup', endDrag);
+      window.removeEventListener('blur', endDrag);
+    };
+  }, [showBrowseModal]);
+
   const [selectedSetIds, setSelectedSetIds] = useState([]);
   const [runSetName, setRunSetName] = useState('');
   const [tag, setTag] = useState('');
@@ -139,6 +221,8 @@ const RunSetPage = ({ onNavigateJobs }) => {
   const [runPreview, setRunPreview] = useState([]);
   const [runListNameFilter, setRunListNameFilter] = useState('');
   const [runListTagFilter, setRunListTagFilter] = useState('');
+  /** __active__ = โปรไฟล์ปัจจุบัน (savedTestCases + sets ในเครื่อง); all / profile id / shared = ใช้ snapshot รวมเหมือน Library */
+  const [runLibraryOwnerFilter, setRunLibraryOwnerFilter] = useState('__active__');
   const [tcClipboard, setTcClipboard] = useState([]);
   const [selectedLeftKey, setSelectedLeftKey] = useState(null);
   const [selectedRunIndex, setSelectedRunIndex] = useState(null);
@@ -255,23 +339,84 @@ const RunSetPage = ({ onNavigateJobs }) => {
     setRunBoardSelection({ mode: 'manual', boardIds: [] });
   };
 
-  // Flow: drop → match → raw page → select for run. Include current table (savedTestCases) so user can run without Save Set.
-  const browsedRows = [
-    ...safeCases.map((tc) => ({
+  const contentKeyTc = (tc) =>
+    [tc?.name ?? '', tc?.vcdName ?? '', tc?.binName ?? '', tc?.linName ?? ''].join('\0');
+
+  // Flow: default = โปรไฟล์ปัจจุบัน; เลือก "All owners" / โปรไฟล์อื่น / Shared → รวมจาก server + local เหมือน TC Library
+  const browsedRows = useMemo(() => {
+    const mineLike = runLibraryOwnerFilter === '__active__' || runLibraryOwnerFilter === 'mine';
+
+    let sourceCases;
+    let sourceSets;
+    if (mineLike) {
+      sourceCases = safeCases;
+      sourceSets = safeSets;
+    } else {
+      sourceCases = aggregateSavedTestCasesAcrossProfiles();
+      sourceSets = aggregateSavedTestCaseSetsAcrossProfiles();
+    }
+
+    const fromCurrent = sourceCases.map((tc) => ({
       setId: '__current__',
-      set: { id: '__current__', name: 'Current (from table)', items: safeCases },
+      set: {
+        id: '__current__',
+        name: mineLike ? 'Current (from table)' : 'Library',
+        items: sourceCases,
+      },
       tc,
-      key: `current-${tc.id}`,
-    })),
-    ...safeSets.flatMap((set) =>
+      key: mineLike ? `current-${tc.id}` : `current-${tc.id}-${tc._ownerId ?? 'x'}`,
+    }));
+
+    const seen = new Set(fromCurrent.map((row) => contentKeyTc(row.tc)));
+    const fromSets = sourceSets.flatMap((set) =>
       (Array.isArray(set.items) ? set.items : []).map((tc, tcIdx) => ({
         setId: set.id,
         set,
         tc,
-        key: `${set.id}-${tcIdx}-${tc.id || tc.name || tc.vcdName || ''}`,
+        key: `${set.id}-${tcIdx}-${tc.id || tc.name || tc.vcdName || ''}-${set._ownerId ?? ''}`,
       }))
-    ),
-  ];
+    );
+    const fromSetsDeduped = fromSets.filter((row) => {
+      const k = contentKeyTc(row.tc);
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+
+    let combined = [...fromCurrent, ...fromSetsDeduped];
+
+    if (!mineLike) {
+      const ownerF = runLibraryOwnerFilter;
+      const resolvedOwner =
+        ownerF === '__active__' ? (activeProfileId ? String(activeProfileId) : 'all') : String(ownerF || 'all');
+
+      combined = combined.filter((row) => {
+        const oid = row.tc._ownerId ?? row.set?._ownerId;
+        if (resolvedOwner === 'all') return true;
+        if (resolvedOwner === 'shared') {
+          if (oid === activeProfileId || !oid) return false;
+          return true;
+        }
+        return rowMatchesOwnerFilter(
+          oid,
+          resolvedOwner,
+          ownerLabelCtx,
+          activeProfileId,
+          row.tc._ownerName
+        );
+      });
+    }
+
+    return combined;
+  }, [
+    runLibraryOwnerFilter,
+    safeCases,
+    safeSets,
+    activeProfileId,
+    ownerLabelCtx,
+    aggregateSavedTestCasesAcrossProfiles,
+    aggregateSavedTestCaseSetsAcrossProfiles,
+  ]);
   const toggleBrowsed = (key) => {
     setSelectedBrowsedKeys((prev) => {
       const next = new Set(prev);
@@ -280,19 +425,52 @@ const RunSetPage = ({ onNavigateJobs }) => {
       return next;
     });
   };
-  const selectAllBrowsed = () => setSelectedBrowsedKeys(new Set(browsedRows.map((r) => r.key)));
   const clearAllBrowsed = () => setSelectedBrowsedKeys(new Set());
+
+  const handleBrowseRowMouseDown = useCallback((e, rowKey) => {
+    if (e.button !== 0) return;
+    if (e.target.closest('input, button, a, textarea, select, label')) return;
+    e.preventDefault();
+    browseDragSelectingRef.current = true;
+    setSelectedBrowsedKeys((prev) => {
+      const next = new Set(prev);
+      next.add(rowKey);
+      return next;
+    });
+  }, []);
+
+  const handleBrowseRowMouseEnter = useCallback((rowKey) => {
+    if (!browseDragSelectingRef.current) return;
+    setSelectedBrowsedKeys((prev) => {
+      if (prev.has(rowKey)) return prev;
+      const next = new Set(prev);
+      next.add(rowKey);
+      return next;
+    });
+  }, []);
+
   const nameFilter = (runListNameFilter || '').trim().toLowerCase();
   const tagFilter = (runListTagFilter || '').trim().toLowerCase();
   const filteredLibraryRows = useMemo(() => {
     return browsedRows.filter((row) => {
       const name = (row.tc.name || row.tc.vcdName || '').toLowerCase();
       const tagVal = (row.tc.extraColumns?.tag || '').toString().toLowerCase();
-      if (nameFilter && !name.includes(nameFilter)) return false;
+      const ownerDisp = resolveOwnerDisplayName(
+        row.tc._ownerId ?? row.set?._ownerId ?? activeProfileId,
+        ownerLabelCtx
+      ).toLowerCase();
+      const ownerRaw = String(row.tc._ownerName || row.tc._ownerId || '').toLowerCase();
+      const bin = (row.tc.binName || '').toLowerCase();
+      const lin = (row.tc.linName || '').toLowerCase();
+      const vcd = (row.tc.vcdName || '').toLowerCase();
+      const searchBlob = [name, ownerDisp, ownerRaw, bin, lin, vcd].join('\n');
+      if (nameFilter && !searchBlob.includes(nameFilter)) return false;
       if (tagFilter && !tagVal.includes(tagFilter)) return false;
       return true;
     });
-  }, [browsedRows, nameFilter, tagFilter]);
+  }, [browsedRows, nameFilter, tagFilter, activeProfileId, ownerLabelCtx]);
+
+  const selectAllBrowsed = () => setSelectedBrowsedKeys(new Set(filteredLibraryRows.map((r) => r.key)));
 
   const addToRunPreview = useCallback((row, atIndex = null) => {
     const item = {
@@ -620,31 +798,71 @@ const RunSetPage = ({ onNavigateJobs }) => {
           {/* Left — Library list (filter + scroll, draggable) */}
           <div className="flex min-h-[420px] flex-col rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-600 dark:bg-slate-800/50 lg:min-h-0 lg:h-full">
             <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">1. Test cases in library</h3>
-            <div className="flex flex-col sm:flex-row gap-2 mb-2 shrink-0">
-              <input
-                type="text"
-                placeholder="Filter by name"
-                value={runListNameFilter}
-                onChange={(e) => setRunListNameFilter(e.target.value)}
-                className="flex-1 min-w-0 px-2.5 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
-              />
-              <input
-                type="text"
-                placeholder="Filter by tag"
-                value={runListTagFilter}
-                onChange={(e) => setRunListTagFilter(e.target.value)}
-                className="flex-1 min-w-0 px-2.5 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
-              />
+            <div className="flex flex-col gap-2 mb-2 shrink-0">
+              <select
+                value={runLibraryOwnerFilter === 'mine' ? '__active__' : runLibraryOwnerFilter}
+                onChange={(e) => setRunLibraryOwnerFilter(e.target.value)}
+                className="w-full px-2.5 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
+                title="Filter by owner. “All owners” loads merged library from the server (like TC Library)."
+              >
+                <option value="__active__">
+                  {resolveOwnerDisplayName(activeProfileId, ownerLabelCtx) || activeProfile?.name || 'My profile'} (this device)
+                </option>
+                <option value="all">All owners</option>
+                {allOwnerProfiles
+                  .filter((p) => String(p?.id) !== String(activeProfileId))
+                  .map((p) => (
+                    <option key={`runset-owner-${p.id}`} value={String(p.id)}>
+                      {p.name || p.id}
+                    </option>
+                  ))}
+                <option value="shared">Shared with me (other owners)</option>
+              </select>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="text"
+                  name="runset-lib-filter-name"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="Name, owner, or file…"
+                  value={runListNameFilter}
+                  onChange={(e) => setRunListNameFilter(e.target.value)}
+                  className="flex-1 min-w-0 px-2.5 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
+                />
+                <input
+                  type="text"
+                  name="runset-lib-filter-tag"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="Filter by tag"
+                  value={runListTagFilter}
+                  onChange={(e) => setRunListTagFilter(e.target.value)}
+                  className="flex-1 min-w-0 px-2.5 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
+                />
+              </div>
+              {runLibraryOwnerFilter !== '__active__' && runLibraryOwnerFilter !== 'mine' && !globalTestCaseDataLoaded ? (
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">Loading merged library from server…</p>
+              ) : null}
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 shadow-inner scroll-smooth" style={{ scrollBehavior: 'smooth' }}>
               {filteredLibraryRows.length === 0 ? (
-                <div className="p-6 text-center text-slate-500 dark:text-slate-400 text-sm">No test cases match filters</div>
+                <div className="p-6 text-center text-slate-500 dark:text-slate-400 text-sm">
+                  {browsedRows.length === 0
+                    ? runLibraryOwnerFilter === '__active__' || runLibraryOwnerFilter === 'mine'
+                      ? 'No test cases yet — create on Test Cases page or choose “All owners” to pick others’ cases.'
+                      : 'No test cases for this owner filter — try “All owners” or check the server connection.'
+                    : 'No test cases match name/tag filters'}
+                </div>
               ) : (
                 <ul className="divide-y divide-slate-200 dark:divide-slate-600">
                   {filteredLibraryRows.map((row) => {
                     const tagVal = row.tc.extraColumns?.tag ?? '';
                     const isSelected = selectedLeftKey === row.key;
                     const isFromCurrent = row.setId === '__current__';
+                    const ownerHint =
+                      runLibraryOwnerFilter === '__active__' || runLibraryOwnerFilter === 'mine'
+                        ? ''
+                        : resolveOwnerDisplayName(row.tc._ownerId ?? row.set?._ownerId ?? activeProfileId, ownerLabelCtx);
                     return (
                       <li
                         key={row.key}
@@ -659,9 +877,10 @@ const RunSetPage = ({ onNavigateJobs }) => {
                         <GripVertical size={16} className="text-slate-400 shrink-0 flex-shrink-0" />
                         <div className="flex-1 min-w-0 flex flex-col justify-center gap-0.5 py-1.5">
                           <div className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{row.tc.name || row.tc.vcdName || '—'}</div>
-                          <div className="flex items-center gap-1">
-                            <span className="text-[11px] text-slate-400 truncate max-w-[160px]">
-                              {isFromCurrent ? 'From Library' : `From set: ${row.set?.name || row.setId || 'Set'}`}
+                          <div className="flex items-center gap-1 flex-wrap">
+                            <span className="text-[11px] text-slate-400 truncate max-w-[200px]">
+                              {ownerHint ? `${ownerHint} · ` : ''}
+                              {isFromCurrent ? 'From table' : `From set: ${row.set?.name || row.setId || 'Set'}`}
                             </span>
                           </div>
                           {tagVal ? (
@@ -1301,44 +1520,108 @@ const RunSetPage = ({ onNavigateJobs }) => {
                 <X size={20} />
               </button>
             </div>
-            <div className="flex items-center gap-2 px-4 py-2 border-b border-slate-100 dark:border-slate-700">
-              <button type="button" onClick={selectAllBrowsed} className="text-xs font-bold text-blue-600 hover:text-blue-800">Select all</button>
-              <button type="button" onClick={clearAllBrowsed} className="text-xs font-bold text-slate-600 hover:text-slate-800">Clear</button>
-              <span className="text-xs text-slate-500">{selectedBrowsedKeys.size} selected</span>
+            <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-700 space-y-2">
+              <div className="flex flex-col sm:flex-row flex-wrap gap-2">
+                <select
+                  value={runLibraryOwnerFilter === 'mine' ? '__active__' : runLibraryOwnerFilter}
+                  onChange={(e) => setRunLibraryOwnerFilter(e.target.value)}
+                  className="flex-1 min-w-[140px] px-2 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800"
+                  title="Owner filter (same as column on the left)"
+                >
+                  <option value="__active__">
+                    {resolveOwnerDisplayName(activeProfileId, ownerLabelCtx) || activeProfile?.name || 'My profile'} (this device)
+                  </option>
+                  <option value="all">All owners</option>
+                  {allOwnerProfiles
+                    .filter((p) => String(p?.id) !== String(activeProfileId))
+                    .map((p) => (
+                      <option key={`picker-owner-${p.id}`} value={String(p.id)}>
+                        {p.name || p.id}
+                      </option>
+                    ))}
+                  <option value="shared">Shared with me</option>
+                </select>
+                <input
+                  type="text"
+                  name="runset-picker-filter-name"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="Name, owner, or file…"
+                  value={runListNameFilter}
+                  onChange={(e) => setRunListNameFilter(e.target.value)}
+                  className="flex-1 min-w-[100px] px-2 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800"
+                />
+                <input
+                  type="text"
+                  name="runset-picker-filter-tag"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="Filter by tag"
+                  value={runListTagFilter}
+                  onChange={(e) => setRunListTagFilter(e.target.value)}
+                  className="flex-1 min-w-[100px] px-2 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800"
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <button type="button" onClick={selectAllBrowsed} className="text-xs font-bold text-blue-600 hover:text-blue-800 dark:text-blue-400">
+                  Select all (visible)
+                </button>
+                <button type="button" onClick={clearAllBrowsed} className="text-xs font-bold text-slate-600 hover:text-slate-800 dark:text-slate-300">
+                  Clear
+                </button>
+                <span className="text-xs text-slate-500">{selectedBrowsedKeys.size} selected</span>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 hidden sm:inline">
+                  · Hold click and drag down rows to multi-select
+                </span>
+              </div>
             </div>
             <div className="flex-1 overflow-auto p-4">
-              {browsedRows.length === 0 ? (
-                <div className="p-8 text-center text-slate-400 text-sm">No test cases — create on Test Cases page first</div>
+              {filteredLibraryRows.length === 0 ? (
+                <div className="p-8 text-center text-slate-400 text-sm">
+                  {browsedRows.length === 0
+                    ? runLibraryOwnerFilter === '__active__' || runLibraryOwnerFilter === 'mine'
+                      ? 'No test cases — create on Test Cases page or switch to “All owners” to use others’ cases.'
+                      : 'No test cases for this owner filter.'
+                    : 'No test cases match name/tag filters'}
+                </div>
               ) : (
                 <table className="w-full text-xs">
+                  <caption className="sr-only">
+                    Test cases. Use checkboxes, drag across rows with the mouse button held, or Select all.
+                  </caption>
                   <thead className="bg-slate-100 dark:bg-slate-800 sticky top-0">
                     <tr className="text-left font-bold text-slate-600 dark:text-slate-400">
                       <th className="w-8 px-2 py-1.5 border-r border-slate-200 dark:border-slate-600"></th>
                       <th className="w-8 px-2 py-1.5 border-r border-slate-200 dark:border-slate-600">#</th>
+                      <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600">Owner</th>
                       <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600">Source</th>
                       <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600">Name</th>
                       <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600">ERoM</th>
                       <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600">ULP</th>
                       <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600">VCD</th>
-                      {[...new Set(browsedRows.flatMap((row) => Object.keys(row.tc.extraColumns || {})))].sort().map((col) => (
+                      {[...new Set(filteredLibraryRows.flatMap((row) => Object.keys(row.tc.extraColumns || {})))].sort().map((col) => (
                         <th key={col} className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[80px]">{col}</th>
                       ))}
                       <th className="w-10 px-2 py-1.5 text-center">Try</th>
                     </tr>
                   </thead>
-                  <tbody>
-                    {browsedRows.map((row, idx) => {
-                      const extraCols = [...new Set(browsedRows.flatMap((r) => Object.keys(r.tc.extraColumns || {})))].sort();
+                  <tbody className="select-none">
+                    {filteredLibraryRows.map((row, idx) => {
+                      const extraCols = [...new Set(filteredLibraryRows.flatMap((r) => Object.keys(r.tc.extraColumns || {})))].sort();
                       return (
                       <tr
                         key={row.key}
                         className={`border-b border-slate-100 dark:border-slate-700 ${selectedBrowsedKeys.has(row.key) ? 'bg-blue-50 dark:bg-blue-900/20' : ''} hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer`}
-                        onClick={() => toggleBrowsed(row.key)}
+                        onMouseDown={(e) => handleBrowseRowMouseDown(e, row.key)}
+                        onMouseEnter={() => handleBrowseRowMouseEnter(row.key)}
                       >
                         <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700" onClick={(e) => e.stopPropagation()}>
                           <input type="checkbox" checked={selectedBrowsedKeys.has(row.key)} onChange={() => toggleBrowsed(row.key)} className="w-3.5 h-3.5 rounded border-slate-400 text-blue-600" />
                         </td>
                         <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-500">{idx + 1}</td>
+                        <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[72px]" title={resolveOwnerDisplayName(row.tc._ownerId ?? row.set?._ownerId ?? activeProfileId, ownerLabelCtx)}>
+                          {resolveOwnerDisplayName(row.tc._ownerId ?? row.set?._ownerId ?? activeProfileId, ownerLabelCtx)}
+                        </td>
                         <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[120px]" title={row.set.name}>{row.set.name || row.setId}</td>
                         <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 font-medium text-slate-800 dark:text-slate-200 truncate max-w-[140px]">{row.tc.name || '—'}</td>
                         <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[100px]">{row.tc.binName || '—'}</td>
@@ -1358,9 +1641,10 @@ const RunSetPage = ({ onNavigateJobs }) => {
               <button
                 type="button"
                 onClick={() => {
-                  browsedRows.filter((r) => selectedBrowsedKeys.has(r.key)).forEach((row) => addToRunPreview(row));
+                  const picked = filteredLibraryRows.filter((r) => selectedBrowsedKeys.has(r.key));
+                  picked.forEach((row) => addToRunPreview(row));
                   setShowBrowseModal(false);
-                  if (selectedBrowsedKeys.size > 0) addToast({ type: 'success', message: `Added ${selectedBrowsedKeys.size} test case(s) to run list` });
+                  if (picked.length > 0) addToast({ type: 'success', message: `Added ${picked.length} test case(s) to run list` });
                 }}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700"
               >

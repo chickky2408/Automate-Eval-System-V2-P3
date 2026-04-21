@@ -2540,11 +2540,20 @@ export const useTestStore = create((set, get) => {
     localStorage.removeItem(`${PROFILE_DATA_PREFIX}${profileId}`);
     const currentActive = get().activeProfileId;
     if (currentActive === profileId) {
-      // Switch to default if deleting active profile
-      const defaultId = 'default';
-      get().switchProfile(defaultId);
-    } else {
-      set({ profiles: filtered });
+      get().switchProfile('default');
+    }
+    // Always sync list into Zustand (switchProfile does not update `profiles`).
+    set({ profiles: filtered });
+    if (isBackendProfileId(profileId)) {
+      void api
+        .deleteProfileApi(profileId)
+        .then(() => {
+          void get().refreshServerProfileDirectory();
+          void get().refreshGlobalTestCaseData();
+        })
+        .catch((e) => {
+          console.warn('deleteProfile: server delete failed', profileId, e);
+        });
     }
     return true;
   },

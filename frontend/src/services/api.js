@@ -571,6 +571,10 @@ export const updateProfileNameApi = (profileId, name) => {
   });
 };
 
+/** Delete profile on server (UUID profiles only). */
+export const deleteProfileApi = (profileId) =>
+  apiRequest(API_ENDPOINTS.PROFILE_BY_ID(profileId), { method: 'DELETE' });
+
 // ============================================
 // RESULTS APIs
 // ============================================
@@ -762,6 +766,7 @@ export default {
   getProfileData,
   putProfileData,
   updateProfileNameApi,
+  deleteProfileApi,
 
   // Results
   getResults,
