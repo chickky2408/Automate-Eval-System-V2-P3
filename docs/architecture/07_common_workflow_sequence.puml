@@ -1,0 +1,60 @@
+@startuml
+!theme plain
+title Picture 3-2 - Common Workflow Sequence\n(Upload Files -> Create Job -> Trigger Processing -> Receive Status)
+
+skinparam shadowing false
+skinparam sequenceMessageAlign center
+skinparam defaultFontSize 11
+skinparam ParticipantPadding 18
+skinparam BoxPadding 12
+
+actor       "User"                        as User
+participant "React SPA\n(Browser)"         as FE
+participant "FastAPI Backend\n(/api/...)"  as BE
+database    "Database"                     as DB
+entity      "File Storage\n(uploads/)"     as FS
+participant "Worker / Processor"           as WK
+
+autonumber "<b>[0]"
+
+== 1) Upload files ==
+User -> FE  : Select VCD / firmware files
+FE   -> BE  : POST /api/files/upload\n(multipart)
+BE   -> FS  : Save file to uploads/
+BE   -> DB  : INSERT files (filename, path, checksum)
+BE  --> FE  : 200 OK { file_id, checksum }
+FE  --> User : Show uploaded file in library
+
+== 2) Create job ==
+User -> FE  : Fill form, click "Create Job"
+FE   -> BE  : POST /api/jobs\n{ vcd_file_id, firmware_file_id, priority }
+BE   -> DB  : INSERT jobs (state = PENDING)
+BE  --> FE  : 201 Created { job_id }
+FE  --> User : Job appears in queue (PENDING)
+
+== 3) Trigger processing ==
+User -> FE  : Click "Run"
+FE   -> BE  : POST /api/jobs/{job_id}/start
+BE   -> DB  : UPDATE jobs SET state = RUNNING
+BE   -> WK  : dispatch(job_id)
+BE  --> FE  : 202 Accepted
+
+== 4) Processing (async) ==
+WK   -> FS  : Read input files
+WK   -> WK  : Execute test
+WK   -> FS  : Write result artifacts
+WK   -> DB  : INSERT results, UPDATE jobs SET state = COMPLETED
+
+== 5) Receive status ==
+User -> FE  : Open job detail / poll
+FE   -> BE  : GET /api/jobs/{job_id}
+BE   -> DB  : SELECT job + result
+BE  --> FE  : 200 OK { state, result, metrics }
+FE  --> User : Show status (COMPLETED / FAILED) + result link
+
+note right of BE
+  Numbers [1], [2], ... on each arrow
+  correspond to the message order
+  required by the report template.
+end note
+@enduml

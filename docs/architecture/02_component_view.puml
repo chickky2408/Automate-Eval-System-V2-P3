@@ -1,0 +1,104 @@
+@startuml
+!theme plain
+title Eval System V2 — Component Architecture
+
+skinparam componentStyle rectangle
+skinparam defaultFontSize 11
+skinparam shadowing false
+
+' ---------- FRONTEND ----------
+package "Frontend (React + Vite)" {
+  component "Dashboard\n(board health,\njob progress)"   as UIDash
+  component "Job Manager\n(create / queue\nrun set)"      as UIJob
+  component "Library\n(files, test cases,\nsets)"         as UILib
+  component "Analysis\n(waveform viewer,\nresult tables)" as UIAna
+
+  component "useTestStore\n(Zustand)"                     as Store
+  component "api client\n(axios/fetch)"                   as APIClient
+  component "ws client\n(WebSocket)"                      as WSClient
+  storage   "localStorage\n(profiles, sets,\ntest cases)" as LS
+
+  UIDash --> Store
+  UIJob  --> Store
+  UILib  --> Store
+  UIAna  --> Store
+  Store  --> APIClient
+  Store  --> WSClient
+  Store  <--> LS : profile data\n(no backend sync)
+}
+
+' ---------- BACKEND ----------
+package "Backend API (FastAPI)" {
+  component "Routers\n(jobs, boards, files,\nsets, results,\nnotifications, ws,\nagent, system)" as Routers
+
+  package "Services" {
+    component "JobQueueService\n(FIFO + priority,\nlocking)"    as SvcJob
+    component "BoardManager\n(state, heartbeat,\nlock/unlock)"  as SvcBoard
+    component "FileStore /\nJobFileStore"                       as SvcFile
+    component "ResultStore\n(HDF5 writer,\nserver-side slice)"  as SvcResult
+    component "TestCase /\nTestCommand /\nProfile stores"       as SvcTC
+    component "NotificationStore\n+ WS broadcaster"             as SvcNotif
+  }
+
+  package "Persistence (SQLAlchemy + Alembic)" {
+    component "Models\n(Board, Job, Result,\nTestCase, File)" as Models
+    component "Alembic\n(migrations)"                         as Alembic
+  }
+}
+
+' ---------- DATA ----------
+package "Data Layer" {
+  database "PostgreSQL\n(boards, board_status,\njobs, results,\nfiles, test_cases, ...)" as PG
+  folder   "uploads/\n(VCD, firmware originals)"             as Uploads
+  folder   "storage/\n(HDF5 waveforms,\nset-scoped files)"   as Storage
+}
+
+' ---------- HARDWARE ----------
+package "Hardware Layer (Private LAN)" {
+  component "dnsmasq\n(DHCP static leases)" as Dnsmasq
+  node "Zybo Board #N\n(ARM + FPGA)" as Board {
+    component "eval-agent\n(FastAPI/Flask)"           as Agent
+    component "FPGA\n(VCD player /\nresult capture)"  as FPGA
+    Agent --> FPGA : flash + drive\n(openocd)
+  }
+}
+
+APIClient -down-> Routers : HTTP REST (JSON)
+WSClient  <-down- Routers : WebSocket events
+
+Routers --> SvcJob
+Routers --> SvcBoard
+Routers --> SvcFile
+Routers --> SvcResult
+Routers --> SvcTC
+Routers --> SvcNotif
+
+SvcJob    --> Models
+SvcBoard  --> Models
+SvcFile   --> Models
+SvcResult --> Models
+SvcTC     --> Models
+Models    --> PG       : async SQL
+Alembic   ..> PG       : schema migrations
+
+SvcFile   --> Uploads  : write/read files
+SvcResult --> Storage  : write HDF5 / slices
+SvcFile   --> Storage  : set-scoped copies
+
+SvcJob    --> Agent    : POST /execute (control)
+Agent     --> Routers  : POST /api/boards/register\n/heartbeat (phone-home)
+Agent     --> Routers  : PUT  /results/:id/stream\n(data plane, chunked)
+SvcBoard  ..> Dnsmasq  : (out-of-band)\nstatic lease config
+
+note right of SvcJob
+  Single point of entry for runs.
+  Enforces board mutex via DB
+  (boards.locked_by_job_id).
+end note
+
+note right of SvcResult
+  Raw binary upload -> HDF5.
+  Server-side slicing for
+  frontend waveform preview.
+end note
+@enduml

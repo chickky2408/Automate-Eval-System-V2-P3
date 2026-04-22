@@ -37,6 +37,4 @@
 - เวอร์ชันปัจจุบันใช้งาน `file_id` เป็น source of truth แล้ว และ resolve ชื่อไฟล์จาก `files` สำหรับการแสดงผลได้ถูกต้อง
 - หากต้องการ optimize เพิ่มเติมเชิง ORM performance สามารถต่อยอดเป็น relation + `joinedload` ได้ในรอบถัดไป
 
-## ข้อสรุปสำหรับการตรวจ
-- **Core objective achieved**: schema cutover + data integrity + board status normalization สำเร็จ
-- พร้อมส่งต่อให้ mentor ตรวจในระดับ implementation/result ได้
+

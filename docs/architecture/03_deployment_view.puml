@@ -1,0 +1,58 @@
+@startuml
+!theme plain
+title Eval System V2 — Deployment / Infrastructure
+
+skinparam shadowing false
+skinparam defaultFontSize 11
+
+actor "User" as U
+
+node "User Workstation" {
+  artifact "Web Browser\n(React SPA)" as Browser
+}
+
+cloud "Corporate LAN" as Corp
+
+node "Backend Server (Linux)" {
+  node "Docker / Compose" {
+    component "frontend\n(nginx static\n— React build)" as NginxFE
+    component "backend\n(FastAPI uvicorn)"              as Uvicorn
+    database  "postgres:16"                             as PgC
+  }
+  node "Host services" {
+    component "dnsmasq"        as Dns
+    component "ufw / iptables" as FW
+  }
+  folder   "/var/lib/eval/\nuploads, storage,\nbackups" as Vols
+  artifact "eth0 (DHCP)\nCorp"                          as ETH0
+  artifact "eth1 (192.168.100.1)\nPrivate"              as ETH1
+}
+
+node "Gigabit Switch" as SW
+
+node "Zybo Board #1" {
+  component "eval-agent\n(systemd)" as A1
+  component "FPGA"                  as F1
+}
+node "Zybo Board #N" {
+  component "eval-agent" as AN
+  component "FPGA"        as FN
+}
+
+U        --> Browser
+Browser  --> Corp     : HTTPS
+Corp     --> ETH0
+ETH0     --> NginxFE
+NginxFE  --> Uvicorn  : /api proxy
+Uvicorn  --> PgC      : 5432
+Uvicorn  --> Vols     : files + HDF5
+Uvicorn  --> Dns      : update leases
+ETH1     --> SW
+SW       --> A1       : 192.168.100.101
+SW       --> AN       : 192.168.100.1xx
+A1       --> ETH1     : phone-home /\nheartbeat /\nstream
+AN       --> ETH1
+FW       ..> ETH1     : allow only\n192.168.100.0/24
+A1       --> F1       : flash + drive
+AN       --> FN       : flash + drive
+@enduml

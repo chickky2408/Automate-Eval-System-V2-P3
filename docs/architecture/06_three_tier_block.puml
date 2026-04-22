@@ -1,0 +1,46 @@
+@startuml
+!theme plain
+title Picture 3-1 - Three-Tier Architecture (Block Diagram)
+
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam defaultFontSize 12
+skinparam roundCorner 10
+skinparam padding 6
+skinparam ArrowColor #444
+skinparam rectangle {
+  BackgroundColor<<presentation>> #E8F1FF
+  BorderColor<<presentation>>     #2F6FEB
+  BackgroundColor<<application>>  #E9F7EE
+  BorderColor<<application>>      #2E8B57
+  BackgroundColor<<data>>         #FFF4E5
+  BorderColor<<data>>             #C77700
+}
+
+' ---------- Presentation tier ----------
+rectangle "Presentation Tier" <<presentation>> {
+  component "React SPA\n(Browser)" as Browser
+}
+
+' ---------- Application tier ----------
+rectangle "Application Tier" <<application>> {
+  component "FastAPI Backend\nREST endpoints under /api/..." as Backend
+}
+
+' ---------- Data and storage tier ----------
+rectangle "Data and Storage Tier" <<data>> {
+  database  "Database\n(initialized by backend)" as DB
+  folder    "File Storage\n(uploads/)"           as FS
+}
+
+' ---------- Flows ----------
+Browser -down-> Backend : HTTP / JSON\n(REST)
+Backend -down-> DB      : SQL\n(read / write)
+Backend -down-> FS      : File I/O\n(upload / download)
+
+note right of Backend
+  Single entry point for the SPA.
+  Validates requests, applies business
+  rules, persists to DB and file storage.
+end note
+@enduml

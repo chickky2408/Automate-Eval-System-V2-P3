@@ -1,0 +1,85 @@
+@startuml
+!theme plain
+title Eval System V2 — Data Model (Key Entities)
+
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+hide circle
+hide methods
+
+class files {
+  + id : UUID  <<PK>>
+  --
+  filename : text
+  file_path : text
+  file_type : enum   ' VCD | FIRMWARE | SCRIPT
+  checksum : sha256
+  uploaded_at : timestamp
+}
+
+class boards {
+  + id : text  <<PK>>
+  --
+  mac_address : text
+  ip_address : text
+  model : text
+  locked_by_job_id : FK -> jobs.id
+}
+
+class board_status {
+  + board_id : FK -> boards.id  <<PK>>
+  --
+  state : enum   ' ONLINE | OFFLINE | BUSY | ERROR
+  last_heartbeat : timestamp
+  cpu_temp : float
+  cpu_load : float
+  ram_usage : float
+}
+
+class jobs {
+  + id : UUID  <<PK>>
+  --
+  priority : int
+  state : enum   ' PENDING | RUNNING | COMPLETED | FAILED | CANCELLED
+  vcd_file_id : FK -> files.id
+  firmware_file_id : FK -> files.id
+  target_board_id : FK -> boards.id
+  assigned_board_id : FK -> boards.id
+  timeout_seconds : int
+  logs : text / json
+}
+
+class results {
+  + id : UUID  <<PK>>
+  --
+  job_id : FK -> jobs.id
+  vcd_file_id : FK -> files.id
+  firmware_file_id : FK -> files.id
+  waveform_path : text   ' HDF5
+  metrics : jsonb
+  passed : boolean
+}
+
+class test_cases {
+  + id : UUID  <<PK>>
+  --
+  name : text
+  vcd_id : FK -> files.id
+  bin_id : FK -> files.id
+  lin_id : FK -> files.id
+}
+
+class test_case_sets {
+  + id : UUID  <<PK>>
+  --
+  name : text
+}
+
+files          "1" -- "0..*" jobs           : vcd_file_id /\nfirmware_file_id
+files          "1" -- "0..*" results        : vcd_file_id /\nfirmware_file_id
+files          "1" -- "0..*" test_cases     : vcd / bin / lin
+boards         "1" -- "1"    board_status   : telemetry (1:1)
+boards         "1" -- "0..*" jobs           : target /\nassigned
+jobs           "1" -- "0..*" results        : 1 : N
+test_case_sets "1" -- "0..*" test_cases     : contains
+@enduml

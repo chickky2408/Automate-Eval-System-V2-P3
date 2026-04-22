@@ -1,0 +1,66 @@
+@startuml
+!theme plain
+title Eval System V2 - End-to-End Job Execution Flow
+
+skinparam shadowing false
+skinparam sequenceMessageAlign center
+skinparam defaultFontSize 11
+
+actor       User
+participant "Frontend (React)"      as FE
+participant "Backend API (FastAPI)" as BE
+participant "JobQueueService"       as JQ
+participant "BoardManager"          as BM
+database    "Postgres + Disk"       as DB
+participant "Zybo Agent"            as ZA
+participant "FPGA"                  as FPGA
+
+== Upload assets ==
+User -> FE : Upload VCD / Firmware
+FE   -> BE : POST /files/upload
+BE   -> DB : insert files row + save to disk
+BE  --> FE : { file_id, checksum }
+
+== Create and start job ==
+User -> FE : Build test set, click Run
+FE   -> BE : POST /jobs\n{ vcd_file_id, firmware_file_id,\n  target_board_id (optional), priority }
+BE   -> JQ : enqueue(job)
+JQ   -> DB : insert jobs row (PENDING)
+BE  --> FE : { job_id }
+FE   -> BE : POST /jobs/{id}/start
+
+== Scheduling ==
+JQ   -> BM : pick eligible board
+BM   -> DB : SELECT board WHERE state=ONLINE FOR UPDATE
+BM   -> DB : boards.locked_by_job_id = job_id\nboard_status.state = BUSY
+JQ   -> DB : jobs.state = RUNNING
+
+== Dispatch to hardware ==
+JQ   -> ZA   : POST /execute { job_id, files }
+ZA   -> BE   : GET /files/{vcd_id}, /files/{fw_id}
+ZA   -> FPGA : flash firmware (openocd)
+ZA   -> FPGA : drive VCD vectors
+FPGA --> ZA  : capture binary stream
+
+== Stream results back ==
+ZA   -> BE : PUT /results/{job_id}/stream\n(Transfer-Encoding: chunked)
+BE   -> DB : binary -> HDF5 in storage/\ninsert results row
+BE   -> FE : WS event "job.progress"
+
+== Completion ==
+ZA   -> BE : POST /jobs/{id}/complete\n(pass/fail, metrics)
+BE   -> JQ : finalize(job)
+JQ   -> BM : release(board)
+BM   -> DB : board_status.state = ONLINE\nclear locked_by_job_id
+JQ   -> DB : jobs.state = COMPLETED
+BE   -> FE : WS event "job.completed"
+FE  --> User : toast + result link
+
+== Watchdog (parallel) ==
+BM   -> ZA : GET /status (every 10-30s)
+
+note right of BM
+  - Missed heartbeats  -> state = OFFLINE
+  - Job timeout        -> cancel + reboot board
+end note
+@enduml

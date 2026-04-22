@@ -1,0 +1,54 @@
+@startuml
+!theme plain
+title Eval System V2 — System Context (3-Tier + Hardware Layer)
+
+skinparam componentStyle rectangle
+skinparam defaultFontSize 12
+skinparam shadowing false
+skinparam roundCorner 10
+
+actor "Test Engineer\n(Browser User)" as User
+actor "Zybo Board\n(eval-agent)"      as Zybo
+
+package "Presentation Layer" {
+  component "Frontend SPA\n(React 18 + Vite\nTailwind + Zustand)" as FE
+}
+
+package "Application Layer" {
+  component "Backend API\n(FastAPI / Python\nSQLAlchemy Async)" as BE
+}
+
+package "Data Persistence Layer" {
+  database  "PostgreSQL\n(Prod) / SQLite (Dev)\n— metadata —"     as DB
+  folder    "Object Storage\nuploads/  storage/\n(VCD, Firmware,\nHDF5 waveforms)" as FS
+}
+
+package "Hardware Interface Layer\n(Private Network 192.168.100.0/24)" {
+  component "dnsmasq\n(DHCP/DNS\nStatic Lease by MAC)" as DHCP
+  component "Zybo Farm\n(Board #1 .. #N)"              as Farm
+}
+
+User -down->  FE   : HTTPS (UI)
+FE   -right-> BE   : REST (HTTP/JSON)
+FE   <-right- BE   : WebSocket\n(real-time updates)
+BE   -down->  DB   : SQL (async)
+BE   -down->  FS   : Read/Write files\n(file_id -> path)
+BE   -down->  DHCP : configure\nstatic leases
+BE   <-down-> Farm : Control + Data\n(REST + HTTP Stream)
+Zybo -up->    BE   : Phone-Home /\nHeartbeat /\nStream upload
+
+note right of BE
+  Core services:
+  • Job Orchestrator (FIFO + Priority)
+  • Board Manager (locking, state)
+  • File Handler (checksum, dedupe)
+  • Stream Processor (binary -> HDF5)
+  • Notification / WebSocket hub
+end note
+
+note bottom of FS
+  Hybrid storage:
+  • Metadata in DB (file_id is FK)
+  • Large blobs (VCD/firmware/HDF5) on disk
+end note
+@enduml
