@@ -362,6 +362,43 @@ async def init_db():
                     )
             await conn.run_sync(_create_backfill_board_status)
 
+        # Migration: add owner_id / visibility / owner_display_name to test_cases + test_sets.
+        # Mirrors the shape of files.owner_id so Library filters can be served from
+        # normalized tables instead of walking profiles.data JSON.
+        async with engine.begin() as conn:
+            def _add_tc_set_owner_visibility(sync_conn):
+                is_sqlite = "sqlite" in DATABASE_URL
+                targets = [
+                    ("test_cases", "owner_id", "VARCHAR(128)", "VARCHAR(128)"),
+                    ("test_cases", "owner_display_name", "VARCHAR(255)", "VARCHAR(255)"),
+                    ("test_cases", "visibility", "VARCHAR(32)", "VARCHAR(32)"),
+                    ("test_sets", "owner_id", "VARCHAR(128)", "VARCHAR(128)"),
+                    ("test_sets", "owner_display_name", "VARCHAR(255)", "VARCHAR(255)"),
+                    ("test_sets", "visibility", "VARCHAR(32)", "VARCHAR(32)"),
+                ]
+                if is_sqlite:
+                    existing = {}
+                    for table in {t[0] for t in targets}:
+                        cur = sync_conn.execute(text(f"PRAGMA table_info({table})"))
+                        existing[table] = {row[1] for row in cur.fetchall()}
+                    for table, col, sqlite_type, _ in targets:
+                        if col not in existing.get(table, set()):
+                            sync_conn.execute(
+                                text(f"ALTER TABLE {table} ADD COLUMN {col} {sqlite_type}")
+                            )
+                else:
+                    for table, col, _, pg_type in targets:
+                        try:
+                            sync_conn.execute(
+                                text(
+                                    f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {pg_type}"
+                                )
+                            )
+                        except Exception:
+                            pass
+
+            await conn.run_sync(_add_tc_set_owner_visibility)
+
         # Final cutover: drop legacy filename columns after file-id migration is in place.
         async with engine.begin() as conn:
             def _drop_legacy_filename_columns(sync_conn):

@@ -165,6 +165,11 @@ class TestCaseORM(Base):
     vcd_file_id = Column(String(36), ForeignKey("files.id"), nullable=True)
     firmware_filename = Column(String(255), nullable=True)
     tags = Column(String(255), nullable=True)
+    # Ownership / visibility — mirrors files.owner_id / files.visibility so that
+    # Library filters can query normalized tables directly (no JSON blob walks).
+    owner_id = Column(String(128), nullable=True)            # profile_id of the creator
+    owner_display_name = Column(String(255), nullable=True)  # snapshot of profile.name at sync time
+    visibility = Column(String(32), default="public")        # 'private' | 'team' | 'public'
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -176,6 +181,9 @@ class TestSetORM(Base):
     id = Column(String(32), primary_key=True)
     name = Column(String(255), nullable=False)
     tags = Column(String(255), nullable=True)
+    owner_id = Column(String(128), nullable=True)
+    owner_display_name = Column(String(255), nullable=True)
+    visibility = Column(String(32), default="public")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

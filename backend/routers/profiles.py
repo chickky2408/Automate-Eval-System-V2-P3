@@ -135,10 +135,17 @@ async def _sync_normalized_test_tables(session: AsyncSession, all_profiles: List
     set_rows: List[TestSetORM] = []
     set_item_rows: List[TestSetItemORM] = []
 
+    def _pick_visibility(d: Dict[str, Any]) -> str:
+        raw = str(d.get("visibility") or "").strip().lower()
+        if raw in {"private", "team", "public"}:
+            return raw
+        return "public"
+
     for p in all_profiles:
         data = p.data if isinstance(p.data, dict) else {}
         saved_cases = data.get("savedTestCases") or []
         saved_sets = data.get("savedTestCaseSets") or []
+        profile_display_name = (p.name or "").strip() or None
 
         def ensure_case(tc: Any, fallback: str) -> Optional[str]:
             if not isinstance(tc, dict):
@@ -154,6 +161,9 @@ async def _sync_normalized_test_tables(session: AsyncSession, all_profiles: List
                 vcd_file_id=str(tc.get("vcdId") or tc.get("vcd_file_id") or "").strip() or None,
                 firmware_filename=str(tc.get("binName") or tc.get("firmware_filename") or "").strip() or None,
                 tags=_extract_tc_tags(tc),
+                owner_id=p.id,
+                owner_display_name=profile_display_name,
+                visibility=_pick_visibility(tc),
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow(),
             )
@@ -172,6 +182,9 @@ async def _sync_normalized_test_tables(session: AsyncSession, all_profiles: List
                     id=set_id,
                     name=str(s.get("name") or f"Set {s_idx + 1}").strip() or f"Set {s_idx + 1}",
                     tags=str(s.get("tag") or s.get("tags") or "").strip() or None,
+                    owner_id=p.id,
+                    owner_display_name=profile_display_name,
+                    visibility=_pick_visibility(s),
                     created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow(),
                 )
