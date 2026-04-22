@@ -547,7 +547,10 @@ const saveSavedTestCases = (list) => {
   }
   if (isBackendProfileId(activeId)) {
     const p = loadProfile(activeId);
-    void api.putProfileData(activeId, { savedTestCases: list, savedTestCaseSets: p?.savedTestCaseSets ?? [] }).catch(() => {});
+    void api.putProfileData(activeId, { savedTestCases: list, savedTestCaseSets: p?.savedTestCaseSets ?? [] }).catch((err) => {
+      console.error('[putProfileData failed: savedTestCases]', err);
+      try { useTestStore.getState().addToast?.({ type: 'error', message: `Save to server failed: ${err?.message || err}` }); } catch { /* ignore */ }
+    });
     scheduleGlobalTestCaseDataRefresh();
   }
 };
@@ -579,7 +582,10 @@ const saveSavedTestCaseSets = (sets) => {
   }
   if (isBackendProfileId(activeId)) {
     const p = loadProfile(activeId);
-    void api.putProfileData(activeId, { savedTestCases: p?.savedTestCases ?? [], savedTestCaseSets: sets }).catch(() => {});
+    void api.putProfileData(activeId, { savedTestCases: p?.savedTestCases ?? [], savedTestCaseSets: sets }).catch((err) => {
+      console.error('[putProfileData failed: savedTestCaseSets]', err);
+      try { useTestStore.getState().addToast?.({ type: 'error', message: `Save set to server failed: ${err?.message || err}` }); } catch { /* ignore */ }
+    });
     scheduleGlobalTestCaseDataRefresh();
   }
 };
@@ -1431,6 +1437,10 @@ export const useTestStore = create((set, get) => {
       return uploaded;
     } catch (error) {
       console.error('Failed to upload file', error);
+      const msg = error?.message || String(error) || 'Unknown error';
+      try {
+        get().addToast?.({ type: 'error', message: `Upload failed: ${msg}` });
+      } catch { /* addToast not ready */ }
       return null;
     }
   },
@@ -1926,7 +1936,10 @@ export const useTestStore = create((set, get) => {
     set({ savedTestCases: list });
     if (isBackendProfileId(getActiveProfileId())) {
       const p = loadProfile(getActiveProfileId());
-      void api.putProfileData(getActiveProfileId(), { savedTestCases: list, savedTestCaseSets: p?.savedTestCaseSets ?? [] }).catch(() => {});
+      void api.putProfileData(getActiveProfileId(), { savedTestCases: list, savedTestCaseSets: p?.savedTestCaseSets ?? [] }).catch((err) => {
+        console.error('[putProfileData failed: saveWorkingToLibrary]', err);
+        try { get().addToast?.({ type: 'error', message: `Save to server failed: ${err?.message || err}` }); } catch { /* ignore */ }
+      });
     }
   },
 
@@ -2365,7 +2378,10 @@ export const useTestStore = create((set, get) => {
     const activeId = getActiveProfileId();
     if (isBackendProfileId(activeId)) {
       const p = loadProfile(activeId);
-      void api.putProfileData(activeId, { savedTestCases: next, savedTestCaseSets: p?.savedTestCaseSets ?? [] }).catch(() => {});
+      void api.putProfileData(activeId, { savedTestCases: next, savedTestCaseSets: p?.savedTestCaseSets ?? [] }).catch((err) => {
+        console.error('[putProfileData failed: append TCs]', err);
+        try { get().addToast?.({ type: 'error', message: `Save to server failed: ${err?.message || err}` }); } catch { /* ignore */ }
+      });
     }
     return { savedTestCases: next };
   }),
@@ -2703,7 +2719,10 @@ export const useTestStore = create((set, get) => {
     saveProfile(activeId, { ...profile, savedTestCases: mergedCases, savedTestCaseSets: mergedSets });
     set({ savedTestCases: mergedCases, savedTestCaseSets: mergedSets, viewingSharedProfileId: null });
     if (isBackendProfileId(activeId)) {
-      void api.putProfileData(activeId, { savedTestCases: mergedCases, savedTestCaseSets: mergedSets }).catch(() => {});
+      void api.putProfileData(activeId, { savedTestCases: mergedCases, savedTestCaseSets: mergedSets }).catch((err) => {
+        console.error('[putProfileData failed: merge from shared profile]', err);
+        try { get().addToast?.({ type: 'error', message: `Merge save to server failed: ${err?.message || err}` }); } catch { /* ignore */ }
+      });
     }
     return true;
   },
