@@ -53,55 +53,56 @@ def _validate_global_unique_test_case_names(
     new_full_data_for_profile: Dict[str, Any],
 ) -> Optional[str]:
     """
-    Ensure no duplicate trimmed test case names across all profiles (same DB).
-    Same name may only belong to one test case id (globally).
-    `new_full_data_for_profile` is the full merged JSON.data for the profile after the update.
-    """
-    merged: Dict[str, Dict[str, Any]] = {}
-    for p in all_profiles:
-        merged[p.id] = dict(p.data or {})
-    merged[updating_profile_id] = new_full_data_for_profile
+    Validate test case uniqueness **within the updating profile only**.
 
+    Rationale: each profile owns its own test cases (stored in profiles.data).
+    Stable IDs in the normalized `test_cases` table include profile_id, so the
+    same TC name in two different profiles does not collide on FK. Enforcing
+    a global unique-across-profiles constraint caused legitimate saves to fail
+    with 409 whenever any other profile happened to have the same TC name.
+
+    We still enforce:
+      - Name uniqueness inside this profile (savedTestCases + set items).
+      - File-set uniqueness inside this profile.
+    """
+    del all_profiles  # kept for signature compatibility; no longer used for cross-profile checks
+
+    data = new_full_data_for_profile if isinstance(new_full_data_for_profile, dict) else {}
     name_to_id: Dict[str, str] = {}
     files_key_to_id: Dict[str, str] = {}
 
-    def walk_tc(tc: Any, profile_id: str, idx: Any, kind: str) -> Optional[str]:
+    def walk_tc(tc: Any, idx: Any, kind: str) -> Optional[str]:
         if not isinstance(tc, dict):
             return None
         n = _normalize_tc_name(tc.get("name"))
         tid = str(tc.get("id") or "").strip()
         if not tid:
-            tid = f"{profile_id}:{kind}:{idx}"
-        # 1) Name uniqueness (global)
+            tid = f"{updating_profile_id}:{kind}:{idx}"
         if n:
             if n in name_to_id:
                 if name_to_id[n] != tid:
-                    return f'Duplicate test case name "{n}" — names must be unique across all profiles'
+                    return f'Duplicate test case name "{n}" in this profile — please rename'
             else:
                 name_to_id[n] = tid
 
-        # 2) File-set uniqueness (global)
         fk = _tc_files_key(tc)
         if fk:
             if fk in files_key_to_id and files_key_to_id[fk] != tid:
-                return "Duplicate test case files — a test case with the same VCD/ERoM/ULP/MDI files already exists"
+                return "Duplicate test case files in this profile — another TC already uses the same VCD/ERoM/ULP/MDI set"
             files_key_to_id[fk] = tid
         return None
 
-    for pid, data in merged.items():
-        if not isinstance(data, dict):
+    for i, tc in enumerate(data.get("savedTestCases") or []):
+        err = walk_tc(tc, i, "saved")
+        if err:
+            return err
+    for si, s in enumerate(data.get("savedTestCaseSets") or []):
+        if not isinstance(s, dict):
             continue
-        for i, tc in enumerate(data.get("savedTestCases") or []):
-            err = walk_tc(tc, pid, i, "saved")
+        for ii, tc in enumerate(s.get("items") or []):
+            err = walk_tc(tc, f"{si}_{ii}", "setitem")
             if err:
                 return err
-        for si, s in enumerate(data.get("savedTestCaseSets") or []):
-            if not isinstance(s, dict):
-                continue
-            for ii, tc in enumerate(s.get("items") or []):
-                err = walk_tc(tc, pid, f"{si}_{ii}", "setitem")
-                if err:
-                    return err
     return None
 
 
