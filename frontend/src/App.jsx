@@ -278,6 +278,11 @@ const App = () => {
             <FileLibraryPage
               onNavigateToTestCases={() => setActivePage('testCases')}
               onNavigateToRunSet={() => setActivePage('runSet')}
+              onNavigateToJob={(jobId) => {
+                if (jobId == null) return;
+                setExpandJobId(jobId);
+                setActivePage('jobs');
+              }}
             />
           </div>
           <div

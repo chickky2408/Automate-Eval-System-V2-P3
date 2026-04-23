@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import {
-    ArrowUp, ArrowDown, Copy, FileUp, FolderOpen, Globe, GripVertical, Lock, Plus, Save, Trash2, X, Play
+    ArrowUp, ArrowDown, ArrowUpFromLine, ArrowDownFromLine, ChevronDown, Copy, FileUp, FolderOpen, Globe, GripVertical, Lock, Plus, Save, Trash2, X, Play
 } from 'lucide-react';
 import { useTestStore } from '../store/useTestStore';
 import api from '../services/api';
@@ -532,6 +532,8 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
   const [tcTagModalEditDraft, setTcTagModalEditDraft] = useState('');
   /** Inline “+” to add a tag (same idea as File Library) */
   const [tcTagPlusInputTcId, setTcTagPlusInputTcId] = useState(null);
+  /** Toolbar Insert (Excel-style insert row above/below) — mirrors File Library behavior */
+  const [insertRowMenuOpen, setInsertRowMenuOpen] = useState(false);
   const [tcTagPlusInputDraft, setTcTagPlusInputDraft] = useState('');
   const libraryPickerDragSelectRef = useRef(false);
   const [draggingRowIndex, setDraggingRowIndex] = useState(null);
@@ -1633,6 +1635,79 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
     }
     addToast({ type: 'success', message: `Added "${name}" — fill VCD/ERoM below or rename if you like` });
   };
+
+  /**
+   * Toolbar "Insert" — same UX as File Library → Test Cases tab.
+   * Requires exactly one selected row, then inserts a new TC (identical defaults
+   * to `addOneTestCase`) immediately above or below that row.
+   */
+  const handleInsertRowFromToolbar = (position) => {
+    setInsertRowMenuOpen(false);
+    if (isViewingShared) {
+      addToast({ type: 'warning', message: 'Read-only mode — cannot insert rows' });
+      return;
+    }
+    if (selectedTestCaseIds.length === 0) {
+      addToast({
+        type: 'info',
+        message: 'เลือกแถวในตารางก่อน แล้วค่อย Insert row (เหมือน Excel — เลือกแถว แล้วใช้เมนู Insert)',
+      });
+      return;
+    }
+    if (selectedTestCaseIds.length > 1) {
+      addToast({
+        type: 'info',
+        message: 'Select one row first — then select Insert row above or below',
+      });
+      return;
+    }
+    const targetId = selectedTestCaseIds[0];
+    const idx = displayedSavedTestCases.findIndex((t) => String(t.id) === String(targetId));
+    if (idx < 0) {
+      addToast({ type: 'warning', message: 'ไม่พบแถวที่เลือกในตาราง' });
+      return;
+    }
+    const insertAt = position === 'above' ? idx : idx + 1;
+
+    setSetupClearedPersisted(activeProfileId, false);
+    setTableClearedMode(false);
+    const name = getNextTestCaseName();
+    const entry = { name, vcdName: '', binName: '', linName: '', tryCount: 1, createdAt: new Date().toISOString() };
+    if (loadedSetId) {
+      addSavedTestCase(entry, { insertAt });
+    } else {
+      setPendingDraftTestCases((prev) => {
+        const next = [...prev];
+        const safe = Math.max(0, Math.min(insertAt, next.length));
+        next.splice(safe, 0, {
+          ...entry,
+          id: `tc-draft-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        });
+        return next;
+      });
+    }
+    addToast({
+      type: 'success',
+      message: `Inserted "${name}" ${position === 'above' ? 'above' : 'below'} the selected row`,
+    });
+  };
+
+  useEffect(() => {
+    if (!insertRowMenuOpen) return;
+    const onDoc = (e) => {
+      const root = e.target?.closest?.('[data-testcases-insert-menu]');
+      if (!root) setInsertRowMenuOpen(false);
+    };
+    const onEsc = (e) => {
+      if (e.key === 'Escape') setInsertRowMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onEsc);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onEsc);
+    };
+  }, [insertRowMenuOpen]);
 
   // Clear: ล้างเฉพาะ UI/ตาราง ไม่ลบข้อมูลจาก Library (server). Persist so refresh/return keeps empty.
   const clearAllTestCases = () => {
@@ -3025,6 +3100,55 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
               <FolderOpen size={14} /> From Library
             </button>
             <button onClick={addOneTestCase} className="px-3 py-2 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-2"><Plus size={14} /> Add Test Case</button>
+            <div className="relative" data-testcases-insert-menu>
+              <button
+                type="button"
+                onClick={() => setInsertRowMenuOpen((v) => !v)}
+                disabled={isViewingShared}
+                className={`px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2 ${
+                  isViewingShared
+                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                }`}
+                title={
+                  isViewingShared
+                    ? 'Read-only mode — cannot insert rows'
+                    : selectedTestCaseIds.length === 1
+                      ? 'Insert row above/below the selected row (Excel-style)'
+                      : 'เลือกแถวเดียวในกริดก่อน — แล้วแทรกเหนือหรือใต้แถวนั้น'
+                }
+              >
+                <Plus size={14} />
+                <span>Insert</span>
+                <ChevronDown size={14} className="opacity-80" />
+              </button>
+              {insertRowMenuOpen && !isViewingShared && (
+                <div className="absolute left-0 top-full mt-1 z-50 min-w-[220px] rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-lg py-1 text-left">
+                  <button
+                    type="button"
+                    onClick={() => handleInsertRowFromToolbar('above')}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/80 text-left"
+                  >
+                    <ArrowUpFromLine size={16} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                    <span>
+                      <span className="font-medium block">Insert row above</span>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400">Insert row above selected row</span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleInsertRowFromToolbar('below')}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/80 text-left border-t border-slate-100 dark:border-slate-700"
+                  >
+                    <ArrowDownFromLine size={16} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                    <span>
+                      <span className="font-medium block">Insert row below</span>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400">Insert row below selected row</span>
+                    </span>
+                  </button>
+                </div>
+              )}
+            </div>
             <button onClick={clearAllTestCases} disabled={(savedTestCases.length === 0 && workingCount === 0) || isViewingShared} className={`px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2 ${(savedTestCases.length === 0 && workingCount === 0) || isViewingShared ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-red-600 text-white hover:bg-red-700'}`}><X size={14} /> Clear</button>
             <div className="h-6 w-px bg-slate-300 dark:bg-slate-600 mx-1" />
             <button

@@ -14,6 +14,7 @@ import {
   Play,
   Plus,
   RefreshCw,
+  RotateCcw,
   Save,
   Search,
   Tag,
@@ -299,6 +300,24 @@ const RunSetPage = ({ onNavigateJobs }) => {
     [selectedRunnableSets]
   );
 
+  const singleSelectedSetForSave = useMemo(() => {
+    if (selectedSetIds.length !== 1) return null;
+    return safeSets.find((s) => s.id === selectedSetIds[0]) || null;
+  }, [selectedSetIds, safeSets]);
+
+  const hasSingleSetMetadataDirty = useMemo(() => {
+    const set = singleSelectedSetForSave;
+    if (!set) return false;
+    if ((runSetName || '').trim() !== (set.name || '').trim()) return true;
+    if ((tag || '').trim() !== (set.tag || '').trim()) return true;
+    const colA = TAG_PALETTE_MAP[runSetTagColor] ? runSetTagColor : 'mint';
+    const colB = TAG_PALETTE_MAP[set.tagColor] ? set.tagColor : 'mint';
+    if (colA !== colB) return true;
+    return false;
+  }, [singleSelectedSetForSave, runSetName, tag, runSetTagColor]);
+
+  const canSaveNotRun = runPreview.length > 0 || hasSingleSetMetadataDirty;
+
   // ไม่ให้เลือก set ที่กำลังรันอยู่ (In run) — ถ้า job เปลี่ยนสถานะเป็น running/pending ให้ถอด checkbox ออกอัตโนมัติ
   useEffect(() => {
     setSelectedSetIds((prev) =>
@@ -338,6 +357,115 @@ const RunSetPage = ({ onNavigateJobs }) => {
     setSelectedBoardIds([]);
     setRunBoardSelection({ mode: 'manual', boardIds: [] });
   };
+
+  /** Reset section 3: set name, tag, color, board mode/selection, prioritize (persisted board prefs too). */
+  const clearSection3RunConfig = useCallback(() => {
+    setRunSetName('');
+    setTag('');
+    setRunSetTagColor('mint');
+    setPrioritize(false);
+    setBoardSelectionMode('auto');
+    setSelectedBoardIds([]);
+    setRunBoardSelection({ mode: 'auto', boardIds: [] });
+  }, [setRunBoardSelection]);
+
+  const getJobDateForRunSet = useCallback((job) => {
+    if (!job) return new Date(0);
+    const s = (job.status || '').toLowerCase();
+    if (s === 'completed' || s === 'stopped') {
+      if (job.completedAt) return new Date(job.completedAt);
+      if (job.startedAt) return new Date(job.startedAt);
+    } else {
+      if (job.createdAt) return new Date(job.createdAt);
+      if (job.startedAt) return new Date(job.startedAt);
+    }
+    return new Date(0);
+  }, []);
+
+  const findLatestJobForSetName = useCallback(
+    (setName) => {
+      const n = (setName || '').trim();
+      if (!n || !Array.isArray(jobs)) return null;
+      const matches = jobs.filter((j) => {
+        const jn = (j.configName || j.name || '').trim();
+        return jn === n;
+      });
+      if (!matches.length) return null;
+      return matches.sort((a, b) => getJobDateForRunSet(b) - getJobDateForRunSet(a))[0];
+    },
+    [jobs, getJobDateForRunSet]
+  );
+
+  const applyBoardsAndPriorityFromJob = useCallback(
+    (j, boardList) => {
+      if (j) {
+        const p = (j.priority || '').toString().toLowerCase();
+        setPrioritize(p === 'high' || j.priority === 'high');
+      } else {
+        setPrioritize(false);
+      }
+      const bnames = j && Array.isArray(j.boards) ? j.boards : [];
+      const nameToId = new Map((boardList || []).map((b) => [b.name, b.id]));
+      if (bnames.length > 0) {
+        const ids = bnames.map((bn) => nameToId.get(bn)).filter(Boolean);
+        if (ids.length > 0) {
+          setBoardSelectionMode('manual');
+          setSelectedBoardIds(ids);
+          setRunBoardSelection({ mode: 'manual', boardIds: ids });
+        } else {
+          setBoardSelectionMode('auto');
+          setSelectedBoardIds([]);
+          setRunBoardSelection({ mode: 'auto', boardIds: [] });
+        }
+      } else {
+        setBoardSelectionMode('auto');
+        setSelectedBoardIds([]);
+        setRunBoardSelection({ mode: 'auto', boardIds: [] });
+      }
+    },
+    [setRunBoardSelection]
+  );
+
+  /** When exactly one saved set is ticked, fill section 3 with that set’s tag/name + best-known job (boards, priority). */
+  const lastSetSelectionKeyRef = useRef('');
+  const lastJobHydrateSigRef = useRef('');
+  useEffect(() => {
+    const k = selectedSetIds.join(',');
+    const isSingle = selectedSetIds.length === 1;
+    if (!isSingle) {
+      lastSetSelectionKeyRef.current = k;
+      return;
+    }
+    const set = safeSets.find((s) => s.id === selectedSetIds[0]);
+    if (!set) return;
+    const setName = (set.name || '').trim();
+    const j = findLatestJobForSetName(setName);
+    const jobSig = j
+      ? `job:${j.id}:boards:${(j.boards || []).join('|') || '∅'}:pr:${(j.priority || '∅')}`
+      : 'nojob';
+
+    if (k !== lastSetSelectionKeyRef.current) {
+      lastSetSelectionKeyRef.current = k;
+      lastJobHydrateSigRef.current = '';
+      setRunSetName(setName);
+      setTag((set.tag || '').trim());
+      setRunSetTagColor(TAG_PALETTE_MAP[set.tagColor] ? set.tagColor : 'mint');
+      applyBoardsAndPriorityFromJob(j, safeBoards);
+      lastJobHydrateSigRef.current = j ? jobSig : 'nojob';
+      return;
+    }
+
+    if (lastJobHydrateSigRef.current === jobSig) return;
+    lastJobHydrateSigRef.current = jobSig;
+    applyBoardsAndPriorityFromJob(j, safeBoards);
+  }, [
+    selectedSetIds,
+    safeSets,
+    jobs,
+    safeBoards,
+    findLatestJobForSetName,
+    applyBoardsAndPriorityFromJob,
+  ]);
 
   const contentKeyTc = (tc) =>
     [tc?.name ?? '', tc?.vcdName ?? '', tc?.binName ?? '', tc?.linName ?? ''].join('\0');
@@ -781,9 +909,58 @@ const RunSetPage = ({ onNavigateJobs }) => {
     }
   };
 
-  const saveSelectedNotRun = () => {
-    saveCurrentRunSet({ showToast: true });
-  };
+  const saveSelectedNotRun = useCallback(() => {
+    if (runPreview.length > 0) {
+      saveCurrentRunSet({ showToast: true });
+      return;
+    }
+    if (selectedSetIds.length !== 1) {
+      addToast({ type: 'warning', message: 'Load test cases into “Set for run” or select one set and edit name/tag' });
+      return;
+    }
+    const set = safeSets.find((s) => s.id === selectedSetIds[0]);
+    if (!set) {
+      addToast({ type: 'error', message: 'Set not found' });
+      return;
+    }
+    const name = (runSetName || '').trim();
+    if (!name) {
+      addToast({ type: 'warning', message: 'Set name cannot be empty' });
+      return;
+    }
+    if (!hasSingleSetMetadataDirty) {
+      addToast({ type: 'info', message: 'No changes to save' });
+      return;
+    }
+    const colorKey = TAG_PALETTE_MAP[runSetTagColor] ? runSetTagColor : 'mint';
+    const tagTrim = (tag || '').trim();
+    const patch = { name };
+    if (tagTrim) {
+      patch.tag = tagTrim;
+      patch.tagColor = colorKey;
+      const parts = splitTagsComma(tagTrim);
+      if (parts.length > 0) {
+        patch.tagColorList = parts.map(() => colorKey);
+      }
+    } else {
+      patch.tag = '';
+      patch.tagColor = 'mint';
+      patch.tagColorList = [];
+    }
+    updateSavedTestCaseSet(set.id, patch);
+    addToast({ type: 'success', message: `Saved "${name}"` });
+  }, [
+    runPreview.length,
+    saveCurrentRunSet,
+    selectedSetIds,
+    safeSets,
+    runSetName,
+    tag,
+    runSetTagColor,
+    hasSingleSetMetadataDirty,
+    addToast,
+    updateSavedTestCaseSet,
+  ]);
 
   return (
     <div className="flex min-h-0 w-full max-w-none min-w-0 flex-1 flex-col space-y-4">
@@ -1304,8 +1481,21 @@ const RunSetPage = ({ onNavigateJobs }) => {
 
         {/* 3. Set name, Tag, Board selection — ด้านล่าง หลังการเลือก test case */}
         <div className="mb-4 p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-600 space-y-4">
-          <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300">3. Set name, Tag & Board selection</h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400">Configure after selecting test cases above.</p>
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300">3. Set name, Tag & Board selection</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Configure after selecting test cases above.</p>
+            </div>
+            <button
+              type="button"
+              onClick={clearSection3RunConfig}
+              className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border border-slate-300 dark:border-slate-500 text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+              title="ล้างชื่อ set, tag, สี, โหมด/รายการบอร์ด และ Prioritize — รีเซ็ตเป็นค่าเริ่มต้น (Auto assign, ไม่เลือกบอร์ด)"
+            >
+              <RotateCcw size={14} className="text-slate-500 dark:text-slate-400" aria-hidden />
+              Clear config
+            </button>
+          </div>
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex flex-col gap-1">
               <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Set name</label>
@@ -1499,9 +1689,13 @@ const RunSetPage = ({ onNavigateJobs }) => {
           <button
             type="button"
             onClick={saveSelectedNotRun}
-            disabled={runPreview.length === 0}
+            disabled={!canSaveNotRun}
             className="inline-flex items-center gap-2 px-4 py-2 bg-slate-600 text-white rounded-lg text-sm font-bold hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Save current run list as a set (no run). Set appears in SAVED on Test Cases page."
+            title={
+              runPreview.length > 0
+                ? 'Save “Set for run” as a new set (no run). Appears in SAVED on Test Cases page.'
+                : 'Save name / tag changes to the selected set (no run). Or add cases to “Set for run” to save a new set.'
+            }
           >
             <Save size={16} />
             Save (not run)

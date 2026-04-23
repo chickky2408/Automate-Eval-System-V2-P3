@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  Activity, AlertCircle, ArrowDown, ArrowDownFromLine, ArrowUp, ArrowUpFromLine, Bell, CheckCircle2, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, Copy, Cpu, Download, Eye, FileCode, FileDown, FileJson, FileUp, Filter, FolderOpen, Globe, GripVertical, Grid3x3, HardDrive, History, Layers, LayoutDashboard, List, Lock, LogOut, Menu, Monitor, MoreVertical, Pause, Pencil, Play, PlayCircle, Plus, RefreshCw, Save, Search, Settings, Square, StopCircle, Tag, Terminal, Trash2, Upload, User, UserPlus, Users, Wifi, WifiOff, X, XCircle, Zap
+  Activity, AlertCircle, ArrowDown, ArrowDownFromLine, ArrowUp, ArrowUpFromLine, Bell, CheckCircle2, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, Copy, Cpu, Download, Eye, FileCode, FileDown, FileJson, FileUp, Filter, FolderOpen, Globe, GripVertical, Grid3x3, HardDrive, History, Layers, LayoutDashboard, List, Lock, LogOut, Menu, Monitor, MoreVertical,   Pause, Pencil, Play, PlayCircle, Plus, RefreshCw, RotateCcw, Save, Search, Settings, Square, StopCircle, Tag, Terminal, Trash2, Upload, User, UserPlus, Users, Wifi, WifiOff, X, XCircle, Zap
 } from 'lucide-react';
 import { useTestStore } from '../store/useTestStore';
 import api from '../services/api';
@@ -51,6 +51,9 @@ const getSetJobStatusPillClass = (status) => {
   }
   if (status === 'pending') {
     return 'bg-amber-50 text-amber-900 border-amber-200 dark:bg-amber-900/30 dark:text-amber-200 dark:border-amber-700';
+  }
+  if (status === 'error') {
+    return 'bg-red-50 text-red-700 border-red-300 dark:bg-red-900/35 dark:text-red-300 dark:border-red-700/60';
   }
   if (status === 'completed') {
     return 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-900/25 dark:text-emerald-300 dark:border-emerald-700';
@@ -134,6 +137,28 @@ const getJobRefsUsingFile = (fileName, jobs) => {
 
 /** สร้าง id สำหรับแถว extra file ใน editor */
 const newRawTcSlotId = () => `slot-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+/**
+ * Format a timestamp as "YYYY-MM-DD HH:mm" in Asia/Bangkok (UTC+7).
+ * The backend stores timestamps in UTC; previously we were slicing the raw ISO
+ * string which displayed UTC instead of Thailand local time (off by 7 hours).
+ */
+function formatModifiedBangkok(value) {
+  if (value == null || value === '') return '—';
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Bangkok',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(d);
+  const get = (t) => parts.find((p) => p.type === t)?.value || '';
+  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`;
+}
 
 /**
  * รวบรวมไฟล์เสริม (VCD2+, ERoM2+, ULP2+, MDI) จาก commands ก่อน แล้วเติมจาก extraColumns ถ้ายังไม่มีใน commands
@@ -278,6 +303,28 @@ function getTcExtraColVal(t, col) {
   return t.extraColumns?.[col] ?? '';
 }
 
+/** Same MDI (text) resolution as the main Test Case Library table (commands + extraColumns MDI slots). */
+function buildMdiNamesForLibraryRow(tc) {
+  const cmds = Array.isArray(tc?.commands) ? tc.commands : [];
+  const names = [];
+  cmds
+    .filter((c) => c && c.type === 'mdi' && String(c.file || '').trim())
+    .forEach((c) => names.push(String(c.file).trim()));
+  const ex = tc?.extraColumns && typeof tc.extraColumns === 'object' ? tc.extraColumns : {};
+  const mdiKeys = Object.keys(ex).filter((k) => /^MDI\d+$/i.test(k));
+  mdiKeys
+    .sort((a, b) => {
+      const na = parseInt(String(a).match(/\d+/)?.[0] || '0', 10);
+      const nb = parseInt(String(b).match(/\d+/)?.[0] || '0', 10);
+      return na - nb;
+    })
+    .forEach((k) => {
+      const v = String(ex[k] || '').trim();
+      if (v && !names.includes(v)) names.push(v);
+    });
+  return names;
+}
+
 const pickUniqueNameForAppend = (desired, usedSet) => {
   const base = (desired || '').trim() || 'Test case';
   if (!usedSet.has(base)) return base;
@@ -288,7 +335,16 @@ const pickUniqueNameForAppend = (desired, usedSet) => {
 
 const cloneSavedLibraryTcToSetItem = (tc, finalName) => {
   const now = new Date().toISOString();
-  const itemId = `tc-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  // Same `id` as the library row when the set item keeps the same display name, so server profile
+  // validation (unique name ↔ id in savedTestCases + all set items) does not see two ids for "TC00001".
+  // If we rename to avoid a clash inside the set (e.g. "TC00001 (2)"), use a new id.
+  const nameMatchesLibrary =
+    String(finalName || '').trim() === String(tc.name || '').trim() && String(finalName || '').trim() !== '';
+  const libId = tc.id != null && String(tc.id).trim() !== '' ? String(tc.id) : null;
+  const itemId =
+    nameMatchesLibrary && libId
+      ? libId
+      : `tc-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
   const extra = tc.extraColumns && typeof tc.extraColumns === 'object' ? { ...tc.extraColumns } : {};
   const commands = Array.isArray(tc.commands)
     ? tc.commands.map((c, i) => ({
@@ -296,6 +352,8 @@ const cloneSavedLibraryTcToSetItem = (tc, finalName) => {
         id: `cmd-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 9)}`,
       }))
     : null;
+  const srcOwnerId =
+    tc._ownerId != null && String(tc._ownerId).trim() !== '' ? String(tc._ownerId) : null;
   return {
     id: itemId,
     name: finalName,
@@ -307,6 +365,7 @@ const cloneSavedLibraryTcToSetItem = (tc, finalName) => {
     extraColumns: Object.keys(extra).length ? extra : undefined,
     ...(commands && commands.length ? { commands } : {}),
     createdAt: tc.createdAt || now,
+    ...(srcOwnerId ? { _ownerId: srcOwnerId } : {}),
   };
 };
 
@@ -314,7 +373,7 @@ const cloneSavedLibraryTcToSetItem = (tc, finalName) => {
 const FILE_TAG_PALETTE_MAP = TAG_PALETTE_MAP;
 
 // FILE LIBRARY PAGE — default: Test Case Library (เรียง set ลงมา แต่ละ set มีตารางแนวนอน + แสดงไฟล์); ปุ่มสลับView files in Library
-const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
+const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigateToJob }) => {
   const {
     uploadedFiles,
     addUploadedFile,
@@ -445,13 +504,19 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
   const clearFileLibraryViewOnNavigate = useTestStore((s) => s.clearFileLibraryViewOnNavigate);
 
   // Status helpers for mapping jobs → sets / test cases / files
-  const STATUS_PRIORITY = { completed: 1, pending: 2, running: 3 };
+  // `error` sits above `completed` so that any past failure surfaces even when
+  // the same test case has also been run successfully — but `pending`/`running`
+  // (active states) still take precedence so the live status remains visible.
+  const STATUS_PRIORITY = { completed: 1, error: 2, pending: 3, running: 4 };
   const normalizeJobStatusForLibrary = (status) => {
     const s = (status || '').toLowerCase();
     if (s === 'running' || s === 'pending') return s;
-    if (s === 'completed') return 'completed';
+    if (s === 'completed' || s === 'stopped') return 'completed';
     return null;
   };
+  /** Per-file fail signal — mirrors `jobHasExecutionFailure` in JobsPage */
+  const isJobFileFailed = (f) =>
+    f?.result === 'fail' || String(f?.status || '').toLowerCase() === 'error';
   const mergeStatus = (a, b) => {
     if (!a) return b || null;
     if (!b) return a || null;
@@ -479,7 +544,13 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
       if (!status) return;
 
       const setName = (job.configName || job.name || '').trim();
-      if (setName) update(setStatus, setName, status);
+      if (setName) {
+        // If the job is finished but any TC in it failed, surface set as `error`
+        // so the by-set view's "Error" filter and badges stay consistent with TCs.
+        const jobHasFail = (job.files || []).some(isJobFileFailed);
+        const setLevelStatus = (status === 'completed' && jobHasFail) ? 'error' : status;
+        update(setStatus, setName, setLevelStatus);
+      }
       if (setName) {
         const existing = setBoards.get(setName) || new Set();
         (Array.isArray(job.boards) ? job.boards : []).forEach((b) => {
@@ -490,14 +561,18 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
       }
 
       (job.files || []).forEach((f) => {
+        // For per-test-case status, if the *job* is finished but the *file*
+        // failed, surface that as `error` (mirrors Job Management's Error column).
+        const tcRowStatus = (status === 'completed' && isJobFileFailed(f)) ? 'error' : status;
+
         const tcName = (f.testCaseName || '').trim();
-        if (tcName) update(tcStatus, tcName, status);
+        if (tcName) update(tcStatus, tcName, tcRowStatus);
 
         const v = (f.vcd || f.vcdName || f.name || '').trim().toLowerCase();
         const b = (f.erom || f.binName || '').trim().toLowerCase();
         const l = (f.ulp || f.linName || '').trim().toLowerCase();
         const key = `${v}||${b}||${l}`;
-        if (key !== '||||') update(tcStatusByFileKey, key, status);
+        if (key !== '||||') update(tcStatusByFileKey, key, tcRowStatus);
 
         if (f.vcd) update(fileStatus, f.vcd, status);
         if (f.erom) update(fileStatus, f.erom, status);
@@ -691,7 +766,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
   /** Raw TC table: Insert row menu (Excel-like: select one row, then Insert above/below) */
   const [libraryRawTcInsertMenuOpen, setLibraryRawTcInsertMenuOpen] = useState(false);
   const [libraryRawTcTagColorSearch, setLibraryRawTcTagColorSearch] = useState('');
-  const [libraryTcStatusFilter, setLibraryTcStatusFilter] = useState('all'); // 'all' | 'pending' | 'running' | 'completed'
+  const [libraryTcStatusFilter, setLibraryTcStatusFilter] = useState('all'); // 'all' | 'pending' | 'running' | 'error' | 'completed'
   const [selectedLibraryTcKeys, setSelectedLibraryTcKeys] = useState([]);
   /** Raw Test Cases: inline editor — key = row _key */
   const [rawTcEditorKey, setRawTcEditorKey] = useState(null);
@@ -701,10 +776,22 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
   const [rawTcEditorSourceRow, setRawTcEditorSourceRow] = useState(null);
   const [addTcsToSetModalSetId, setAddTcsToSetModalSetId] = useState(null);
   const [addTcsToSetSelectedIds, setAddTcsToSetSelectedIds] = useState([]);
+  /** Draft set name while "Edit set" modal (pencil) is open — saved with Apply */
+  const [addTcsToSetNameDraft, setAddTcsToSetNameDraft] = useState('');
+  /** Tag / board / priority — mirrors Run Set §3; persisted on set as tag + runBoardMode, runBoardIds, runPrioritize */
+  const [addTcsModalTag, setAddTcsModalTag] = useState('');
+  const [addTcsModalTagColor, setAddTcsModalTagColor] = useState('mint');
+  const [addTcsModalBoardMode, setAddTcsModalBoardMode] = useState('auto');
+  const [addTcsModalBoardIds, setAddTcsModalBoardIds] = useState([]);
+  const [addTcsModalPrioritize, setAddTcsModalPrioritize] = useState(false);
+  const addTcsModalInitIdRef = useRef(null);
   const [addTcsPickerNameQ, setAddTcsPickerNameQ] = useState('');
   const [addTcsPickerTagQ, setAddTcsPickerTagQ] = useState('');
-  const [addTcsPickerOwnerQ, setAddTcsPickerOwnerQ] = useState('');
-  const [addTcsPickerTimeQ, setAddTcsPickerTimeQ] = useState('');
+  /** Same values as `libraryTestCasesFilter` on the main TC Library (owner scope). */
+  const [addTcsPickerOwnerFilter, setAddTcsPickerOwnerFilter] = useState('__active__');
+  const [addTcsPickerTagColorFilter, setAddTcsPickerTagColorFilter] = useState('');
+  const [addTcsPickerTagColorOpen, setAddTcsPickerTagColorOpen] = useState(false);
+  const [addTcsPickerTagColorSearch, setAddTcsPickerTagColorSearch] = useState('');
   // Raw test case editor: browse file picker
   // kind: 'bin'(ERoM) | 'vcd' | 'lin'(ULP) | 'mdi'(text)
   // target: which field to fill when a row is clicked
@@ -767,7 +854,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
   const isDragSelectingLibraryRef = useRef(false);
   const [librarySetTcNameFilter, setLibrarySetTcNameFilter] = useState('');
   const [librarySetTcTagFilter, setLibrarySetTcTagFilter] = useState('');
-  const [librarySetTcStatusFilter, setLibrarySetTcStatusFilter] = useState('all'); // 'all' | 'pending' | 'running' | 'completed'
+  const [librarySetTcStatusFilter, setLibrarySetTcStatusFilter] = useState('all'); // 'all' | 'pending' | 'running' | 'error' | 'completed'
   const [librarySetBoardFilter, setLibrarySetBoardFilter] = useState('');
   const [librarySetTagColorFilter, setLibrarySetTagColorFilter] = useState(''); // '' = all
   const [librarySetTagColorDropdownOpen, setLibrarySetTagColorDropdownOpen] = useState(false);
@@ -868,6 +955,23 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
       document.removeEventListener('keydown', onEsc);
     };
   }, [libraryRawTcTagColorDropdownOpen]);
+
+  useEffect(() => {
+    if (!addTcsPickerTagColorOpen) return;
+    const onDoc = (e) => {
+      const root = e.target?.closest?.('[data-add-tcs-picker-tagcolor-root]');
+      if (!root) setAddTcsPickerTagColorOpen(false);
+    };
+    const onEsc = (e) => {
+      if (e.key === 'Escape') setAddTcsPickerTagColorOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onEsc);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onEsc);
+    };
+  }, [addTcsPickerTagColorOpen]);
 
   useEffect(() => {
     if (!libraryRawTcInsertMenuOpen) return;
@@ -1431,15 +1535,47 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
           _ownerName: mineOwnerDisplay,
         }));
 
-    const fromCurrent = sourceCases.map((tc) =>
-      withStatus({
+    // Reverse index: file-key OR test-case-name → list of set names that contain it.
+    // Used to surface a "saved in set X" badge on current TC rows that haven't run yet.
+    const setsByTcFileKey = new Map();
+    const setsByTcName = new Map();
+    const addSetRef = (map, key, setName) => {
+      if (!key || !setName) return;
+      const arr = map.get(key) || [];
+      if (!arr.includes(setName)) arr.push(setName);
+      map.set(key, arr);
+    };
+    (sourceSets || []).forEach((set) => {
+      const sName = (set.name || '').trim();
+      if (!sName) return;
+      (Array.isArray(set.items) ? set.items : []).forEach((item) => {
+        const v = (item.vcdName || '').trim().toLowerCase();
+        const b = (item.binName || '').trim().toLowerCase();
+        const l = (item.linName || '').trim().toLowerCase();
+        const fk = `${v}||${b}||${l}`;
+        if (fk !== '||||') addSetRef(setsByTcFileKey, fk, sName);
+        const nm = (item.name || '').trim();
+        if (nm) addSetRef(setsByTcName, nm, sName);
+      });
+    });
+
+    const fromCurrent = sourceCases.map((tc) => {
+      const v = (tc.vcdName || '').trim().toLowerCase();
+      const b = (tc.binName || '').trim().toLowerCase();
+      const l = (tc.linName || '').trim().toLowerCase();
+      const fk = `${v}||${b}||${l}`;
+      const byKey = fk !== '||||' ? (setsByTcFileKey.get(fk) || []) : [];
+      const byName = (tc.name || '').trim() ? (setsByTcName.get((tc.name || '').trim()) || []) : [];
+      const inSetNames = [...new Set([...byKey, ...byName])];
+      return withStatus({
         ...tc,
         _key: `current-${tc.id || `${tc._ownerId || 'unknown'}-${tc.name || ''}`}`,
         _source: 'current',
         _ownerId: tc._ownerId ?? activeProfileId,
         _owner: resolveOwnerDisplayName(tc._ownerId ?? activeProfileId, ownerLabelCtx),
-      })
-    );
+        _inSetNames: inSetNames,
+      });
+    });
     const seen = new Set(fromCurrent.map((tc) => contentKey(tc)));
     const fromSets = (sourceSets || []).flatMap((set) =>
       (Array.isArray(set.items) ? set.items : []).map((tc, tcIdx) =>
@@ -1448,6 +1584,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
           _key: `set-${set.id}-${tcIdx}`,
           _source: 'set',
           _setId: set.id,
+          _setName: set.name || `Set #${set.id}`,
           _itemIndex: tcIdx,
           _ownerId: set._ownerId ?? activeProfileId,
           _owner: resolveOwnerDisplayName(set._ownerId ?? activeProfileId, ownerLabelCtx),
@@ -1753,16 +1890,28 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
         addToast({ type: 'warning', message: 'Set นี้ไม่มี test case ให้รัน' });
         return;
       }
-      const mode = runBoardSelection?.mode || 'auto';
-      const boardIds = Array.isArray(runBoardSelection?.boardIds) ? runBoardSelection.boardIds : [];
+      const mode =
+        set?.runBoardMode === 'manual' || set?.runBoardMode === 'auto'
+          ? set.runBoardMode
+          : runBoardSelection?.mode || 'auto';
+      const rawIds = Array.isArray(set?.runBoardIds) && set.runBoardIds.length
+        ? set.runBoardIds
+        : Array.isArray(runBoardSelection?.boardIds)
+          ? runBoardSelection.boardIds
+          : [];
+      const brList = Array.isArray(boards) ? boards : [];
+      const boardIds = rawIds.filter((id) => brList.some((b) => b.id === id));
       if (mode === 'manual' && boardIds.length === 0) {
-        addToast({ type: 'warning', message: 'ไม่มีบอร์ดที่เลือกไว้ (manual) — ไปที่ Run Set เพื่อเลือกบอร์ดก่อน' });
+        addToast({
+          type: 'warning',
+          message: 'ไม่มีบอร์ดที่เลือกไว้ (manual) — เปิด Edit set แล้วเลือกบอร์ด หรือไปที่ Run Set',
+        });
         return;
       }
       const boardNames =
         mode === 'auto'
           ? []
-          : (boards || [])
+          : brList
               .filter((b) => boardIds.includes(b.id))
               .map((b) => b.name)
               .filter(Boolean);
@@ -1839,6 +1988,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
         boards: boardNames,
         files: filesPayload,
         pairsData,
+        ...(set?.runPrioritize ? { priority: 'high' } : {}),
       };
       const created = await createJob(payload, { startImmediately: true });
       if (created) addToast({ type: 'success', message: `sent Run for set "${setName}"` });
@@ -1847,43 +1997,37 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
     [addToast, boards, createJob, runBoardSelection, uploadedFiles]
   );
 
-  const addTcsPickerOwnTcs = useMemo(
-    () =>
-      (fileReferenceTestCases || []).filter((t) => {
-        const oid = t._ownerId;
-        if (oid == null) return true;
-        return String(oid) === String(activeProfileId);
-      }),
-    [fileReferenceTestCases, activeProfileId]
-  );
+  /** Merged local + server snapshot — same source as the main Test Case Library table. */
+  const addTcsPickerBaseTcs = useMemo(() => fileReferenceTestCases || [], [fileReferenceTestCases]);
 
   const addTcsToSetPickerRows = useMemo(() => {
     const setId = addTcsToSetModalSetId;
     if (!setId) return [];
-    const currentSet = (savedTestCaseSets || []).find((s) => s.id === setId);
-    const inSetKeys = new Set((currentSet?.items || []).map((t) => tcSignatureKeyForDedupe(t)));
     const nameQ = addTcsPickerNameQ.trim().toLowerCase();
     const tagQ = addTcsPickerTagQ.trim().toLowerCase();
-    const ownerQ = addTcsPickerOwnerQ.trim().toLowerCase();
-    const timeQ = addTcsPickerTimeQ.trim().toLowerCase();
+    const ownerF = addTcsPickerOwnerFilter === 'mine' || addTcsPickerOwnerFilter === '__active__' ? '__active__' : addTcsPickerOwnerFilter;
+    const resolvedOwner =
+      ownerF === '__active__' ? (activeProfileId ? String(activeProfileId) : 'all') : String(ownerF || 'all');
 
-    return addTcsPickerOwnTcs
+    return addTcsPickerBaseTcs
       .filter((tc) => {
-        if (inSetKeys.has(tcSignatureKeyForDedupe(tc))) return false;
         if (nameQ && !String(tc.name || '').toLowerCase().includes(nameQ)) return false;
-        if (tagQ) {
-          const rawTag = (tc.extraColumns && (tc.extraColumns.tag || tc.extraColumns.Tag)) || '';
-          const tags = splitTags(String(rawTag));
-          if (!tags.some((x) => x.toLowerCase().includes(tagQ))) return false;
+        const tagVal = (tc.extraColumns && (tc.extraColumns.tag || tc.extraColumns.Tag)) || '';
+        if (tagQ && !String(tagVal).toLowerCase().includes(tagQ)) return false;
+        if (resolvedOwner === 'all') {
+          /* all owners */
+        } else if (resolvedOwner === 'shared') {
+          if (tc._ownerId === activeProfileId || !tc._ownerId) return false;
+        } else if (String(tc._ownerId || '') !== resolvedOwner) {
+          return false;
         }
-        if (ownerQ) {
-          const ownerDisplay = resolveOwnerDisplayName(tc._ownerId ?? activeProfileId, ownerLabelCtx).toLowerCase();
-          if (!ownerDisplay.includes(ownerQ)) return false;
-        }
-        if (timeQ) {
-          const last = tc.updatedAt || tc.createdAt;
-          const timeStr = last ? String(last).replace('T', ' ').toLowerCase() : '';
-          if (!timeStr.includes(timeQ)) return false;
+        if (addTcsPickerTagColorFilter.trim()) {
+          const want = normalizeTagColorKey(addTcsPickerTagColorFilter);
+          const ex = tc.extraColumns && typeof tc.extraColumns === 'object' ? tc.extraColumns : {};
+          const parts = splitTagsComma(ex.tag || ex.Tag || '');
+          const list = parts.length ? normalizeTagColorList(ex, parts.length) : [];
+          const colorKeys = new Set([ex.tagColor || ex.tag_color, ...list].map((k) => normalizeTagColorKey(k)));
+          if (!colorKeys.has(want)) return false;
         }
         return true;
       })
@@ -1892,27 +2036,164 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
     addTcsToSetModalSetId,
     addTcsPickerNameQ,
     addTcsPickerTagQ,
-    addTcsPickerOwnerQ,
-    addTcsPickerTimeQ,
-    addTcsPickerOwnTcs,
+    addTcsPickerOwnerFilter,
+    addTcsPickerTagColorFilter,
+    addTcsPickerBaseTcs,
     savedTestCaseSets,
     activeProfileId,
-    ownerLabelCtx,
   ]);
 
+  /** File-signature keys already present in the set we are editing (rows stay visible but not selectable). */
+  const addTcsPickerInSetKeySet = useMemo(() => {
+    const setId = addTcsToSetModalSetId;
+    if (!setId) return new Set();
+    const currentSet = (savedTestCaseSets || []).find((s) => s.id === setId);
+    return new Set((currentSet?.items || []).map((t) => tcSignatureKeyForDedupe(t)));
+  }, [addTcsToSetModalSetId, savedTestCaseSets]);
+
+  const addTcsToSetPickerExtraCols = useMemo(() => {
+    const rows = addTcsToSetPickerRows || [];
+    const allCols = [...new Set(rows.flatMap((t) => getTcExtraColKeys(t)))].sort();
+    return allCols
+      .filter((col) => !isExtraColumnHiddenFromLibraryTable(col))
+      .filter((col) => !/^MDI\d+$/i.test(col))
+      .filter((col) => rows.some((t) => (getTcExtraColVal(t, col) ?? '').toString().trim() !== ''));
+  }, [addTcsToSetPickerRows]);
+
   const addTcsPickerSelectableIds = useMemo(
-    () => addTcsToSetPickerRows.map((t) => String(t.id)).filter(Boolean),
-    [addTcsToSetPickerRows]
+    () =>
+      (addTcsToSetPickerRows || [])
+        .filter((tc) => !addTcsPickerInSetKeySet.has(tcSignatureKeyForDedupe(tc)))
+        .map((t) => String(t.id))
+        .filter(Boolean),
+    [addTcsToSetPickerRows, addTcsPickerInSetKeySet]
   );
 
+  useEffect(() => {
+    if (!addTcsToSetModalSetId) return;
+    const allowed = new Set(addTcsPickerSelectableIds);
+    setAddTcsToSetSelectedIds((prev) => {
+      const next = prev.filter((id) => allowed.has(String(id)));
+      if (next.length === prev.length && next.every((id, i) => id === prev[i])) return prev;
+      return next;
+    });
+  }, [addTcsToSetModalSetId, addTcsPickerSelectableIds]);
+
   const closeAddTcsToSetModal = useCallback(() => {
+    addTcsModalInitIdRef.current = null;
     setAddTcsToSetModalSetId(null);
     setAddTcsToSetSelectedIds([]);
+    setAddTcsToSetNameDraft('');
+    setAddTcsModalTag('');
+    setAddTcsModalTagColor('mint');
+    setAddTcsModalBoardMode('auto');
+    setAddTcsModalBoardIds([]);
+    setAddTcsModalPrioritize(false);
     setAddTcsPickerNameQ('');
     setAddTcsPickerTagQ('');
-    setAddTcsPickerOwnerQ('');
-    setAddTcsPickerTimeQ('');
+    setAddTcsPickerOwnerFilter('__active__');
+    setAddTcsPickerTagColorFilter('');
+    setAddTcsPickerTagColorOpen(false);
+    setAddTcsPickerTagColorSearch('');
   }, []);
+
+  const clearAddTcsModalRunConfig = useCallback(() => {
+    setAddTcsModalTag('');
+    setAddTcsModalTagColor('mint');
+    setAddTcsModalBoardMode('auto');
+    setAddTcsModalBoardIds([]);
+    setAddTcsModalPrioritize(false);
+    setAddTcsToSetNameDraft('');
+  }, []);
+
+  const safeBoardsAddTcsModal = useMemo(() => (Array.isArray(boards) ? boards : []), [boards]);
+
+  useEffect(() => {
+    if (!addTcsToSetModalSetId) {
+      addTcsModalInitIdRef.current = null;
+      return;
+    }
+    if (addTcsModalInitIdRef.current === addTcsToSetModalSetId) return;
+    addTcsModalInitIdRef.current = addTcsToSetModalSetId;
+    const set = (savedTestCaseSets || []).find((s) => s.id === addTcsToSetModalSetId);
+    if (!set) return;
+    setAddTcsToSetNameDraft((set.name || '').trim() || 'Unnamed Set');
+    setAddTcsModalTag((set.tag || '').trim());
+    setAddTcsModalTagColor(TAG_PALETTE_MAP[set.tagColor] ? set.tagColor : 'mint');
+    const mode =
+      set.runBoardMode === 'manual' || set.runBoardMode === 'auto'
+        ? set.runBoardMode
+        : runBoardSelection?.mode === 'manual'
+          ? 'manual'
+          : 'auto';
+    setAddTcsModalBoardMode(mode);
+    const raw =
+      Array.isArray(set.runBoardIds) && set.runBoardIds.length
+        ? set.runBoardIds
+        : Array.isArray(runBoardSelection?.boardIds)
+          ? runBoardSelection.boardIds
+          : [];
+    const br = Array.isArray(boards) ? boards : [];
+    setAddTcsModalBoardIds(raw.filter((id) => br.some((b) => b.id === id)));
+    setAddTcsModalPrioritize(!!set.runPrioritize);
+  }, [addTcsToSetModalSetId, savedTestCaseSets, runBoardSelection, boards]);
+
+  const handleSaveSetSettingsFromAddTcsModal = useCallback(() => {
+    const setId = addTcsToSetModalSetId;
+    if (!setId) return;
+    const trimmed = (addTcsToSetNameDraft || '').trim();
+    if (!trimmed) {
+      addToast({ type: 'warning', message: 'ชื่อ set ต้องไม่ว่าง' });
+      return;
+    }
+    const existing = (savedTestCaseSets || []).find((s) => s.id === setId);
+    if (!existing) {
+      addToast({ type: 'error', message: 'ไม่พบ set' });
+      closeAddTcsToSetModal();
+      return;
+    }
+    if (addTcsModalBoardMode === 'manual' && addTcsModalBoardIds.length === 0) {
+      addToast({
+        type: 'warning',
+        message: 'Manual: เลือกบอร์ดอย่างน้อย 1 รายการ หรือเปลี่ยนเป็น Auto assign',
+      });
+      return;
+    }
+    const colorKey = TAG_PALETTE_MAP[addTcsModalTagColor] ? addTcsModalTagColor : 'mint';
+    const tagTrim = (addTcsModalTag || '').trim();
+    const patch = {
+      name: trimmed,
+      runBoardMode: addTcsModalBoardMode,
+      runBoardIds: [...addTcsModalBoardIds],
+      runPrioritize: !!addTcsModalPrioritize,
+    };
+    if (tagTrim) {
+      patch.tag = tagTrim;
+      patch.tagColor = colorKey;
+      const parts = splitTagsComma(tagTrim);
+      if (parts.length > 0) {
+        patch.tagColorList = parts.map(() => colorKey);
+      }
+    } else {
+      patch.tag = '';
+      patch.tagColor = 'mint';
+      patch.tagColorList = [];
+    }
+    updateSavedTestCaseSet(setId, patch);
+    addToast({ type: 'success', message: `บันทึกการตั้งค่า set "${trimmed}" แล้ว` });
+  }, [
+    addTcsToSetModalSetId,
+    addTcsToSetNameDraft,
+    addTcsModalTag,
+    addTcsModalTagColor,
+    addTcsModalBoardMode,
+    addTcsModalBoardIds,
+    addTcsModalPrioritize,
+    savedTestCaseSets,
+    addToast,
+    closeAddTcsToSetModal,
+    updateSavedTestCaseSet,
+  ]);
 
   const handleConfirmAddTcsToSet = useCallback(() => {
     const setId = addTcsToSetModalSetId;
@@ -1925,12 +2206,8 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
     }
     const items = Array.isArray(set.items) ? set.items : [];
     const existingKeys = new Set(items.map((t) => tcSignatureKeyForDedupe(t)));
-    const pool = (fileReferenceTestCases || []).filter((t) => {
-      const oid = t._ownerId;
-      if (oid == null) return true;
-      return String(oid) === String(activeProfileId);
-    });
-    const selected = pool.filter((t) => addTcsToSetSelectedIds.includes(String(t.id)));
+    const byId = new Map((fileReferenceTestCases || []).map((t) => [String(t.id), t]));
+    const selected = addTcsToSetSelectedIds.map((id) => byId.get(String(id))).filter(Boolean);
     if (selected.length === 0) {
       addToast({ type: 'warning', message: 'เลือก test case จาก Library อย่างน้อย 1 รายการ' });
       return;
@@ -1985,7 +2262,6 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
     addTcsToSetSelectedIds,
     savedTestCaseSets,
     fileReferenceTestCases,
-    activeProfileId,
     addToast,
     appendToSavedTestCaseSet,
     uploadedFiles,
@@ -2573,23 +2849,24 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/50">
           <div className="absolute inset-0" onClick={closeAddTcsToSetModal} role="presentation" />
           <div
-            className="relative bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-600 w-full max-w-6xl max-h-[90vh] flex flex-col"
+            className="relative bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-600 w-full max-w-6xl max-h-[90vh] min-h-0 flex flex-col overflow-hidden"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-labelledby="add-tcs-to-set-title"
           >
-            <div className="p-4 border-b border-slate-200 dark:border-slate-600 shrink-0">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+            <div className="p-4 border-b border-slate-200 dark:border-slate-600">
               <div className="flex items-start gap-3">
                 <div className="w-9 h-9 rounded-xl bg-slate-700 dark:bg-slate-600 text-white flex items-center justify-center shrink-0">
                   <FolderOpen size={18} />
                 </div>
                 <div className="min-w-0 flex-1">
                   <h3 id="add-tcs-to-set-title" className="text-lg font-bold text-slate-800 dark:text-slate-100">
-                    Select test cases from Library
+                    Edit set
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                    
+                    Set name, tag, boards (same as Run Set) — then add test cases from Library if you like
                   </p>
                 </div>
                 <button
@@ -2601,47 +2878,343 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                   <X size={18} />
                 </button>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 mt-3">
-                <label className="flex flex-col gap-0.5 min-w-0">
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Name</span>
+              <div className="mt-3 flex flex-col sm:flex-row sm:items-end gap-2">
+                <label className="flex-1 min-w-0 flex flex-col gap-0.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Set name</span>
                   <input
                     type="text"
-                    value={addTcsPickerNameQ}
-                    onChange={(e) => setAddTcsPickerNameQ(e.target.value)}
-                    placeholder="Search name…"
-                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                    value={addTcsToSetNameDraft}
+                    onChange={(e) => setAddTcsToSetNameDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void handleSaveSetSettingsFromAddTcsModal();
+                      }
+                    }}
+                    className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                    placeholder="ชื่อ set"
+                    autoComplete="off"
+                    aria-label="Set name"
                   />
                 </label>
-                <label className="flex flex-col gap-0.5 min-w-0">
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Tag</span>
-                  <input
-                    type="text"
-                    value={addTcsPickerTagQ}
-                    onChange={(e) => setAddTcsPickerTagQ(e.target.value)}
-                    placeholder="Search tag…"
-                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
-                  />
-                </label>
-                <label className="flex flex-col gap-0.5 min-w-0">
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Owner</span>
-                  <input
-                    type="text"
-                    value={addTcsPickerOwnerQ}
-                    onChange={(e) => setAddTcsPickerOwnerQ(e.target.value)}
-                    placeholder="Profile name…"
-                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
-                  />
-                </label>
-                <label className="flex flex-col gap-0.5 min-w-0">
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Time</span>
-                  <input
-                    type="text"
-                    value={addTcsPickerTimeQ}
-                    onChange={(e) => setAddTcsPickerTimeQ(e.target.value)}
-                    placeholder="2026-04-06…"
-                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
-                  />
-                </label>
+                <button
+                  type="button"
+                  onClick={() => void handleSaveSetSettingsFromAddTcsModal()}
+                  className="shrink-0 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700"
+                >
+                  <Save size={14} />
+                  Save settings
+                </button>
+              </div>
+
+              <div className="mt-3 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800/50 p-3 space-y-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-bold text-slate-700 dark:text-slate-200">Tag, board &amp; priority</p>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400">Used when you Run this set from the library</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={clearAddTcsModalRunConfig}
+                    className="shrink-0 inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-semibold border border-slate-300 dark:border-slate-500 text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700"
+                    title="Reset name, tag, boards, and priority in this form"
+                  >
+                    <RotateCcw size={12} className="text-slate-500" aria-hidden />
+                    Clear config
+                  </button>
+                </div>
+                <div className="flex flex-col gap-1 min-w-0">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Tag (optional)</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <TagColorSwatchPicker
+                      size="sm"
+                      value={TAG_PALETTE_MAP[addTcsModalTagColor] ? addTcsModalTagColor : 'mint'}
+                      menuZClass="z-[130]"
+                      onChange={(k) => setAddTcsModalTagColor(k)}
+                    />
+                    <input
+                      type="text"
+                      placeholder="Type tag (optional)"
+                      value={addTcsModalTag}
+                      onChange={(e) => setAddTcsModalTag(e.target.value)}
+                      className="flex-1 min-w-[140px] px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                    />
+                    {addTcsModalTag.trim() ? (
+                      <span
+                        className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${jobTagPillClasses(addTcsModalTagColor)}`}
+                      >
+                        {addTcsModalTag.trim()}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+                <div>
+                  <h4 className="text-[10px] font-bold text-slate-600 dark:text-slate-400 mb-2">Board selection</h4>
+                  <div className="flex flex-wrap items-center gap-3 text-sm">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="addTcsLibBoardMode"
+                        checked={addTcsModalBoardMode === 'auto'}
+                        onChange={() => setAddTcsModalBoardMode('auto')}
+                        className="w-3.5 h-3.5 text-blue-600"
+                      />
+                      <span className="text-slate-700 dark:text-slate-200">Auto assign</span>
+                      {addTcsModalBoardMode === 'auto' && <CheckCircle2 size={14} className="text-emerald-600 shrink-0" />}
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="addTcsLibBoardMode"
+                        checked={addTcsModalBoardMode === 'manual'}
+                        onChange={() => setAddTcsModalBoardMode('manual')}
+                        className="w-3.5 h-3.5 text-blue-600"
+                      />
+                      <span className="text-slate-700 dark:text-slate-200">Manual select</span>
+                      {addTcsModalBoardMode === 'manual' && (
+                        <span className="text-[10px] text-slate-500">({addTcsModalBoardIds.length})</span>
+                      )}
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer border-l border-slate-200 dark:border-slate-600 pl-3">
+                      <input
+                        type="checkbox"
+                        checked={addTcsModalPrioritize}
+                        onChange={(e) => setAddTcsModalPrioritize(e.target.checked)}
+                        className="w-3.5 h-3.5 rounded border-slate-300 text-amber-500"
+                      />
+                      <span className="text-slate-700 dark:text-slate-200">Prioritize (high)</span>
+                    </label>
+                  </div>
+                  {addTcsModalBoardMode === 'auto' && (
+                    <div className="mt-2">
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 mb-1">
+                        Preferred boards (optional) — still auto assign, but prefer these first
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {safeBoardsAddTcsModal.length === 0 ? (
+                          <span className="text-[11px] text-slate-500">No boards in list — add under Board Status</span>
+                        ) : (
+                          safeBoardsAddTcsModal.map((b) => {
+                            const status = (b.status || '').toLowerCase();
+                            const isSelected = addTcsModalBoardIds.includes(b.id);
+                            const isOnline = status === 'online';
+                            const isBusy = status === 'busy';
+                            return (
+                              <button
+                                key={b.id}
+                                type="button"
+                                onClick={() => {
+                                  setAddTcsModalBoardIds((prev) => {
+                                    const on = !prev.includes(b.id);
+                                    const next = on ? [...prev, b.id] : prev.filter((x) => x !== b.id);
+                                    return next;
+                                  });
+                                }}
+                                className={`flex items-center gap-1 px-2 py-1 rounded border text-[10px] font-medium ${
+                                  isSelected
+                                    ? 'bg-blue-100 dark:bg-blue-900/40 border-blue-300 dark:border-blue-600 text-blue-800 dark:text-blue-200'
+                                    : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-600'
+                                }`}
+                              >
+                                <span
+                                  className={`w-2.5 h-2.5 rounded border ${
+                                    isSelected ? 'bg-blue-600 border-blue-600' : 'border-slate-400'
+                                  }`}
+                                />
+                                {b.name || b.id}
+                                {isOnline && !isBusy && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" title="Online" />}
+                                {isBusy && <span className="w-1.5 h-1.5 rounded-full bg-amber-500" title="Busy" />}
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {addTcsModalBoardMode === 'manual' && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setAddTcsModalBoardIds(safeBoardsAddTcsModal.map((b) => b.id))}
+                        className="text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                      >
+                        Select all
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setAddTcsModalBoardIds(
+                            safeBoardsAddTcsModal
+                              .filter((b) => {
+                                const s = (b.status || '').toLowerCase();
+                                return s === 'online' || s === 'busy';
+                              })
+                              .map((b) => b.id)
+                          )
+                        }
+                        className="text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:underline"
+                      >
+                        Online only
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAddTcsModalBoardIds([])}
+                        className="text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:underline"
+                      >
+                        Clear
+                      </button>
+                      <div className="w-full flex flex-wrap gap-1.5">
+                        {safeBoardsAddTcsModal.length === 0 ? (
+                          <span className="text-[11px] text-slate-500">No boards in list</span>
+                        ) : (
+                          safeBoardsAddTcsModal.map((b) => {
+                            const status = (b.status || '').toLowerCase();
+                            const isOnline = status === 'online';
+                            const isBusy = status === 'busy' || (isOnline && !!b.currentJob);
+                            return (
+                              <label
+                                key={b.id}
+                                className={`flex items-center gap-1 px-2 py-1 rounded border text-[10px] font-medium cursor-pointer ${
+                                  addTcsModalBoardIds.includes(b.id)
+                                    ? 'bg-blue-100 dark:bg-blue-900/40 border-blue-300 dark:border-blue-600'
+                                    : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-600'
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={addTcsModalBoardIds.includes(b.id)}
+                                  onChange={() => {
+                                    setAddTcsModalBoardIds((prev) => {
+                                      const on = !prev.includes(b.id);
+                                      return on ? [...prev, b.id] : prev.filter((x) => x !== b.id);
+                                    });
+                                  }}
+                                  className="w-3 h-3 rounded border-slate-400 text-blue-600"
+                                />
+                                {b.name || b.id}
+                                {isOnline && !isBusy && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />}
+                                {isBusy && <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />}
+                              </label>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mt-4 mb-1">Add test cases from Library</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-2">
+                Same filters as the Test Case Library — owner, name, tag text, and tag color. Test cases
+                that are <span className="font-semibold">already in this set</span> stay in the list with an “In set”
+                label and a disabled checkbox.
+              </p>
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-1">
+                <select
+                  value={addTcsPickerOwnerFilter === 'mine' ? '__active__' : addTcsPickerOwnerFilter}
+                  onChange={(e) => setAddTcsPickerOwnerFilter(e.target.value)}
+                  className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 min-w-0 max-w-[200px]"
+                  title="Filter test cases by owner (same as Test Case Library). “All owners” uses merged local + server snapshot when available."
+                >
+                  <option value="all">All owners</option>
+                  <option value="__active__">
+                    {resolveOwnerDisplayName(activeProfileId, ownerLabelCtx) || activeProfile?.name || 'My profile'}
+                  </option>
+                  {allOwnerProfiles
+                    .filter((p) => String(p?.id) !== String(activeProfileId))
+                    .map((p) => (
+                      <option key={`add-tcs-picker-owner-${p.id}`} value={String(p.id)}>
+                        {p.name || p.id}
+                      </option>
+                    ))}
+                  <option value="shared">Shared with me</option>
+                </select>
+                <input
+                  type="text"
+                  value={addTcsPickerNameQ}
+                  onChange={(e) => setAddTcsPickerNameQ(e.target.value)}
+                  placeholder="Filter by name"
+                  className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 w-40 min-w-[7rem]"
+                  autoComplete="off"
+                />
+                <input
+                  type="text"
+                  value={addTcsPickerTagQ}
+                  onChange={(e) => setAddTcsPickerTagQ(e.target.value)}
+                  placeholder="Filter by tag"
+                  className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 w-32 min-w-[6rem]"
+                  autoComplete="off"
+                />
+                {(() => {
+                  const selectedKey = String(addTcsPickerTagColorFilter || '').trim();
+                  const dotKey = TAG_PALETTE_MAP[selectedKey] ? selectedKey : 'mint';
+                  const isAll = !selectedKey;
+                  const q = addTcsPickerTagColorSearch.trim().toLowerCase();
+                  const keys = TAG_PALETTE_KEYS.filter((k) => !q || k.toLowerCase().includes(q));
+                  return (
+                    <div className="relative shrink-0" data-add-tcs-picker-tagcolor-root>
+                      <button
+                        type="button"
+                        onClick={() => setAddTcsPickerTagColorOpen((v) => !v)}
+                        className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 inline-flex items-center gap-2"
+                        title="Tag color"
+                      >
+                        <span
+                          className={`inline-flex w-2.5 h-2.5 rounded-full ${isAll ? 'bg-slate-400 dark:bg-slate-600' : (TAG_SWATCH_DOT_CLASS[dotKey] || TAG_SWATCH_DOT_CLASS.mint)}`}
+                          aria-hidden
+                        />
+                        <span className="sr-only">{isAll ? 'All tag colors' : selectedKey}</span>
+                      </button>
+                      {addTcsPickerTagColorOpen && (
+                        <div className="absolute left-0 top-full mt-2 z-[120] bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg w-[180px] max-h-[320px] overflow-y-auto">
+                          <div className="px-3 py-2 text-[11px] font-semibold text-slate-500 dark:text-slate-400">Tag color</div>
+                          <div className="px-2 pb-2">
+                            <input
+                              type="text"
+                              value={addTcsPickerTagColorSearch}
+                              onChange={(e) => setAddTcsPickerTagColorSearch(e.target.value)}
+                              placeholder="Search color…"
+                              className="w-full px-2 py-1.5 text-xs rounded-md border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200"
+                            />
+                          </div>
+                          <div className="p-2 space-y-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAddTcsPickerTagColorFilter('');
+                                setAddTcsPickerTagColorOpen(false);
+                              }}
+                              className={`w-full flex items-center justify-start px-2 py-2 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 ${isAll ? 'bg-slate-100 dark:bg-slate-700' : ''}`}
+                              title="All tag colors"
+                            >
+                              <span className="inline-flex w-2.5 h-2.5 rounded-full bg-slate-400 dark:bg-slate-600" aria-hidden />
+                              <span className="ml-2 text-xs text-slate-700 dark:text-slate-200">All</span>
+                            </button>
+                            {keys.map((k) => {
+                              const isSel = selectedKey === k;
+                              return (
+                                <button
+                                  key={`add-tcs-tc-${k}`}
+                                  type="button"
+                                  onClick={() => {
+                                    setAddTcsPickerTagColorFilter(k);
+                                    setAddTcsPickerTagColorOpen(false);
+                                  }}
+                                  className={`w-full flex items-center justify-start px-2 py-2 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 ${isSel ? 'bg-slate-100 dark:bg-slate-700' : ''}`}
+                                  title={k}
+                                >
+                                  <span className={`inline-flex w-2.5 h-2.5 rounded-full ${TAG_SWATCH_DOT_CLASS[k] || TAG_SWATCH_DOT_CLASS.mint}`} aria-hidden />
+                                  <span className="ml-2 text-xs text-slate-700 dark:text-slate-200">{k}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
               <div className="flex flex-wrap items-center gap-3 mt-3">
                 <button
@@ -2664,8 +3237,10 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                   onClick={() => {
                     setAddTcsPickerNameQ('');
                     setAddTcsPickerTagQ('');
-                    setAddTcsPickerOwnerQ('');
-                    setAddTcsPickerTimeQ('');
+                    setAddTcsPickerOwnerFilter('__active__');
+                    setAddTcsPickerTagColorFilter('');
+                    setAddTcsPickerTagColorSearch('');
+                    setAddTcsPickerTagColorOpen(false);
                   }}
                   className="text-xs font-semibold text-slate-500 hover:underline"
                 >
@@ -2674,92 +3249,271 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
               </div>
             </div>
             <div
-              className="overflow-auto flex-1 min-h-[160px] border-t border-slate-100 dark:border-slate-700"
-              title="Click and drag across rows to select multiple test cases"
+              className="overflow-x-auto min-h-[140px] border-t border-slate-100 dark:border-slate-700 bg-slate-50/40 dark:bg-slate-900/30"
+              title="Rows already in this set are disabled. Click and drag across other rows to multi-select."
             >
               {addTcsToSetPickerRows.length === 0 ? (
                 <p className="text-sm text-slate-500 dark:text-slate-400 p-6 text-center">
-                  {addTcsPickerOwnTcs.length === 0
+                  {addTcsPickerBaseTcs.length === 0
                     ? 'No test cases in your library yet — create and save on the Test Cases page, or wait for server sync.'
-                    : 'No matching test cases (filters / already in this set).'}
+                    : (() => {
+                        const hasFilter =
+                          addTcsPickerNameQ.trim() ||
+                          addTcsPickerTagQ.trim() ||
+                          (addTcsPickerTagColorFilter && String(addTcsPickerTagColorFilter).trim() !== '') ||
+                          (addTcsPickerOwnerFilter !== '__active__' && addTcsPickerOwnerFilter !== 'mine');
+                        return hasFilter
+                          ? 'No test cases match these filters. Try Clear filters or widen the owner scope (e.g. All owners).'
+                          : 'No test cases in this profile scope.';
+                      })()}
                 </p>
               ) : (
-                <table className="w-full text-left text-xs border-collapse select-none">
-                  <thead className="sticky top-0 z-10 bg-slate-100 dark:bg-slate-900/95 border-b border-slate-200 dark:border-slate-600">
-                    <tr className="text-slate-600 dark:text-slate-300">
-                      <th className="w-10 px-2 py-2 font-semibold">
-                        <span className="sr-only">Select</span>
-                      </th>
-                      <th className="px-2 py-2 font-semibold min-w-[120px]">Name</th>
-                      <th className="px-2 py-2 font-semibold min-w-[100px]">VCD</th>
-                      <th className="px-2 py-2 font-semibold min-w-[100px]">ERoM</th>
-                      <th className="px-2 py-2 font-semibold min-w-[100px]">ULP</th>
-                      <th className="px-2 py-2 font-semibold min-w-[100px]">Tags</th>
-                      <th className="px-2 py-2 font-semibold min-w-[90px]">Owner</th>
-                      <th className="px-2 py-2 font-semibold min-w-[120px]">Modified</th>
+                <table className="w-full text-left text-xs min-w-max border-collapse select-none">
+                  <caption className="sr-only">
+                    All matching library test cases. Rows already in this set are shown but cannot be selected. Use checkboxes, drag, or Select all for the rest.
+                  </caption>
+                  <thead className="sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-600">
+                    <tr className="text-left font-bold text-slate-600 dark:text-slate-400">
+                      <th className="w-8 px-2 py-1.5 border-r border-slate-200 dark:border-slate-600" />
+                      <th className="w-8 px-2 py-1.5 border-r border-slate-200 dark:border-slate-600">#</th>
+                      <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[72px]">Owner</th>
+                      <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[88px]">Source</th>
+                      <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[120px]">Name</th>
+                      <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[120px]">ERoM</th>
+                      <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[100px]">ULP</th>
+                      <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[100px]">VCD</th>
+                      <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[140px]">MDI (text)</th>
+                      {addTcsToSetPickerExtraCols.map((col) => (
+                        <th key={col} className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[80px] whitespace-nowrap">
+                          {col}
+                        </th>
+                      ))}
+                      <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[160px]">Tag</th>
+                      <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[100px]">Date</th>
+                      <th className="w-10 px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 text-center">Try</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {addTcsToSetPickerRows.map((tc) => {
+                    {addTcsToSetPickerRows.map((tc, idx) => {
                       const idStr = String(tc.id);
-                      const checked = addTcsToSetSelectedIds.includes(idStr);
-                      const rawTag = (tc.extraColumns && (tc.extraColumns.tag || tc.extraColumns.Tag)) || '';
+                      const alreadyInSet = addTcsPickerInSetKeySet.has(tcSignatureKeyForDedupe(tc));
+                      const checked = !alreadyInSet && addTcsToSetSelectedIds.includes(idStr);
+                      const ex = tc.extraColumns || {};
+                      const rawTag = (ex.tag || ex.Tag) || '';
                       const tags = splitTags(String(rawTag));
+                      const colorList = tags.length ? normalizeTagColorList(ex, tags.length) : [];
+                      const tcEntityKey = getTcEntityKey(tc);
+                      const { orderedTags, orderedColorList } = reorderTagsForDisplayWithIndices(
+                        activeProfileId,
+                        tcEntityKey,
+                        tags,
+                        colorList
+                      );
+                      const mdiNames = buildMdiNamesForLibraryRow(tc);
                       const timeStr = (() => {
                         const last = tc.updatedAt || tc.createdAt;
                         return last ? String(last).replace('T', ' ').slice(0, 19) : '—';
                       })();
+                      const tryN = typeof tc.tryCount === 'number' && tc.tryCount > 0 ? tc.tryCount : 1;
                       return (
                         <tr
                           key={idStr}
-                          className={`border-b border-slate-100 dark:border-slate-700 ${checked ? 'bg-blue-50/80 dark:bg-blue-900/25' : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'}`}
+                          className={`border-b border-slate-100 dark:border-slate-700 ${
+                            alreadyInSet
+                              ? 'opacity-60 bg-slate-200/20 dark:bg-slate-800/40 cursor-not-allowed'
+                              : checked
+                                ? 'bg-blue-50/80 dark:bg-blue-900/25'
+                                : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                          }`}
+                          title={
+                            alreadyInSet
+                              ? 'Already in this set — cannot add again'
+                              : 'Click or drag to select; checkboxes for rows not already in the set'
+                          }
                           onMouseDown={(e) => {
+                            if (alreadyInSet) return;
                             if (e.button !== 0) return;
-                            if (e.target.closest('input[type="checkbox"]')) return;
+                            if (e.target.closest('input, button, a')) return;
                             isDragSelectingAddTcPickerRef.current = true;
                             setAddTcsToSetSelectedIds((prev) => (prev.includes(idStr) ? prev : [...prev, idStr]));
                           }}
                           onMouseEnter={() => {
+                            if (alreadyInSet) return;
                             if (!isDragSelectingAddTcPickerRef.current) return;
                             setAddTcsToSetSelectedIds((prev) => (prev.includes(idStr) ? prev : [...prev, idStr]));
                           }}
                         >
-                          <td className="px-2 py-2 align-top" onClick={(e) => e.stopPropagation()}>
+                          <td
+                            className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700"
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             <input
                               type="checkbox"
-                              className="rounded border-slate-300 dark:border-slate-600"
+                              className="w-3.5 h-3.5 rounded border-slate-400 text-blue-600"
+                              disabled={alreadyInSet}
                               checked={checked}
                               onChange={() => {
+                                if (alreadyInSet) return;
                                 setAddTcsToSetSelectedIds((prev) =>
                                   prev.includes(idStr) ? prev.filter((x) => x !== idStr) : [...prev, idStr]
                                 );
                               }}
                             />
                           </td>
-                          <td className="px-2 py-2 font-medium text-slate-800 dark:text-slate-100 align-top">{tc.name || '—'}</td>
-                          <td className="px-2 py-2 text-slate-600 dark:text-slate-300 align-top truncate max-w-[140px]" title={(tc.vcdName || '').trim() || undefined}>
-                            {(tc.vcdName || '').trim() || '—'}
+                          <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-500">
+                            {idx + 1}
                           </td>
-                          <td className="px-2 py-2 text-slate-600 dark:text-slate-300 align-top truncate max-w-[140px]" title={(tc.binName || '').trim() || undefined}>
-                            {(tc.binName || '').trim() || '—'}
-                          </td>
-                          <td className="px-2 py-2 text-slate-600 dark:text-slate-300 align-top truncate max-w-[140px]" title={(tc.linName || '').trim() || undefined}>
-                            {(tc.linName || '').trim() || '—'}
-                          </td>
-                          <td className="px-2 py-2 align-top">
-                            {!tags.length ? (
-                              <span className="text-slate-400">—</span>
-                            ) : (
-                              <span className="text-[11px] text-slate-600 dark:text-slate-300 truncate block max-w-[160px]" title={tags.join(', ')}>
-                                {tags.slice(0, 2).join(', ')}
-                                {tags.length > 2 ? ` +${tags.length - 2}` : ''}
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-2 py-2 text-slate-600 dark:text-slate-300 align-top truncate max-w-[100px]">
+                          <td
+                            className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[100px]"
+                            title={resolveOwnerDisplayName(tc._ownerId ?? activeProfileId, ownerLabelCtx)}
+                          >
                             {resolveOwnerDisplayName(tc._ownerId ?? activeProfileId, ownerLabelCtx)}
                           </td>
-                          <td className="px-2 py-2 text-slate-500 dark:text-slate-400 align-top whitespace-nowrap">{timeStr}</td>
+                          <td
+                            className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-500 dark:text-slate-400 truncate max-w-[120px]"
+                            title="From your test case library (this device)"
+                          >
+                            Library
+                          </td>
+                          <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 font-medium text-slate-800 dark:text-slate-200 truncate max-w-[200px]">
+                            <span className="align-middle">{tc.name || '—'}</span>
+                            {alreadyInSet ? (
+                              <span className="ml-1.5 inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-slate-200/80 text-slate-600 dark:bg-slate-600/50 dark:text-slate-300">
+                                In set
+                              </span>
+                            ) : null}
+                          </td>
+                          <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[100px]">
+                            {(tc.binName || '').trim() ? (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  focusFileInLibrary(tc.binName);
+                                }}
+                                className="text-left text-xs text-blue-600 dark:text-blue-400 hover:underline hover:text-blue-700 dark:hover:text-blue-300 truncate max-w-full block"
+                                title={tc.binName}
+                              >
+                                {tc.binName}
+                              </button>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[80px]">
+                            {(tc.linName || '').trim() ? (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  focusFileInLibrary(tc.linName);
+                                }}
+                                className="text-left text-xs text-blue-600 dark:text-blue-400 hover:underline hover:text-blue-700 dark:hover:text-blue-300 truncate max-w-full block"
+                                title={tc.linName}
+                              >
+                                {tc.linName}
+                              </button>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[100px]">
+                            {(tc.vcdName || '').trim() ? (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  focusFileInLibrary(tc.vcdName);
+                                }}
+                                className="text-left text-xs text-blue-600 dark:text-blue-400 hover:underline hover:text-blue-700 dark:hover:text-blue-300 truncate max-w-full block"
+                                title={tc.vcdName}
+                              >
+                                {tc.vcdName}
+                              </button>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td
+                            className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[180px]"
+                            title={mdiNames.length > 0 ? mdiNames.join(', ') : undefined}
+                          >
+                            {mdiNames.length > 0 ? (
+                              mdiNames.map((name, j) => (
+                                <span key={`${idStr}-mdi-${j}`}>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      focusFileInLibrary(String(name));
+                                    }}
+                                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline hover:text-blue-700 dark:hover:text-blue-300"
+                                    title="View in File in Library"
+                                  >
+                                    {name}
+                                  </button>
+                                  {j < mdiNames.length - 1 ? ', ' : ''}
+                                </span>
+                              ))
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          {addTcsToSetPickerExtraCols.map((col) => (
+                            <td
+                              key={col}
+                              className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 min-w-[80px] truncate max-w-[120px]"
+                              title={String(getTcExtraColVal(tc, col) || '') || undefined}
+                            >
+                              {(() => {
+                                const val = (getTcExtraColVal(tc, col) ?? '').toString().trim();
+                                if (!val) return '—';
+                                const isFileCol =
+                                  /^VCD\d+$/i.test(col) ||
+                                  /^ERoM\d+$/i.test(col) ||
+                                  /^ULP\d+$/i.test(col) ||
+                                  /^MDI\d+$/i.test(col);
+                                if (!isFileCol) return val;
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      focusFileInLibrary(String(val));
+                                    }}
+                                    className="text-left text-xs text-blue-600 dark:text-blue-400 hover:underline hover:text-blue-700 dark:hover:text-blue-300 truncate max-w-full block"
+                                    title="View in File in Library"
+                                  >
+                                    {val}
+                                  </button>
+                                );
+                              })()}
+                            </td>
+                          ))}
+                          <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 min-w-[160px] max-w-[240px]">
+                            {orderedTags.length === 0 ? (
+                              <span className="text-slate-400">—</span>
+                            ) : (
+                              <div className="flex flex-wrap items-center gap-1 min-w-0">
+                                {orderedTags.map((tg, i) => (
+                                  <span
+                                    key={`${idStr}-tag-${i}`}
+                                    className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full border text-[10px] font-medium max-w-[120px] ${jobTagPillClasses(
+                                      orderedColorList[i] || 'mint'
+                                    )}`}
+                                    title={tg}
+                                  >
+                                    <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-current/70" />
+                                    <span className="truncate">{tg}</span>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                            {timeStr}
+                          </td>
+                          <td className="px-2 py-1.5 text-center text-slate-500">{tryN}</td>
                         </tr>
                       );
                     })}
@@ -2767,8 +3521,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                 </table>
               )}
             </div>
-            <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-600 flex items-center justify-end gap-2 shrink-0">
-              <span className="text-xs text-slate-500 mr-auto">{addTcsToSetSelectedIds.length} selected</span>
+            </div>
+            <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-600 flex flex-wrap items-center justify-end gap-2 shrink-0 bg-slate-50/95 dark:bg-slate-900/95 shadow-[0_-4px_16px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_16px_rgba(0,0,0,0.25)]">
+              <span className="text-xs text-slate-500 mr-auto w-full sm:w-auto">{addTcsToSetSelectedIds.length} selected</span>
               <button
                 type="button"
                 onClick={closeAddTcsToSetModal}
@@ -2780,7 +3535,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                 type="button"
                 onClick={() => void handleConfirmAddTcsToSet()}
                 disabled={addTcsToSetSelectedIds.length === 0}
-                className="px-4 py-2 text-sm font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:pointer-events-none"
+                className="px-4 py-2.5 text-sm font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:pointer-events-none shadow-sm"
               >
                 Add to set
               </button>
@@ -3685,6 +4440,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                   <option value="all">All status</option>
                   <option value="pending">Pending</option>
                   <option value="running">Running</option>
+                  <option value="error">Error</option>
                   <option value="completed">Completed</option>
                 </select>
                 <button type="button" onClick={handleDeleteSelectedSetTcs} disabled={selectedSetKeys.size === 0} className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-40 disabled:pointer-events-none transition-colors" title={selectedSetKeys.size > 0 ? `Remove ${selectedSetKeys.size} from set(s) only (not from Library)` : 'Select rows to remove from set'}>
@@ -3852,14 +4608,18 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                           {/* Status section (placed near Run; if edit icon exists, show status before it) */}
                           {setStatus && (
                             <span
-                              className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
                                 setStatus === 'running'
                                   ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/40 dark:text-blue-200 dark:border-blue-700'
                                   : setStatus === 'pending'
                                   ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/40 dark:text-amber-200 dark:border-amber-700'
+                                  : setStatus === 'error'
+                                  ? 'bg-red-50 text-red-700 border-red-300 dark:bg-red-900/40 dark:text-red-300 dark:border-red-700/60'
                                   : 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600'
                               }`}
+                              title={setStatus === 'error' ? 'Last run of this set had at least one failed test case' : undefined}
                             >
+                              {setStatus === 'error' && <AlertCircle size={11} aria-hidden />}
                               {setStatus.charAt(0).toUpperCase() + setStatus.slice(1)}
                             </span>
                           )}
@@ -3882,8 +4642,8 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                                   setAddTcsPickerTimeQ('');
                                 }}
                                 className="p-1.5 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-600"
-                                title="เพิ่ม test case จาก Library เข้า set นี้"
-                                aria-label="Add test cases from library to this set"
+                                title="แก้ไขชื่อ set และ/หรือเพิ่ม test case จาก Library"
+                                aria-label="Edit set name and add test cases from library"
                               >
                                 <Pencil size={14} strokeWidth={2} />
                               </button>
@@ -4025,14 +4785,30 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                                 const isClosed = isTcManuallyClosed(tc);
                                   const isSystemLocked = isTcSystemLocked(tc);
                                 const historyCount = getTestCaseHistory(tc).length;
+                                const isErrorRow = tc._status === 'error';
+                                const rowOwnerId = (() => {
+                                  if (tc._ownerId != null && String(tc._ownerId).trim() !== '') {
+                                    return String(tc._ownerId);
+                                  }
+                                  const lib = (fileReferenceTestCases || []).find(
+                                    (r) => r?.id != null && String(r.id) === String(tc.id)
+                                  );
+                                  if (lib?._ownerId != null && String(lib._ownerId).trim() !== '') {
+                                    return String(lib._ownerId);
+                                  }
+                                  return set._ownerId ?? activeProfileId;
+                                })();
+                                const rowOwnerLabel = resolveOwnerDisplayName(rowOwnerId, ownerLabelCtx);
                                 return (
                                   <tr
                                     key={key}
                                       className={`border-b border-slate-100 dark:border-slate-700 cursor-pointer select-none ${
+                                        isErrorRow ? 'border-l-4 border-l-red-500 bg-red-50/40 dark:bg-red-900/10' : ''
+                                      } ${
                                         isSetSelectionLocked
                                           ? 'opacity-70 bg-slate-50 dark:bg-slate-800/50 cursor-not-allowed'
                                           : ''
-                                      } ${isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : !isSetSelectionLocked ? 'hover:bg-slate-50 dark:hover:bg-slate-800/50' : ''}`}
+                                      } ${isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : !isSetSelectionLocked && !isErrorRow ? 'hover:bg-slate-50 dark:hover:bg-slate-800/50' : ''}`}
                                     onClick={(e) => {
                                       if (e.target.closest('input[type="checkbox"]') || e.target.closest('button')) return;
                                         if (isSetSelectionLocked) return;
@@ -4067,9 +4843,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                                     <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 font-medium text-slate-800 dark:text-slate-200">{tc.name || '—'}</td>
                                     <td
                                       className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400 truncate max-w-[80px]"
-                                      title={resolveOwnerDisplayName(set._ownerId ?? activeProfileId, ownerLabelCtx)}
+                                      title={rowOwnerLabel}
                                     >
-                                      {resolveOwnerDisplayName(set._ownerId ?? activeProfileId, ownerLabelCtx)}
+                                      {rowOwnerLabel}
                                     </td>
                                     <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-center">
                                       <button
@@ -4272,10 +5048,35 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                                             </span>
                                           );
                                         }
+                                        if (status === 'error') {
+                                          // Mirrors Job Management's red FAILED chip — last run produced fail/error.
+                                          return (
+                                            <span
+                                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-300 dark:bg-red-900/40 dark:text-red-300 dark:border-red-700/60 text-[10px] font-semibold animate-pulse"
+                                              title="Last run failed — open Job Management to inspect / re-run"
+                                            >
+                                              <AlertCircle size={10} className="shrink-0" aria-hidden />
+                                              Error
+                                            </span>
+                                          );
+                                        }
                                         if (status === 'completed') {
                                           return (
                                             <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 text-[10px] font-semibold" title="Completed in past run(s)">
                                               Completed
+                                            </span>
+                                          );
+                                        }
+                                        // Not yet run — show the parent set's name (this row IS a set item).
+                                        const parentSetName = (set && (set.name || `Set #${set.id}`)) || '';
+                                        if (parentSetName) {
+                                          return (
+                                            <span
+                                              className="inline-flex items-center max-w-[140px] px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 text-[10px] font-medium"
+                                              title={`Saved in set "${parentSetName}" — not run yet`}
+                                            >
+                                              <Layers size={10} className="shrink-0 mr-1 opacity-70" aria-hidden />
+                                              <span className="truncate">{parentSetName}</span>
                                             </span>
                                           );
                                         }
@@ -4794,6 +5595,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                   <option value="all">All status</option>
                   <option value="pending">Pending</option>
                   <option value="running">Running</option>
+                  <option value="error">Error</option>
                   <option value="completed">Completed</option>
                 </select>
                 <div className="relative" data-library-raw-tc-insert-menu>
@@ -4923,19 +5725,22 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                           tc._source === 'current' && tc.id && testCasePendingById?.[String(tc.id)];
                         const historyCount = getTestCaseHistory(tc).length;
                         const dimProcessRow = isTcInProcess && !isRowSelectionDisabled;
+                        const isErrorRow = tc._status === 'error';
 
                         return [
                           <tr
                             key={key}
                             data-library-tc-row-key={String(key)}
                             title={
-                              dimProcessRow
+                              isErrorRow
+                                ? 'Last run of this test case failed — open Job Management to inspect / re-run'
+                                : dimProcessRow
                                 ? 'Running / Pending — แถวสีเทาเพื่อให้เห็นว่ามี process อยู่ (ยังเลือกได้)'
                                 : isRowEditingLocked
                                   ? 'Test case is locked (running/pending or Vis=close)'
                                   : 'Double click to edit in this page'
                             }
-                            className={`border-b border-slate-100 dark:border-slate-700 select-none ${isRowSelectionDisabled ? 'opacity-75 bg-slate-50 dark:bg-slate-800/50 cursor-not-allowed' : 'cursor-pointer'} ${tcRowBusy ? 'ring-1 ring-amber-400/50 dark:ring-amber-500/40' : ''} ${pointerLibraryTcKey === key ? 'animate-pulse ring-1 ring-emerald-400' : ''} ${dimProcessRow ? '[&_td]:text-slate-500 dark:[&_td]:text-slate-400 [&_a]:text-slate-500 dark:[&_a]:text-slate-400 [&_td:not(:nth-child(5))_button]:text-slate-500 dark:[&_td:not(:nth-child(5))_button]:text-slate-400' : ''} ${isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : dimProcessRow ? 'bg-slate-50/90 dark:bg-slate-900/50' : !isRowSelectionDisabled ? 'hover:bg-slate-50 dark:hover:bg-slate-800/50' : ''}`}
+                            className={`border-b border-slate-100 dark:border-slate-700 select-none ${isErrorRow ? 'border-l-4 border-l-red-500 bg-red-50/40 dark:bg-red-900/10' : ''} ${isRowSelectionDisabled ? 'opacity-75 bg-slate-50 dark:bg-slate-800/50 cursor-not-allowed' : 'cursor-pointer'} ${tcRowBusy ? 'ring-1 ring-amber-400/50 dark:ring-amber-500/40' : ''} ${pointerLibraryTcKey === key ? 'animate-pulse ring-1 ring-emerald-400' : ''} ${dimProcessRow ? '[&_td]:text-slate-500 dark:[&_td]:text-slate-400 [&_a]:text-slate-500 dark:[&_a]:text-slate-400 [&_td:not(:nth-child(5))_button]:text-slate-500 dark:[&_td:not(:nth-child(5))_button]:text-slate-400' : ''} ${isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : dimProcessRow ? 'bg-slate-50/90 dark:bg-slate-900/50' : isErrorRow ? '' : !isRowSelectionDisabled ? 'hover:bg-slate-50 dark:hover:bg-slate-800/50' : ''}`}
                             onClick={(e) => {
                               if (
                                 e.target.closest('input[type="checkbox"]') ||
@@ -5456,6 +6261,18 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                                     </span>
                                   );
                                 }
+                                if (status === 'error') {
+                                  // Mirrors Job Management's red FAILED chip — last run produced fail/error.
+                                  return (
+                                    <span
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-300 dark:bg-red-900/40 dark:text-red-300 dark:border-red-700/60 text-[10px] font-semibold animate-pulse"
+                                      title="Last run failed — open Job Management to inspect / re-run"
+                                    >
+                                      <AlertCircle size={10} className="shrink-0" aria-hidden />
+                                      Error
+                                    </span>
+                                  );
+                                }
                                 if (status === 'completed') {
                                   return (
                                     <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 text-[10px] font-semibold" title="Completed in past run(s)">
@@ -5463,11 +6280,29 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                                     </span>
                                   );
                                 }
+                                // Saved-but-not-run — show the set name (whether the row IS a set item,
+                                // or the row is a current TC that is also referenced by saved set(s)).
+                                let setNamesForRow = [];
                                 if (tc._source === 'set' && tc._setId) {
-                                  const setName = (savedTestCaseSets || []).find((s) => s.id === tc._setId)?.name || 'Set';
+                                  const sName =
+                                    tc._setName ||
+                                    (savedTestCaseSets || []).find((s) => s.id === tc._setId)?.name ||
+                                    'Set';
+                                  setNamesForRow = [sName];
+                                } else if (tc._source === 'current' && Array.isArray(tc._inSetNames) && tc._inSetNames.length) {
+                                  setNamesForRow = tc._inSetNames;
+                                }
+                                if (setNamesForRow.length) {
+                                  const primary = setNamesForRow[0];
+                                  const more = setNamesForRow.length - 1;
                                   return (
-                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 text-[10px] font-medium" title={`In set: ${setName}`}>
-                                      In set
+                                    <span
+                                      className="inline-flex items-center max-w-[160px] px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 text-[10px] font-medium"
+                                      title={`Saved in set${setNamesForRow.length > 1 ? 's' : ''}: ${setNamesForRow.join(', ')} (not run yet)`}
+                                    >
+                                      <Layers size={10} className="shrink-0 mr-1 opacity-70" aria-hidden />
+                                      <span className="truncate">{primary}</span>
+                                      {more > 0 && <span className="ml-1 opacity-70">+{more}</span>}
                                     </span>
                                   );
                                 }
@@ -5945,7 +6780,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                                             {inUseByBatch ? <Lock size={14} className="inline" /> : isClosed ? <Lock size={14} className="inline" /> : <Globe size={14} className="inline" />}
                                           </button>
                                         </td>
-                                        <td className="px-2 py-2 whitespace-nowrap text-slate-500 dark:text-slate-400 text-[11px]">{lastModified ? String(lastModified).replace('T', ' ').slice(0, 16) : '—'}</td>
+                                        <td className="px-2 py-2 whitespace-nowrap text-slate-500 dark:text-slate-400 text-[11px]" title={lastModified ? String(lastModified) : ''}>{formatModifiedBangkok(lastModified)}</td>
                                         <td className="px-2 py-2 text-right text-slate-600 dark:text-slate-300 whitespace-nowrap">{f.sizeFormatted ?? f.size ?? '—'}</td>
                                       </tr>
                                     );
@@ -6949,7 +7784,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                                 </button>
                               </td>
                               <td className="px-2 py-1.5 align-top whitespace-nowrap text-slate-500 dark:text-slate-400 text-[11px]" title={lastModified ? String(lastModified) : ''}>
-                                {lastModified ? String(lastModified).replace('T', ' ').slice(0, 16) : '—'}
+                                {formatModifiedBangkok(lastModified)}
                               </td>
                               <td className="px-2 py-1.5 align-top text-right text-slate-600 dark:text-slate-300 whitespace-nowrap">
                                 {f.sizeFormatted || f.size || '—'}
@@ -7116,8 +7951,35 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                           : status === 'pending'
                           ? 'bg-yellow-100 text-yellow-700'
                           : 'bg-slate-100 text-slate-700';
+                      const canNavigate = typeof onNavigateToJob === 'function' && job.id != null;
+                      const goToJob = () => {
+                        if (!canNavigate) return;
+                        onNavigateToJob(job.id);
+                        setTestCaseHistoryFor(null);
+                      };
                       return (
-                        <li key={`${job.id}-${fileIndex}-${i}`} className="flex items-center justify-between gap-2 py-2 px-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700">
+                        <li
+                          key={`${job.id}-${fileIndex}-${i}`}
+                          className={`flex items-center justify-between gap-2 py-2 px-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700 ${
+                            canNavigate
+                              ? 'cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-600 transition-colors'
+                              : ''
+                          }`}
+                          onClick={canNavigate ? goToJob : undefined}
+                          onKeyDown={
+                            canNavigate
+                              ? (e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    goToJob();
+                                  }
+                                }
+                              : undefined
+                          }
+                          role={canNavigate ? 'button' : undefined}
+                          tabIndex={canNavigate ? 0 : undefined}
+                          title={canNavigate ? 'Open this job in Job Management' : undefined}
+                        >
                           <div className="min-w-0">
                             <div className="font-medium text-slate-800 dark:text-slate-200 truncate">{job.name || job.configName || `Job #${job.id}`}</div>
                             <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
@@ -7125,7 +7987,12 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
                               {(job.files?.length || 0) > 1 && <span className="ml-1"> · Order: {fileIndex + 1}</span>}
                             </div>
                           </div>
-                          <span className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-semibold capitalize ${statusCls}`}>{status || '—'}</span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold capitalize ${statusCls}`}>{status || '—'}</span>
+                            {canNavigate && (
+                              <ChevronRight size={14} className="text-slate-400 dark:text-slate-500" aria-hidden />
+                            )}
+                          </div>
                         </li>
                       );
                     })}
