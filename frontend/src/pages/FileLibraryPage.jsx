@@ -180,6 +180,11 @@ function collectExtraSlotsFromTc(tc) {
     .filter((k) => /^ULP\d+$/i.test(k) && numFromKey(k) >= 2)
     .sort((a, b) => numFromKey(a) - numFromKey(b))
     .forEach((k) => addFromExtra(k, 'ulp'));
+  // MDI (text) has no "main" column, so every MDI column (MDI1, MDI2, …) is an extra slot.
+  Object.keys(ex)
+    .filter((k) => /^MDI\d+$/i.test(k) && numFromKey(k) >= 1)
+    .sort((a, b) => numFromKey(a) - numFromKey(b))
+    .forEach((k) => addFromExtra(k, 'mdi'));
 
   return slots;
 }
@@ -1544,6 +1549,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
     cmds.filter((c) => c.type === 'ulp' && (c.file || '').trim()).forEach((c, i) => {
       extra[`ULP${i + 2}`] = c.file || '';
     });
+    cmds.filter((c) => c.type === 'mdi' && (c.file || '').trim()).forEach((c, i) => {
+      extra[`MDI${i + 1}`] = c.file || '';
+    });
     return Object.fromEntries(Object.entries(extra).filter(([, v]) => (v ?? '').toString().trim() !== ''));
   }, []);
 
@@ -2150,6 +2158,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet }) => {
     Object.keys(baseExtra).forEach((k) => {
       const m = k.match(/^(VCD|ERoM|ULP)(\d+)$/i);
       if (m && parseInt(m[2], 10) >= 2) delete baseExtra[k];
+      // MDI has no "main" column; clear all MDI\d+ so saves re-mirror from commands below.
+      const mm = k.match(/^MDI(\d+)$/i);
+      if (mm && parseInt(mm[1], 10) >= 1) delete baseExtra[k];
     });
     const nextExtra = { ...baseExtra };
     if (tag) {
