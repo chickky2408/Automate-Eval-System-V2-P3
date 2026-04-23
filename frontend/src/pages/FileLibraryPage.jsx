@@ -135,6 +135,34 @@ const getJobRefsUsingFile = (fileName, jobs) => {
   return { usedByTcs: usedBy, setNames };
 };
 
+/**
+ * Merge viewer-only tag overlay (same storage as extraColumns tag fields) with the TC owner's tags.
+ * Viewer tags are listed first; duplicates (case-insensitive) from the owner list are hidden.
+ */
+function buildMergedLibraryTcTags(tc, overlay) {
+  const baseEx = tc?.extraColumns && typeof tc.extraColumns === 'object' ? tc.extraColumns : {};
+  const baseRaw = (baseEx.tag || baseEx.Tag || '').trim();
+  const baseParts = splitTagsComma(baseRaw);
+  const o = overlay && typeof overlay === 'object' ? overlay : null;
+  const myRaw = o && String(o.tag || o.Tag || '').trim();
+  const myParts = myRaw ? splitTagsComma(String(o.tag || o.Tag || '')) : [];
+  const myLower = new Set(myParts.map((t) => String(t).toLowerCase()));
+  const baseDeduped = baseParts.filter((t) => !myLower.has(String(t).toLowerCase()));
+  const myColors = myParts.length ? normalizeTagColorList(o, myParts.length) : [];
+  const baseColorFull = baseParts.length ? normalizeTagColorList(baseEx, baseParts.length) : [];
+  const baseDedupedColors = baseDeduped.map((t) => {
+    const idx = baseParts.findIndex((x) => String(x).toLowerCase() === String(t).toLowerCase());
+    return idx >= 0 ? baseColorFull[idx] : 'mint';
+  });
+  return {
+    mergedTags: [...myParts, ...baseDeduped],
+    mergedColors: [...myColors, ...baseDedupedColors],
+    myTagCount: myParts.length,
+    ownerRaw: baseRaw,
+    overlayRaw: (o && (o.tag || o.Tag)) || '',
+  };
+}
+
 /** สร้าง id สำหรับแถว extra file ใน editor */
 const newRawTcSlotId = () => `slot-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
@@ -406,6 +434,12 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
   const globalSavedTestCases = useTestStore((s) => s.globalSavedTestCases) || [];
   const globalSavedTestCaseSets = useTestStore((s) => s.globalSavedTestCaseSets) || [];
   const globalTestCaseDataLoaded = useTestStore((s) => s.globalTestCaseDataLoaded);
+  const tcViewerTagEpoch = useTestStore((s) => s.tcViewerTagEpoch);
+  const patchViewerTcTagOverlay = useTestStore((s) => s.patchViewerTcTagOverlay);
+  const tcViewerTagOverlays = useMemo(
+    () => useTestStore.getState().getViewerTcTagOverlays(),
+    [tcViewerTagEpoch, activeProfileId]
+  );
   const aggregateSavedTestCasesAcrossProfiles = useTestStore((s) => s.aggregateSavedTestCasesAcrossProfiles);
   const aggregateSavedTestCaseSetsAcrossProfiles = useTestStore((s) => s.aggregateSavedTestCaseSetsAcrossProfiles);
   const currentClientId = getClientId();
@@ -860,6 +894,8 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
   const [librarySetTagColorDropdownOpen, setLibrarySetTagColorDropdownOpen] = useState(false);
   const [librarySetTagColorSearch, setLibrarySetTagColorSearch] = useState('');
   const [selectedLibrarySetTcKeys, setSelectedLibrarySetTcKeys] = useState([]);
+  /** Set Library — multi-select whole saved sets (headers) for bulk delete */
+  const [selectedLibrarySetHeaderIds, setSelectedLibrarySetHeaderIds] = useState([]);
   const lastClickedLibrarySetTcRef = useRef({ setId: null, index: null });
   const isDragSelectingLibrarySetRef = useRef(false);
   const isDragSelectingAddTcPickerRef = useRef(false);
@@ -908,6 +944,10 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
   const filePendingById = useTestStore((s) => s.filePendingById);
   const testCasePendingById = useTestStore((s) => s.testCasePendingById);
   const savedTestCaseSetPendingById = useTestStore((s) => s.savedTestCaseSetPendingById);
+
+  useEffect(() => {
+    if (libraryView !== 'testCases') setSelectedLibrarySetHeaderIds([]);
+  }, [libraryView]);
   const fileTagsModalPendingBusy = !!(showAllTagsForFileId && filePendingById?.[showAllTagsForFileId]);
   const selectedFilesPending = selectedLibraryFileIds.some((id) => filePendingById?.[id]);
 
@@ -1622,7 +1662,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
 
     return libraryRawRows.filter((tc) => {
       if (libraryTcNameFilter.trim() && !(tc.name || '').toLowerCase().includes(libraryTcNameFilter.trim().toLowerCase())) return false;
-      const tagVal = (tc.extraColumns && (tc.extraColumns.tag || tc.extraColumns.Tag)) || '';
+      const ov = tc.id != null && tcViewerTagOverlays ? tcViewerTagOverlays[String(tc.id)] : null;
+      const { mergedTags } = buildMergedLibraryTcTags(tc, ov);
+      const tagVal = mergedTags.length ? mergedTags.join(', ') : (tc.extraColumns && (tc.extraColumns.tag || tc.extraColumns.Tag)) || '';
       if (libraryTcTagFilter.trim() && !String(tagVal).toLowerCase().includes(libraryTcTagFilter.trim().toLowerCase())) return false;
       if (libraryTcStatusFilter !== 'all') {
         const status = tc._status || null;
@@ -1638,10 +1680,16 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
       }
       if (libraryTcTagColorFilter.trim()) {
         const want = normalizeTagColorKey(libraryTcTagColorFilter);
-        const ex = tc.extraColumns && typeof tc.extraColumns === 'object' ? tc.extraColumns : {};
-        const parts = splitTagsComma(ex.tag || ex.Tag || '');
-        const list = parts.length ? normalizeTagColorList(ex, parts.length) : [];
-        const colorKeys = new Set([ex.tagColor || ex.tag_color, ...list].map((k) => normalizeTagColorKey(k)));
+        const { mergedTags: mt, mergedColors: mc } = buildMergedLibraryTcTags(tc, ov);
+        const colorKeys = new Set();
+        if (mt.length) {
+          mc.forEach((k) => colorKeys.add(normalizeTagColorKey(k)));
+        } else {
+          const ex = tc.extraColumns && typeof tc.extraColumns === 'object' ? tc.extraColumns : {};
+          const parts = splitTagsComma(ex.tag || ex.Tag || '');
+          const list = parts.length ? normalizeTagColorList(ex, parts.length) : [];
+          [ex.tagColor || ex.tag_color, ...list].forEach((k) => colorKeys.add(normalizeTagColorKey(k)));
+        }
         if (!colorKeys.has(want)) return false;
       }
       return true;
@@ -1654,6 +1702,8 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     libraryTcStatusFilter,
     libraryTestCasesFilter,
     activeProfileId,
+    tcViewerTagOverlays,
+    tcViewerTagEpoch,
   ]);
 
   const fileOptionsByKind = useMemo(() => {
@@ -1694,6 +1744,46 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
 
   const patchLibraryTcExtraColumns = useCallback(
     (tc, patch) => {
+      const isOther =
+        tc._ownerId != null && String(tc._ownerId) !== String(activeProfileId);
+      if (isOther) {
+        if (tc._source === 'set' && tc._setId != null) {
+          addToast({ type: 'warning', message: 'แก้ tag รายส่วนของเทสต์ในชุด — ใช้ที่ Library หลัก' });
+          return;
+        }
+        if (!tc.id) {
+          addToast({ type: 'warning', message: 'ไม่พบ id ของเทสต์เคส — ไม่สามารถบันทึก tag ส่วนตัว' });
+          return;
+        }
+        const sid = String(tc.id);
+        const o = (tcViewerTagOverlays && tcViewerTagOverlays[sid]) || null;
+
+        if (Object.prototype.hasOwnProperty.call(patch, 'tag')) {
+          const nextO = o && typeof o === 'object' ? { ...o } : { tag: '', tagColor: 'mint' };
+          delete nextO.Tag;
+          const nextRaw = String(patch.tag ?? '');
+          const prevRaw = (o && (o.tag || o.Tag)) || '';
+          const prevLower = new Set(splitTags(prevRaw).map((t) => String(t).toLowerCase()));
+          const added = splitTags(nextRaw).filter((t) => !prevLower.has(String(t).toLowerCase()));
+          if (added.length) recordMyAddedTagsForEntity(activeProfileId, getTcEntityKey(tc), added);
+          nextO.tag = nextRaw;
+          syncTagColorListAfterTagChange(nextO, nextRaw);
+          if (!splitTags(nextRaw).length) {
+            patchViewerTcTagOverlay(sid, null);
+          } else {
+            patchViewerTcTagOverlay(sid, nextO);
+          }
+          return;
+        }
+        if (!o || !String(o.tag || o.Tag || '').trim()) return;
+        const nextO = { ...o };
+        if (patch.tagColor) nextO.tagColor = patch.tagColor;
+        if (patch.tagColorList) nextO.tagColorList = patch.tagColorList;
+        syncTagColorListAfterTagChange(nextO, String(nextO.tag || ''));
+        patchViewerTcTagOverlay(sid, nextO);
+        return;
+      }
+
       const nextExtra = { ...(tc.extraColumns || {}), ...patch };
       if (Object.prototype.hasOwnProperty.call(patch, 'tag')) delete nextExtra.Tag;
       if (Object.prototype.hasOwnProperty.call(patch, 'tag')) {
@@ -1705,14 +1795,6 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
         if (added.length) recordMyAddedTagsForEntity(activeProfileId, getTcEntityKey(tc), added);
 
         syncTagColorListAfterTagChange(nextExtra, String(patch.tag ?? ''));
-      }
-
-      if (tc._ownerId != null && tc._ownerId !== activeProfileId) {
-        addToast({
-          type: 'warning',
-          message: 'แก้ไข tag ได้เฉพาะเทสต์เคสของโปรไฟล์คุณ',
-        });
-        return;
       }
 
       if (tc._source === 'current' && tc.id) {
@@ -1758,6 +1840,8 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
       savedTestCaseSets,
       updateSavedTestCase,
       updateSavedTestCaseSet,
+      tcViewerTagOverlays,
+      patchViewerTcTagOverlay,
     ]
   );
 
@@ -3810,21 +3894,37 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
               <div className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">Tags</div>
               {(() => {
                 const hdr = libraryFilteredRows.find((r) => (r._key || '') === libraryRawTcTagOverflowKey);
-                const hdrLocked =
+                const hdrSystemLocked =
                   !hdr ||
                   hdr._status === 'running' ||
                   hdr._status === 'pending' ||
-                  isTcManuallyClosed(hdr) ||
-                  (hdr._ownerId != null && hdr._ownerId !== activeProfileId);
-                const hdrRaw = (hdr?.extraColumns && (hdr.extraColumns.tag || hdr.extraColumns.Tag)) || '';
-                const hdrTags = splitTags(hdrRaw);
-                const displayKey = hdrTags.length
-                  ? normalizeTagColorList(hdr?.extraColumns || {}, hdrTags.length)[0]
-                  : TAG_PALETTE_MAP[hdr?.extraColumns?.tagColor || hdr?.extraColumns?.tag_color]
-                    ? hdr?.extraColumns?.tagColor || hdr?.extraColumns?.tag_color
-                    : 'mint';
+                  isTcManuallyClosed(hdr);
+                const isHdrOther = hdr?._ownerId != null && String(hdr._ownerId) !== String(activeProfileId);
+                const hOv =
+                  hdr?.id != null && tcViewerTagOverlays ? tcViewerTagOverlays[String(hdr.id)] : null;
+                const mHdr = buildMergedLibraryTcTags(hdr, hOv);
+                const firstMineColor = () => {
+                  if (mHdr.mergedTags.length === 0) {
+                    if (isHdrOther && mHdr.myTagCount > 0 && hOv) {
+                      return normalizeTagColorList(hOv, 1)[0] || hOv.tagColor || 'mint';
+                    }
+                    if (!isHdrOther) {
+                      const p = (hdr?.extraColumns && (hdr.extraColumns.tag || hdr.extraColumns.Tag)) || '';
+                      return p.trim()
+                        ? normalizeTagColorList(hdr.extraColumns, splitTags(p).length)[0] ||
+                            hdr?.extraColumns?.tagColor ||
+                            'mint'
+                        : hdr?.extraColumns?.tagColor || 'mint';
+                    }
+                    return 'mint';
+                  }
+                  return mHdr.mergedColors[0] || 'mint';
+                };
+                const displayKey = firstMineColor();
                 const safeDisplayKey = TAG_PALETTE_MAP[displayKey] ? displayKey : 'mint';
-                if (hdrLocked) return null;
+                const showHdrSwatch =
+                  !hdrSystemLocked && mHdr.mergedTags.length > 0 && (!isHdrOther || mHdr.myTagCount > 0);
+                if (hdrSystemLocked || !showHdrSwatch) return null;
                 return (
                   <>
                     <span
@@ -3837,6 +3937,15 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                       menuZClass="z-[120]"
                       onChange={(k) => {
                         if (!hdr) return;
+                        if (isHdrOther) {
+                          const o = (tcViewerTagOverlays && tcViewerTagOverlays[String(hdr.id)]) || {};
+                          const r = (o.tag || o.Tag) || '';
+                          const tagArr = splitTags(r);
+                          if (!tagArr.length) return;
+                          const patch = { tagColor: k, tagColorList: tagArr.map(() => k) };
+                          patchLibraryTcExtraColumns(hdr, patch);
+                          return;
+                        }
                         const r = (hdr.extraColumns && (hdr.extraColumns.tag || hdr.extraColumns.Tag)) || '';
                         const tagArr = splitTags(r);
                         const patch = { tagColor: k };
@@ -3867,14 +3976,16 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                 if (!otc) {
                   return <div className="text-sm text-slate-500 dark:text-slate-400">—</div>;
                 }
-                const raw = (otc.extraColumns && (otc.extraColumns.tag || otc.extraColumns.Tag)) || '';
-                const allTags = splitTags(raw);
-                const tagModalColorList = normalizeTagColorList(otc.extraColumns, allTags.length);
-                const modalLocked =
-                  otc._status === 'running' ||
-                  otc._status === 'pending' ||
-                  isTcManuallyClosed(otc) ||
-                  (otc._ownerId != null && otc._ownerId !== activeProfileId);
+                const isOtcOther = otc._ownerId != null && String(otc._ownerId) !== String(activeProfileId);
+                const otcOv =
+                  otc.id != null && tcViewerTagOverlays ? tcViewerTagOverlays[String(otc.id)] : null;
+                const mO = buildMergedLibraryTcTags(otc, otcOv);
+                const allTags = mO.mergedTags;
+                const tagModalColorList = mO.mergedColors;
+                const myOtc = mO.myTagCount;
+                const modalSystemLocked =
+                  otc._status === 'running' || otc._status === 'pending' || isTcManuallyClosed(otc);
+                const isMyModalIndex = (i) => !isOtcOther || (i >= 0 && i < myOtc);
                 const commitLibraryRawTcTagModalEdit = () => {
                   if (libraryRawTcTagModalEditIndex == null) return;
                   const row = libraryFilteredRows.find((r) => (r._key || '') === libraryRawTcTagOverflowKey);
@@ -3883,9 +3994,25 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                     setLibraryRawTcTagModalEditDraft('');
                     return;
                   }
-                  const r = (row.extraColumns && (row.extraColumns.tag || row.extraColumns.Tag)) || '';
-                  const next = replaceTagAtIndexInRaw(r, libraryRawTcTagModalEditIndex, libraryRawTcTagModalEditDraft);
-                  patchLibraryTcExtraColumns(row, { tag: next });
+                  if (isOtcOther) {
+                    if (libraryRawTcTagModalEditIndex >= myOtc) {
+                      setLibraryRawTcTagModalEditIndex(null);
+                      setLibraryRawTcTagModalEditDraft('');
+                      return;
+                    }
+                    const ovl = otc.id != null && tcViewerTagOverlays ? tcViewerTagOverlays[String(otc.id)] : null;
+                    const r0 = (ovl && (ovl.tag || ovl.Tag)) || '';
+                    const next = replaceTagAtIndexInRaw(
+                      r0,
+                      libraryRawTcTagModalEditIndex,
+                      libraryRawTcTagModalEditDraft
+                    );
+                    patchLibraryTcExtraColumns(row, { tag: next });
+                  } else {
+                    const r = (row.extraColumns && (row.extraColumns.tag || row.extraColumns.Tag)) || '';
+                    const next = replaceTagAtIndexInRaw(r, libraryRawTcTagModalEditIndex, libraryRawTcTagModalEditDraft);
+                    patchLibraryTcExtraColumns(row, { tag: next });
+                  }
                   setLibraryRawTcTagModalEditIndex(null);
                   setLibraryRawTcTagModalEditDraft('');
                 };
@@ -3893,13 +4020,14 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                   <div className="space-y-3">
                     {allTags.length === 0 ? (
                       <div className="text-sm text-slate-500 dark:text-slate-400">
-                        {modalLocked ? 'No tags' : 'No tags yet — add below'}
+                        {modalSystemLocked ? 'No tags' : 'No tags yet — add below'}
                       </div>
                     ) : (
                       <div className="flex flex-wrap gap-2">
                         {allTags.map((t, i) => {
                           const pillCls =
                             TAG_PALETTE_MAP[tagModalColorList[i]] || TAG_PALETTE_MAP.mint;
+                          const canEditPill = !modalSystemLocked && isMyModalIndex(i);
                           return (
                             <div
                               key={`lib-raw-tc-alltag-${libraryRawTcTagOverflowKey}-${i}`}
@@ -3932,19 +4060,19 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                 ) : (
                                   <button
                                     type="button"
-                                    disabled={modalLocked}
+                                    disabled={!canEditPill}
                                     onClick={() => {
-                                      if (modalLocked) return;
+                                      if (!canEditPill) return;
                                       setLibraryRawTcTagModalEditIndex(i);
                                       setLibraryRawTcTagModalEditDraft(t);
                                     }}
                                     className="max-w-[200px] truncate text-left font-medium hover:underline disabled:cursor-default disabled:no-underline"
-                                    title={modalLocked ? t : 'คลิกเพื่อแก้ไขชื่อ'}
+                                    title={canEditPill ? 'คลิกเพื่อแก้ไขชื่อ' : t}
                                   >
                                     {t}
                                   </button>
                                 )}
-                                {!modalLocked && (
+                                {canEditPill && (
                                   <button
                                     type="button"
                                     onMouseDown={(e) => {
@@ -3958,8 +4086,17 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                         (r) => (r._key || '') === libraryRawTcTagOverflowKey
                                       );
                                       if (!row) return;
-                                      const r0 = (row.extraColumns && (row.extraColumns.tag || row.extraColumns.Tag)) || '';
-                                      patchLibraryTcExtraColumns(row, { tag: removeTagAtIndexFromRaw(r0, i) });
+                                      if (isOtcOther) {
+                                        const ovl = row.id && tcViewerTagOverlays
+                                          ? tcViewerTagOverlays[String(row.id)]
+                                          : null;
+                                        const r0 = (ovl && (ovl.tag || ovl.Tag)) || '';
+                                        patchLibraryTcExtraColumns(row, { tag: removeTagAtIndexFromRaw(r0, i) });
+                                      } else {
+                                        const r0 =
+                                          (row.extraColumns && (row.extraColumns.tag || row.extraColumns.Tag)) || '';
+                                        patchLibraryTcExtraColumns(row, { tag: removeTagAtIndexFromRaw(r0, i) });
+                                      }
                                     }}
                                     className="ml-0.5 w-5 h-5 rounded-full inline-flex items-center justify-center hover:bg-black/10 dark:hover:bg-white/10"
                                     title="Remove tag"
@@ -3973,7 +4110,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                         })}
                       </div>
                     )}
-                    {!modalLocked && (
+                    {!modalSystemLocked && (
                       <div>
                         <label className="block text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1">
                           Add tag
@@ -3988,10 +4125,16 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                             e.preventDefault();
                             const add = libraryRawTcTagModalAddDraft.trim();
                             if (!add) return;
-                            const r =
-                              (otc.extraColumns && (otc.extraColumns.tag || otc.extraColumns.Tag)) || '';
-                            const next = upsertTagsString(r, add);
-                            patchLibraryTcExtraColumns(otc, { tag: next });
+                            if (isOtcOther) {
+                              const ovl = otc.id && tcViewerTagOverlays ? tcViewerTagOverlays[String(otc.id)] : null;
+                              const r = (ovl && (ovl.tag || ovl.Tag)) || '';
+                              const next = upsertTagsString(r, add);
+                              patchLibraryTcExtraColumns(otc, { tag: next });
+                            } else {
+                              const r = (otc.extraColumns && (otc.extraColumns.tag || otc.extraColumns.Tag)) || '';
+                              const next = upsertTagsString(r, add);
+                              patchLibraryTcExtraColumns(otc, { tag: next });
+                            }
                             setLibraryRawTcTagModalAddDraft('');
                           }}
                           className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100"
@@ -4341,6 +4484,81 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
               addToast({ type: 'success', message: `removed from set already ${removed} rows (Library still exists)` });
             }
           };
+
+          const deletableSetIdsInView = (setsFilteredForView || [])
+            .filter((set) => {
+              const setName = String(set?.name || '').trim() || 'Set';
+              const st = (setStatusByName.get(setName) || '').toLowerCase();
+              if (st === 'running' || st === 'pending') return false;
+              if (savedTestCaseSetPendingById?.[String(set.id)]) return false;
+              const canEdit = set._ownerId == null || String(set._ownerId) === String(activeProfileId);
+              return canEdit;
+            })
+            .map((s) => String(s.id));
+
+          const selectAllDeletableSetsInView = () => {
+            setSelectedLibrarySetHeaderIds(deletableSetIdsInView);
+          };
+
+          const handleBulkDeleteSelectedSets = async () => {
+            const rawIds = [...new Set(selectedLibrarySetHeaderIds)];
+            if (rawIds.length === 0) {
+              addToast({ type: 'info', message: 'เลือก set ที่จะลบ (ช่องหัวแต่ละกล่อง) ก่อน' });
+              return;
+            }
+            if (
+              !window.confirm(
+                `ลบ ${rawIds.length} set ที่เลือกออกจาก Saved หรือไม่?\n\nTest cases และไฟล์ใน Library จะยังอยู่ — ลบเฉพาะรายการ set`
+              )
+            ) {
+              return;
+            }
+            let deleted = 0;
+            let skipped = 0;
+            for (const idStr of rawIds) {
+              const set = useTestStore.getState().savedTestCaseSets.find((s) => String(s.id) === idStr);
+              if (!set) {
+                skipped += 1;
+                continue;
+              }
+              const setName = (set.name || '').trim() || 'Set';
+              const st = (setStatusByName.get(setName) || '').toLowerCase();
+              if (st === 'running' || st === 'pending') {
+                addToast({ type: 'warning', message: `ข้าม "${setName}" — กำลัง ${st}` });
+                skipped += 1;
+                continue;
+              }
+              if (savedTestCaseSetPendingById?.[String(set.id)]) {
+                addToast({ type: 'warning', message: `ข้าม "${setName}" — มี action ค้าง` });
+                skipped += 1;
+                continue;
+              }
+              const canEdit = set._ownerId == null || String(set._ownerId) === String(activeProfileId);
+              if (!canEdit) {
+                addToast({ type: 'warning', message: `ข้าม "${setName}" — ไม่ใช่ set ของโปรไฟล์คุณ` });
+                skipped += 1;
+                continue;
+              }
+              try {
+                await api.deleteSet(set.id);
+              } catch (e) {
+                if (!String(e?.message || '').includes('404')) {
+                  addToast({ type: 'warning', message: `Backend: ${e?.message || 'Delete failed'}` });
+                }
+              }
+              removeSavedTestCaseSet(set.id);
+              deleted += 1;
+            }
+            setSelectedLibrarySetHeaderIds((prev) => prev.filter((id) => !rawIds.includes(id)));
+            setSelectedLibrarySetTcKeys((prev) => prev.filter((k) => !rawIds.some((rid) => k.startsWith(`${rid}::`))));
+            if (deleted > 0) {
+              addToast({ type: 'success', message: `ลบ set แล้ว ${deleted} ชุด` });
+            }
+            if (skipped > 0 && deleted === 0) {
+              addToast({ type: 'info', message: 'ไม่มี set ที่ลบได้ในชุดที่เลือก' });
+            }
+          };
+
           return (
             <div className="space-y-6">
               <div className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 flex flex-wrap items-center gap-3">
@@ -4446,8 +4664,41 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                 <button type="button" onClick={handleDeleteSelectedSetTcs} disabled={selectedSetKeys.size === 0} className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-40 disabled:pointer-events-none transition-colors" title={selectedSetKeys.size > 0 ? `Remove ${selectedSetKeys.size} from set(s) only (not from Library)` : 'Select rows to remove from set'}>
                   <Trash2 size={18} strokeWidth={2} />
                 </button>
-                {selectedSetKeys.size > 0 && <span className="text-xs text-slate-500">{selectedSetKeys.size} selected</span>}
-                <span className="text-xs text-slate-400"></span>
+                {selectedSetKeys.size > 0 && <span className="text-xs text-slate-500">{selectedSetKeys.size} row(s)</span>}
+                <span className="w-px h-5 self-center bg-slate-200 dark:bg-slate-600 mx-0.5" aria-hidden title="" />
+                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 shrink-0">Set delete</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (deletableSetIdsInView.length === 0) return;
+                    const all = deletableSetIdsInView.every((id) => selectedLibrarySetHeaderIds.includes(id));
+                    if (all) {
+                      setSelectedLibrarySetHeaderIds((prev) => prev.filter((id) => !deletableSetIdsInView.includes(id)));
+                    } else {
+                      setSelectedLibrarySetHeaderIds((prev) => [...new Set([...prev, ...deletableSetIdsInView])]);
+                    }
+                  }}
+                  disabled={deletableSetIdsInView.length === 0}
+                  className="px-2 py-1 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800/80 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="เลือก/ยกเลิก set ทั้งหมดที่ลบได้ในรายการตามตัวกรอง"
+                >
+                  {deletableSetIdsInView.length > 0 && deletableSetIdsInView.every((id) => selectedLibrarySetHeaderIds.includes(id))
+                    ? 'ยกเลิกเลือก set'
+                    : 'เลือก set ทั้งหมด'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBulkDeleteSelectedSets}
+                  disabled={selectedLibrarySetHeaderIds.length === 0}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                  title="ลบ set ที่ติ๊กหัวกล่อง — ไม่ลบ test cases/ไฟล์ใน Library"
+                >
+                  <Trash2 size={14} strokeWidth={2.25} />
+                  ลบ set ({selectedLibrarySetHeaderIds.length})
+                </button>
+                {selectedLibrarySetHeaderIds.length > 0 && (
+                  <span className="text-xs text-slate-500 dark:text-slate-400">{selectedLibrarySetHeaderIds.length} set(s) selected</span>
+                )}
               </div>
               {(resolvedSetOwnerFilter === 'all' || resolvedSetOwnerFilter !== String(activeProfileId || '')) && !globalTestCaseDataLoaded ? (
                 <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-3 text-center text-xs text-slate-500 dark:text-slate-400">
@@ -4539,6 +4790,28 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                     >
                       <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-600 flex items-center justify-between">
                         <div className="flex items-center gap-2 min-w-0">
+                          <input
+                            type="checkbox"
+                            className="w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-blue-600 focus:ring-blue-500 shrink-0"
+                            checked={selectedLibrarySetHeaderIds.includes(String(set.id))}
+                            disabled={!canEditSet}
+                            onChange={() => {
+                              if (!canEditSet) return;
+                              const sid = String(set.id);
+                              setSelectedLibrarySetHeaderIds((prev) =>
+                                prev.includes(sid) ? prev.filter((x) => x !== sid) : [...prev, sid]
+                              );
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            title={
+                              !canEditSet
+                                ? (set._ownerId != null && String(set._ownerId) !== String(activeProfileId)
+                                    ? 'Set นี้ไม่ใช่ของโปรไฟล์คุณ'
+                                    : 'ลบ/เลือกไม่ได้ — set กำลัง running/pending หรือมี action ค้าง')
+                                : 'เลือก set นี้เพื่อลบหลายชุดพร้อมกัน'
+                            }
+                            aria-label={`Select set ${setName} for bulk delete`}
+                          />
                           <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">
                             {setName}
                           </h2>
@@ -5841,24 +6114,60 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                             </td>
                             <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 min-w-[160px]">
                               {(() => {
-                                const rawTag = (tc.extraColumns && (tc.extraColumns.tag || tc.extraColumns.Tag)) || '';
-                                const tags = splitTags(rawTag);
-                                const colorList = normalizeTagColorList(tc.extraColumns, tags.length);
+                                const isOtherOwner =
+                                  tc._ownerId != null && String(tc._ownerId) !== String(activeProfileId);
+                                const viewerOverlay =
+                                  tc.id != null && tcViewerTagOverlays
+                                    ? tcViewerTagOverlays[String(tc.id)]
+                                    : null;
+                                const { mergedTags: tagsBase, mergedColors: colorListBase, myTagCount, overlayRaw } =
+                                  buildMergedLibraryTcTags(tc, viewerOverlay);
+                                const baseOwnerRaw = (tc.extraColumns && (tc.extraColumns.tag || tc.extraColumns.Tag)) || '';
+                                const rawTag = isOtherOwner ? overlayRaw : baseOwnerRaw;
                                 const tcEntityKey = getTcEntityKey(tc);
                                 const { orderedTags, orderedColorList, orderedOriginalIndices } =
-                                  reorderTagsForDisplayWithIndices(activeProfileId, tcEntityKey, tags, colorList);
-                                const firstPillColorKey = orderedColorList[0] || tc.extraColumns?.tagColor || 'mint';
+                                  reorderTagsForDisplayWithIndices(activeProfileId, tcEntityKey, tagsBase, colorListBase);
+                                const firstPillColorKey =
+                                  orderedColorList[0] ||
+                                  (isOtherOwner
+                                    ? viewerOverlay?.tagColor
+                                    : tc.extraColumns?.tagColor) ||
+                                  'mint';
                                 const firstPillClass = TAG_PALETTE_MAP[firstPillColorKey] || TAG_PALETTE_MAP.mint;
                                 const displayFirstOrigIndex = orderedOriginalIndices?.[0] ?? 0;
+                                const canEditFirstPillColor =
+                                  !isRowEditingLocked &&
+                                  (!isOtherOwner || (myTagCount > 0 && displayFirstOrigIndex < myTagCount));
+                                const tagSystemLocked = isRowEditingLocked;
                                 const cycleColor = (e) => {
                                   e.stopPropagation();
+                                  if (!canEditFirstPillColor) return;
                                   const keys = TAG_PALETTE_KEYS;
-                                  const cur = tags.length ? colorList[displayFirstOrigIndex] : (tc.extraColumns?.tagColor || 'mint');
+                                  const cur = tagsBase.length
+                                    ? colorListBase[displayFirstOrigIndex]
+                                    : (isOtherOwner
+                                        ? viewerOverlay?.tagColor || 'mint'
+                                        : (tc.extraColumns?.tagColor || 'mint'));
                                   const safeCur = TAG_PALETTE_MAP[cur] ? cur : 'mint';
-                                  const idx = Math.max(0, keys.indexOf(safeCur));
-                                  const nextKey = keys[(idx + 1) % keys.length];
-                                  if (tags.length) {
-                                    const nextList = [...colorList];
+                                  const cidx = Math.max(0, keys.indexOf(safeCur));
+                                  const nextKey = keys[(cidx + 1) % keys.length];
+                                  if (isOtherOwner) {
+                                    if (displayFirstOrigIndex >= myTagCount) return;
+                                    const o = (tcViewerTagOverlays && tcViewerTagOverlays[String(tc.id)]) || {};
+                                    const myRaw = (o.tag || o.Tag) || '';
+                                    const myParts = splitTags(myRaw);
+                                    if (displayFirstOrigIndex >= myParts.length) return;
+                                    const nextList = normalizeTagColorList({ ...o, tag: myRaw }, myParts.length);
+                                    const newList = [...nextList];
+                                    newList[displayFirstOrigIndex] = nextKey;
+                                    patchLibraryTcExtraColumns(tc, {
+                                      tagColor: o.tagColor || 'mint',
+                                      tagColorList: newList,
+                                    });
+                                    return;
+                                  }
+                                  if (tagsBase.length) {
+                                    const nextList = [...colorListBase];
                                     nextList[displayFirstOrigIndex] = nextKey;
                                     patchLibraryTcExtraColumns(tc, { tagColor: nextKey, tagColorList: nextList });
                                   } else {
@@ -5871,24 +6180,20 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                   setLibraryRawTcTagModalEditIndex(null);
                                   setLibraryRawTcTagModalEditDraft('');
                                 };
-                                const tagLocked =
-                                  isRowEditingLocked ||
-                                  (tc._ownerId != null && tc._ownerId !== activeProfileId);
                                 /** … = จัดการ tag ทั้งหมด — pill คลิกสลับสีอย่างเดียว */
-                                const showEllipsis = tagLocked ? tags.length > 1 : tags.length >= 1;
+                                const showEllipsis = tagSystemLocked
+                                  ? orderedTags.length > 1
+                                  : orderedTags.length >= 1;
 
-                                if (tags.length === 0) {
-                                  const lockedTagHint =
-                                    tc._ownerId != null && tc._ownerId !== activeProfileId
-                                      ? 'แก้ไข tag ได้เฉพาะเทสต์เคสของคุณ'
-                                      : isTcSystemLocked(tc)
-                                        ? 'ไม่สามารถเพิ่ม tag ขณะ Running/Pending'
-                                        : isTcManuallyClosed(tc)
-                                          ? 'ไม่สามารถเพิ่ม tag ขณะปิด Vis (Closed)'
-                                          : 'ไม่สามารถเพิ่ม tag';
+                                if (orderedTags.length === 0) {
+                                  const lockedTagHint = isTcSystemLocked(tc)
+                                    ? 'ไม่สามารถเพิ่ม tag ขณะ Running/Pending'
+                                    : isTcManuallyClosed(tc)
+                                      ? 'ไม่สามารถเพิ่ม tag ขณะปิด Vis (Closed)'
+                                      : 'ไม่สามารถเพิ่ม tag';
                                   return (
                                     <div className="flex flex-wrap items-center gap-1 min-w-0">
-                                      {tagLocked ? (
+                                      {tagSystemLocked ? (
                                         <span className="inline-flex items-center gap-1.5">
                                           <span className="inline-flex items-center px-2 py-0.5 rounded-full border border-dashed border-slate-400/50 text-[11px] text-slate-400">
                                             No tag
@@ -5962,7 +6267,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                                 <div className="mt-1 flex flex-wrap gap-1">
                                                   {(() => {
                                                     const existingLower = new Set(
-                                                      tags.map((t) => t.toLowerCase())
+                                                      tagsBase.map((t) => t.toLowerCase())
                                                     );
                                                     const q = libraryRawTcTagPlusDraft
                                                       .trim()
@@ -6040,7 +6345,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
 
                                 return (
                                   <div className="flex flex-wrap items-center gap-1 min-w-0">
-                                    {!tagLocked ? (
+                                    {canEditFirstPillColor ? (
                                       <button
                                         type="button"
                                         onClick={(e) => {
@@ -6062,7 +6367,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                         <span className="truncate">{orderedTags[0]}</span>
                                       </span>
                                     )}
-                                    {!tagLocked &&
+                                    {!tagSystemLocked &&
                                       (libraryRawTcTagPlusKey === key ? (
                                         <input
                                           type="text"

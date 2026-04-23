@@ -936,6 +936,8 @@ export const useTestStore = create((set, get) => {
   serverProfileDirectory: [],
   viewingSharedProfileId: null,
   sharedProfileDataCache: {}, // { [profileId]: { savedTestCases, savedTestCaseSets } }
+  /** Bumps when `preferences.tcViewerTagOverlays` changes (per-viewer tags on others' library TCs). */
+  tcViewerTagEpoch: 0,
 
   // When editing a set (Load): table shows only set items; library (savedTestCases) is never touched
   loadedSetId: null,
@@ -2537,8 +2539,17 @@ export const useTestStore = create((set, get) => {
     if (isBackendProfileId(profileId)) {
       void api.getProfileData(profileId).then((data) => {
         const merged = { savedTestCases: data.savedTestCases ?? testCases, savedTestCaseSets: data.savedTestCaseSets ?? sets };
+        let mergePrefs = false;
+        if (data && typeof data === 'object' && data.preferences != null && typeof data.preferences === 'object') {
+          merged.preferences = { ...(profile.preferences || {}), ...data.preferences };
+          mergePrefs = true;
+        }
         saveProfile(profileId, { ...profile, ...merged });
-        set({ savedTestCases: merged.savedTestCases, savedTestCaseSets: merged.savedTestCaseSets });
+        set((s) => ({
+          savedTestCases: merged.savedTestCases,
+          savedTestCaseSets: merged.savedTestCaseSets,
+          ...(mergePrefs ? { tcViewerTagEpoch: (s.tcViewerTagEpoch || 0) + 1 } : {}),
+        }));
       }).catch(() => {});
     }
     rememberClientOwnerLabel(getClientId(), profile.name || profileId);
@@ -2726,6 +2737,46 @@ export const useTestStore = create((set, get) => {
     }
     return true;
   },
+
+  /**
+   * Local + server: per-viewer tag overlay for a library TC id (when the TC is owned by another profile).
+   * Stored under `profile.preferences.tcViewerTagOverlays[testCaseId]` with the same shape as `extraColumns` tag fields.
+   */
+  getViewerTcTagOverlays: () => {
+    const id = get().activeProfileId;
+    if (!id) return {};
+    const p = loadProfile(id);
+    const o = p?.preferences?.tcViewerTagOverlays;
+    return o && typeof o === 'object' ? o : {};
+  },
+
+  patchViewerTcTagOverlay: (testCaseId, extraOrNull) => {
+    const id = get().activeProfileId;
+    if (!id || testCaseId == null) return;
+    const sid = String(testCaseId);
+    const p = loadProfile(id) || {};
+    const prevPref = p.preferences && typeof p.preferences === 'object' ? p.preferences : {};
+    const overlays = { ...(prevPref.tcViewerTagOverlays || {}) };
+    if (extraOrNull == null) {
+      delete overlays[sid];
+    } else {
+      overlays[sid] = { ...extraOrNull };
+    }
+    const nextPreferences = { ...prevPref, tcViewerTagOverlays: overlays };
+    saveProfile(id, { ...p, preferences: nextPreferences });
+    if (isBackendProfileId(id)) {
+      void api.putProfileData(id, { preferences: nextPreferences }).catch((err) => {
+        console.error('[putProfileData failed: tcViewerTagOverlays]', err);
+        try {
+          get().addToast?.({ type: 'error', message: `บันทึก tag ส่วนตัวไปเซิร์ฟเวอร์ไม่สำเร็จ: ${err?.message || err}` });
+        } catch {
+          /* ignore */
+        }
+      });
+    }
+    set((s) => ({ tcViewerTagEpoch: (s.tcViewerTagEpoch || 0) + 1 }));
+  },
+
   isBackendProfileId: (id) => isBackendProfileId(id),
 
   updateProgress: (id, val) => set((state) => ({
