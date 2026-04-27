@@ -9,7 +9,10 @@ import uuid
 
 class FileType(str, enum.Enum):
     VCD = "VCD"
-    FIRMWARE = "FIRMWARE"
+    EROM = "EROM"
+    ULP = "ULP"
+    TXT = "TXT"
+    FIRMWARE = "FIRMWARE"  # legacy; new uploads use EROM for .bin/.hex/.elf
     SCRIPT = "SCRIPT"
     OTHER = "OTHER"
 

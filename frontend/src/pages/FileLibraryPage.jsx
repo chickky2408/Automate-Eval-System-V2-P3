@@ -27,6 +27,7 @@ import {
 } from '../utils/tagPalette';
 import TagColorSwatchPicker from '../components/TagColorSwatchPicker';
 import UploadChoiceModal from '../components/UploadChoiceModal';
+import { isTestCasePrimaryFileSetComplete } from '../utils/testCasePrimaryFiles';
 
 // Set names that use this file (from fileLibrarySnapshot or items)
 const getSetNamesUsingFile = (fileName, savedTestCaseSets) => {
@@ -2469,6 +2470,10 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     const binName = (rawTcEditorDraft.binName || '').trim();
     const linName = (rawTcEditorDraft.linName || '').trim();
     const tag = (rawTcEditorDraft.tag || '').trim();
+    if (!isTestCasePrimaryFileSetComplete({ vcdName, binName, linName })) {
+      addToast({ type: 'warning', message: 'กรุณาเลือก VCD, ERoM และ ULP ให้ครบก่อนบันทึก' });
+      return;
+    }
 
     // In "duplicate" mode for Running/Pending rows, prevent saving if user didn't change anything.
     // This avoids clutter of duplicate TC entries that are still the same as the one currently in use.
@@ -5619,6 +5624,17 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
               }));
             if (!rows.length) {
               addToast({ type: 'warning', message: 'ไม่พบ test case ที่เลือก' });
+              return;
+            }
+            const runIncomplete = rows.filter((r) => !isTestCasePrimaryFileSetComplete(r));
+            if (runIncomplete.length > 0) {
+              const names = runIncomplete
+                .map((r) => String(r.name || '—').trim() || '—')
+                .slice(0, 5);
+              addToast({
+                type: 'warning',
+                message: `ส่ง Run Set ได้เฉพาะเคสที่มี VCD, ERoM และ ULP ครบ — ${runIncomplete.length} รายการยังไม่ครบ: ${names.join(', ')}${runIncomplete.length > 5 ? '…' : ''}`,
+              });
               return;
             }
             setRunSetImportContext({

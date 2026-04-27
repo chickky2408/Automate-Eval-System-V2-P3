@@ -600,12 +600,17 @@ const formatFileSize = (bytes) => {
 };
 
 const inferFileType = (name, typeHint) => {
-  if (typeHint) {
-    const lowered = String(typeHint).toLowerCase();
-    if (lowered.includes('vcd')) return 'vcd';
-  }
+  const h = typeHint != null ? String(typeHint).trim().toLowerCase() : '';
+  if (h === 'vcd') return 'vcd';
+  if (h === 'erom' || h === 'firmware') return 'erom';
+  if (h === 'ulp') return 'ulp';
+  if (h === 'txt') return 'mdi';
+  if (h === 'script') return 'script';
   const ext = String(name || '').split('.').pop()?.toLowerCase();
   if (ext === 'vcd') return 'vcd';
+  if (['erom', 'bin', 'hex', 'elf'].includes(ext)) return 'erom';
+  if (['ulp', 'lin'].includes(ext)) return 'ulp';
+  if (ext === 'txt') return 'mdi';
   return 'firmware';
 };
 

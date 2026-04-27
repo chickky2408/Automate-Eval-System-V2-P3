@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.database import async_session
 from db.orm_models import FileORM, FileType
+from utils.file_type_utils import classify_file_type_from_filename
 
 class FileStore:
     def __init__(self, base_path: str = "uploads") -> None:
@@ -95,7 +96,7 @@ class FileStore:
     async def add_file(
         self,
         name: str,
-        file_type: str,
+        file_type: str,  # kept for call-site compatibility; stored type is derived from `name`
         content: bytes,
         set_id: Optional[str] = None,
         force_new: bool = False,
@@ -105,7 +106,9 @@ class FileStore:
     ) -> dict:
         """Save file to disk and DB. set_id=None for main library; set_id=id for set storage.
         Detects duplicates: by content (checksum) returns existing record without saving, unless force_new=True;
-        by name sets duplicateByName in response if same name already exists."""
+        by name sets duplicateByName in response if same name already exists.
+        Stored `file_type` is derived from the filename (VCD, EROM, ULP, TXT, …); `file_type` arg is legacy."""
+        _ = file_type
         checksum = self._checksum_bytes(content)
         size = len(content)
 
@@ -121,8 +124,10 @@ class FileStore:
         existing_by_name = await self.find_by_name(name, set_id)
 
         file_uuid = str(uuid.uuid4())
+        # Classify from filename so .erom/.ulp/.txt never fall through to OTHER.
+        cname = classify_file_type_from_filename(name)
         try:
-            ftype = FileType(file_type.upper())
+            ftype = FileType(cname)
         except ValueError:
             ftype = FileType.OTHER
         storage_path = self._get_storage_path(ftype.value, name, file_uuid)
