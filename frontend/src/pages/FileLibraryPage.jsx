@@ -400,6 +400,9 @@ const cloneSavedLibraryTcToSetItem = (tc, finalName) => {
 /** Files tab — same keys as `TAG_PALETTE_MAP` (fileTagColors in store). */
 const FILE_TAG_PALETTE_MAP = TAG_PALETTE_MAP;
 
+/** Order of Library sub-tabs: Files → Test Cases → Sets (for prev/next navigation). */
+const LIBRARY_TAB_ORDER = ['files', 'rawTestCases', 'testCases'];
+
 // FILE LIBRARY PAGE — default: Test Case Library (เรียง set ลงมา แต่ละ set มีตารางแนวนอน + แสดงไฟล์); ปุ่มสลับView files in Library
 const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigateToJob }) => {
   const {
@@ -728,6 +731,22 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     setLibraryView(fileLibraryViewOnNavigate);
     clearFileLibraryViewOnNavigate();
   }, [fileLibraryViewOnNavigate, clearFileLibraryViewOnNavigate]);
+
+  const goPrevLibraryTab = useCallback(() => {
+    setLibraryView((v) => {
+      const i = LIBRARY_TAB_ORDER.indexOf(v);
+      const idx = i < 0 ? 0 : i;
+      return LIBRARY_TAB_ORDER[(idx - 1 + LIBRARY_TAB_ORDER.length) % LIBRARY_TAB_ORDER.length];
+    });
+  }, []);
+  const goNextLibraryTab = useCallback(() => {
+    setLibraryView((v) => {
+      const i = LIBRARY_TAB_ORDER.indexOf(v);
+      const idx = i < 0 ? 0 : i;
+      return LIBRARY_TAB_ORDER[(idx + 1) % LIBRARY_TAB_ORDER.length];
+    });
+  }, []);
+
   const [fileFilter, setFileFilter] = useState('all');
   const [fileStatusFilter, setFileStatusFilter] = useState('all'); // 'all' | 'pending' | 'running' | 'completed'
   const [fileSearch, setFileSearch] = useState('');
@@ -4331,27 +4350,47 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Library</h1>
         <div className="flex items-center gap-2">
-          <div className="flex rounded-lg border border-slate-200 dark:border-slate-600 overflow-hidden shrink-0">
+          <div className="flex items-center gap-0.5 shrink-0">
             <button
               type="button"
-              onClick={() => setLibraryView('files')}
-              className={`px-3 py-1.5 text-xs font-semibold ${libraryView === 'files' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
+              onClick={goPrevLibraryTab}
+              title="Previous tab (Files → Test Cases → Sets)"
+              aria-label="Previous Library tab"
+              className="inline-flex items-center justify-center p-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
             >
-              Files
+              <ChevronLeft size={16} />
             </button>
+            <div className="flex rounded-lg border border-slate-200 dark:border-slate-600 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setLibraryView('files')}
+                className={`px-3 py-1.5 text-xs font-semibold ${libraryView === 'files' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
+              >
+                Files
+              </button>
+              <button
+                type="button"
+                onClick={() => setLibraryView('rawTestCases')}
+                className={`px-3 py-1.5 text-xs font-semibold ${libraryView === 'rawTestCases' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
+              >
+                Test Cases
+              </button>
+              <button
+                type="button"
+                onClick={() => setLibraryView('testCases')}
+                className={`px-3 py-1.5 text-xs font-semibold ${libraryView === 'testCases' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
+              >
+                Sets
+              </button>
+            </div>
             <button
               type="button"
-              onClick={() => setLibraryView('rawTestCases')}
-              className={`px-3 py-1.5 text-xs font-semibold ${libraryView === 'rawTestCases' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
+              onClick={goNextLibraryTab}
+              title="Next tab (Files → Test Cases → Sets)"
+              aria-label="Next Library tab"
+              className="inline-flex items-center justify-center p-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
             >
-              Test Cases
-            </button>
-            <button
-              type="button"
-              onClick={() => setLibraryView('testCases')}
-              className={`px-3 py-1.5 text-xs font-semibold ${libraryView === 'testCases' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
-            >
-              Sets
+              <ChevronRight size={16} />
             </button>
           </div>
           {onNavigateToTestCases && (
