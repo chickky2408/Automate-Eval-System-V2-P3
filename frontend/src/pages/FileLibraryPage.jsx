@@ -2111,6 +2111,12 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     const ownerF = addTcsPickerOwnerFilter === 'mine' || addTcsPickerOwnerFilter === '__active__' ? '__active__' : addTcsPickerOwnerFilter;
     const resolvedOwner =
       ownerF === '__active__' ? (activeProfileId ? String(activeProfileId) : 'all') : String(ownerF || 'all');
+    /** Match libraryRawRows: local saved TCs often omit _ownerId — treat as current profile. */
+    const effectiveTcOwnerId = (tc) => {
+      const o = tc?._ownerId;
+      if (o != null && String(o).trim() !== '') return String(o);
+      return activeProfileId ? String(activeProfileId) : '';
+    };
 
     return addTcsPickerBaseTcs
       .filter((tc) => {
@@ -2120,8 +2126,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
         if (resolvedOwner === 'all') {
           /* all owners */
         } else if (resolvedOwner === 'shared') {
-          if (tc._ownerId === activeProfileId || !tc._ownerId) return false;
-        } else if (String(tc._ownerId || '') !== resolvedOwner) {
+          const eid = effectiveTcOwnerId(tc);
+          if (!eid || eid === String(activeProfileId || '')) return false;
+        } else if (effectiveTcOwnerId(tc) !== resolvedOwner) {
           return false;
         }
         if (addTcsPickerTagColorFilter.trim()) {

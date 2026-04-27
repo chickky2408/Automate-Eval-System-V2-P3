@@ -62,14 +62,21 @@ def _validate_global_unique_test_case_names(
     with 409 whenever any other profile happened to have the same TC name.
 
     We still enforce:
-      - Name uniqueness inside this profile (savedTestCases + set items).
-      - File-set uniqueness inside this profile.
+      - No conflicting duplicate names: same name must map to the same *files* (VCD/ERoM/ULP/MDI) once.
+      - No conflicting duplicate file-sets: same file-set must not refer to a different *name* (clone).
+
+    The frontend may store the *same* logical test case twice with **different** ids (e.g. one in
+    ``savedTestCases`` and a copy in a set's ``items``) while keeping the same display name and files.
+    That previously failed with 409; we now allow name + file-set pairs that match the first
+    occurrence (same name + same non-empty ``_tc_files_key``), so Save Set can sync to the server.
     """
     del all_profiles  # kept for signature compatibility; no longer used for cross-profile checks
 
     data = new_full_data_for_profile if isinstance(new_full_data_for_profile, dict) else {}
     name_to_id: Dict[str, str] = {}
+    name_to_fk: Dict[str, str] = {}
     files_key_to_id: Dict[str, str] = {}
+    files_key_to_name: Dict[str, str] = {}
 
     def walk_tc(tc: Any, idx: Any, kind: str) -> Optional[str]:
         if not isinstance(tc, dict):
@@ -78,18 +85,28 @@ def _validate_global_unique_test_case_names(
         tid = str(tc.get("id") or "").strip()
         if not tid:
             tid = f"{updating_profile_id}:{kind}:{idx}"
+        fk = _tc_files_key(tc)
+
         if n:
             if n in name_to_id:
                 if name_to_id[n] != tid:
-                    return f'Duplicate test case name "{n}" in this profile — please rename'
+                    # Same name, different fe id: OK only if same file-set (library vs set copy).
+                    if not (fk and name_to_fk.get(n) and fk == name_to_fk.get(n)):
+                        return f'Duplicate test case name "{n}" in this profile — please rename'
             else:
                 name_to_id[n] = tid
+                if fk:
+                    name_to_fk[n] = fk
 
-        fk = _tc_files_key(tc)
         if fk:
             if fk in files_key_to_id and files_key_to_id[fk] != tid:
-                return "Duplicate test case files in this profile — another TC already uses the same VCD/ERoM/ULP/MDI set"
-            files_key_to_id[fk] = tid
+                # Same file-set, different fe id: OK only if same display name (paired with rule above).
+                if not (n and files_key_to_name.get(fk) == n):
+                    return "Duplicate test case files in this profile — another TC already uses the same VCD/ERoM/ULP/MDI set"
+            if fk not in files_key_to_id:
+                files_key_to_id[fk] = tid
+            if n and fk not in files_key_to_name:
+                files_key_to_name[fk] = n
         return None
 
     for i, tc in enumerate(data.get("savedTestCases") or []):
