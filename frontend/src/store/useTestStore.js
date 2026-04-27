@@ -528,6 +528,45 @@ const loadSavedTestCases = () => {
 let globalTestCaseDataRefreshTimer = null;
 let scheduleGlobalTestCaseDataRefresh = () => {};
 
+/**
+ * PUT active profile to server: api layer retries transient network errors,
+ * and on 404 we run ensureLocalProfilesSyncedToServer (create/migrate profile) then PUT again.
+ */
+const putActiveProfileDataWithRecovery = async (getPayload, opts = {}) => {
+  const { suppressSyncErrorToast = false, rethrow = false, failMessage = 'Save to server failed' } = opts;
+  const st = () => useTestStore.getState();
+  const doPut = async () => {
+    const id = getActiveProfileId();
+    if (!isBackendProfileId(id)) return;
+    await api.putProfileData(id, getPayload());
+  };
+  try {
+    await doPut();
+    scheduleGlobalTestCaseDataRefresh();
+  } catch (err) {
+    if (err?.status === 404) {
+      try {
+        await st().ensureLocalProfilesSyncedToServer();
+        await doPut();
+        scheduleGlobalTestCaseDataRefresh();
+        return;
+      } catch (err2) {
+        err = err2;
+      }
+    }
+    console.error('[putProfileData failed]', err);
+    if (!suppressSyncErrorToast) {
+      try {
+        st().addToast?.({ type: 'error', message: `${failMessage}: ${formatClientNetworkError(err)}` });
+      } catch {
+        /* ignore */
+      }
+    }
+    if (rethrow) return Promise.reject(err);
+    return undefined;
+  }
+};
+
 // Save saved test cases to active profile (and sync to backend if profile is backend UUID)
 const saveSavedTestCases = (list) => {
   const activeId = getActiveProfileId();
@@ -547,13 +586,20 @@ const saveSavedTestCases = (list) => {
     saveProfile(activeId, newProfile);
   }
   if (isBackendProfileId(activeId)) {
-    const p = loadProfile(activeId);
-    void api.putProfileData(activeId, { savedTestCases: list, savedTestCaseSets: p?.savedTestCaseSets ?? [] }).catch((err) => {
-      console.error('[putProfileData failed: savedTestCases]', err);
-      try { useTestStore.getState().addToast?.({ type: 'error', message: `Save to server failed: ${err?.message || err}` }); } catch { /* ignore */ }
-    });
-    scheduleGlobalTestCaseDataRefresh();
+    return putActiveProfileDataWithRecovery(
+      () => {
+        const id = getActiveProfileId();
+        const p = loadProfile(id);
+        const s = useTestStore.getState();
+        return {
+          savedTestCases: list,
+          savedTestCaseSets: p?.savedTestCaseSets ?? s.savedTestCaseSets ?? [],
+        };
+      },
+      { failMessage: 'Save to server failed' }
+    );
   }
+  return Promise.resolve();
 };
 
 // Load saved test case sets (collections) from active profile
@@ -564,7 +610,9 @@ const loadSavedTestCaseSets = () => {
 };
 
 // Save saved test case sets to active profile (and sync to backend if profile is backend UUID)
-const saveSavedTestCaseSets = (sets) => {
+// Returns a Promise so callers (e.g. duplicate) can await and show a single combined toast.
+const saveSavedTestCaseSets = (sets, opts = {}) => {
+  const { suppressSyncErrorToast = false, rethrow = false } = opts;
   const activeId = getActiveProfileId();
   const profile = loadProfile(activeId);
   if (profile) {
@@ -582,13 +630,24 @@ const saveSavedTestCaseSets = (sets) => {
     saveProfile(activeId, newProfile);
   }
   if (isBackendProfileId(activeId)) {
-    const p = loadProfile(activeId);
-    void api.putProfileData(activeId, { savedTestCases: p?.savedTestCases ?? [], savedTestCaseSets: sets }).catch((err) => {
-      console.error('[putProfileData failed: savedTestCaseSets]', err);
-      try { useTestStore.getState().addToast?.({ type: 'error', message: `Save set to server failed: ${err?.message || err}` }); } catch { /* ignore */ }
-    });
-    scheduleGlobalTestCaseDataRefresh();
+    return putActiveProfileDataWithRecovery(
+      () => {
+        const id = getActiveProfileId();
+        const p = loadProfile(id);
+        const s = useTestStore.getState();
+        return {
+          savedTestCases: p?.savedTestCases ?? s.savedTestCases ?? [],
+          savedTestCaseSets: p?.savedTestCaseSets ?? sets,
+        };
+      },
+      {
+        suppressSyncErrorToast,
+        rethrow,
+        failMessage: 'Save set to server failed',
+      }
+    );
   }
+  return Promise.resolve();
 };
 
 // Helper function to format file size
@@ -2243,29 +2302,43 @@ export const useTestStore = create((set, get) => {
       queueMicrotask(() => endSavedTestCaseSetPending(id));
     }
   },
-  duplicateSavedTestCaseSet: (id) => {
+  duplicateSavedTestCaseSet: async (id) => {
     const original = (get().savedTestCaseSets || []).find((s) => s.id === id);
-    if (!original) return;
-    if (!beginSavedTestCaseSetPending(id, 'duplicate')) return;
+    if (!original) return { ok: false };
+    if (!beginSavedTestCaseSetPending(id, 'duplicate')) return { ok: false };
+    const src = get().savedTestCaseSets.find((s) => s.id === id);
+    if (!src) {
+      queueMicrotask(() => endSavedTestCaseSetPending(id));
+      return { ok: false };
+    }
+    const now = new Date().toISOString();
+    const newId = `tcs-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const baseName = src.name || 'Set';
+    const newName = `${baseName} (copy)`;
+    const copy = {
+      ...src,
+      id: newId,
+      name: newName,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const next = [...(get().savedTestCaseSets || []), copy];
+    set({ savedTestCaseSets: next });
     try {
-      set((state) => {
-        const src = state.savedTestCaseSets.find((s) => s.id === id);
-        if (!src) return state;
-        const now = new Date().toISOString();
-        const newId = `tcs-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-        const baseName = src.name || 'Set';
-        const newName = `${baseName} (copy)`;
-        const copy = {
-          ...src,
-          id: newId,
-          name: newName,
-          createdAt: now,
-          updatedAt: now,
-        };
-        const next = [...state.savedTestCaseSets, copy];
-        saveSavedTestCaseSets(next);
-        return { savedTestCaseSets: next };
+      await saveSavedTestCaseSets(next, { suppressSyncErrorToast: true, rethrow: true });
+      get().addToast({
+        type: 'success',
+        message: `สำเนา set แล้ว — "${newName}"`,
+        duration: 4000,
       });
+      return { ok: true, newId };
+    } catch (err) {
+      get().addToast({
+        type: 'warning',
+        message: `สำเนาไว้ในเครื่องแล้ว ("${newName}") แต่ซิงค์ server ไม่สำเร็จ — ${err?.message || err}`,
+        duration: 7000,
+      });
+      return { ok: false, newId, error: err };
     } finally {
       queueMicrotask(() => endSavedTestCaseSetPending(id));
     }

@@ -531,6 +531,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
   const createJob = useTestStore((s) => s.createJob);
   const refreshFiles = useTestStore((s) => s.refreshFiles);
   const addToast = useTestStore((s) => s.addToast);
+  const duplicateSavedTestCaseSet = useTestStore((s) => s.duplicateSavedTestCaseSet);
   const setLibraryEditContext = useTestStore((s) => s.setLibraryEditContext);
   const clearLibraryEditContext = useTestStore((s) => s.clearLibraryEditContext);
   const setRunSetImportContext = useTestStore((s) => s.setRunSetImportContext);
@@ -4833,6 +4834,10 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                     !isSetLocked &&
                     !setBusy &&
                     (set._ownerId == null || String(set._ownerId) === String(activeProfileId));
+                  /** สำเนา set ได้แม้ set กำลัง running/pending (ก็อปปี้รายการไปชุดใหม่) */
+                  const canDuplicateSet =
+                    !setBusy &&
+                    (set._ownerId == null || String(set._ownerId) === String(activeProfileId));
                   return (
                     <div
                       key={set.id}
@@ -4948,8 +4953,27 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                             </span>
                           )}
 
-                          {(setStatus || canEditSet) && (
+                          {(setStatus || canDuplicateSet || canEditSet) && (
                             <span className="w-px h-6 bg-slate-200 dark:bg-slate-700 mx-1" aria-hidden />
+                          )}
+
+                          {canDuplicateSet && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (setBusy) return;
+                                  void duplicateSavedTestCaseSet(set.id);
+                                }}
+                                disabled={setBusy}
+                                className="p-1.5 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-600 disabled:opacity-40 disabled:pointer-events-none"
+                                title="สำเนา set นี้ (เหมือน Run set)"
+                                aria-label="Duplicate set"
+                              >
+                                <Copy size={14} strokeWidth={2} />
+                              </button>
+                              <span className="w-px h-6 bg-slate-200 dark:bg-slate-700 mx-1" aria-hidden />
+                            </>
                           )}
 
                           {canEditSet && (

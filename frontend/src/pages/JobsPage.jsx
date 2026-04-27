@@ -919,8 +919,8 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
                 {showDetails ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                 Details
               </button>
-              {/* Edit Batch button removed per UX request */}
-                  {!isDemoJob && (
+              {/* ลบได้เฉพาะ Pending / Error / Completed — ไม่แสดงระหว่าง Running (กันลบขณะกำลังรัน) */}
+                  {!isDemoJob && column !== 'running' && (
                     <button
                       type="button"
                       onClick={(e) => {

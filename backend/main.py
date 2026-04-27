@@ -90,11 +90,12 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
         },
     )
 
-# CORS for frontend development
+# CORS: `allow_origins=["*"]` คู่กับ `allow_credentials=True` สเปก CORS ไม่อนุญาต — browser
+# อาจ block preflight/PUT เป็น "Load failed" ข้ามพอร์ต (เช่น Vite 5173 → API 8000)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Restrict in production
-    allow_credentials=True,
+    allow_credentials=False,  # JWT ใส่ใน header ไม่ต้องใช้ credentialed CORS
     allow_methods=["*"],
     allow_headers=["*"],
 )

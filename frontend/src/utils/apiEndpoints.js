@@ -57,10 +57,13 @@ export function formatClientNetworkError(error) {
     apiToLocalhost = /\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(baseStr);
   }
 
+  const uvicornHostHint =
+    ' ถ้ารัน Uvicorn เอง: ต้อง `--host 0.0.0.0` (ค่าเริ่มต้น 127.0.0.1 จะรับ `http://<LAN-IP>:8000` ไม่ได้)';
+
   const hint =
     onLan && apiToLocalhost
       ? ` ตั้ง VITE_API_BASE_URL=http://${host}:8000/api ใน env ของ frontend แล้วรีสตาร์ต npm run dev (ตอนนี้ API=${baseStr || '—'})`
-      : ` ตรวจ backend รันที่พอร์ตเดียวกับ API (${baseStr || '—'}) และลองรีเฟรช`;
+      : ` ตรวจ backend รันที่พอร์ตเดียวกับ API (${baseStr || '—'}) แล้วรีเฟรช${uvicornHostHint}`;
   return `${raw} —${hint}`;
 }
 

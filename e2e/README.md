@@ -29,7 +29,7 @@ Start the backend separately (API tests skip automatically if it's not up):
 
 ```bash
 # In one terminal
-cd backend && uvicorn main:app --reload
+cd backend && uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 # …or the full stack with Docker
 docker compose up -d
 ```
