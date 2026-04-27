@@ -9,7 +9,6 @@ For quick offline/demo runs (no Postgres service required) you can opt in to
 the SQLite fallback by setting the environment variable ``USE_SQLITE_DEMO=1``.
 """
 from sqlalchemy import text
-from sqlalchemy.engine import IsolationLevel
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 import os
@@ -79,33 +78,30 @@ def _pg_filetype_enum_name(connection) -> str:
     return "filetype"
 
 
-def _sync_add_pg_filetype_enum_values_autocommit(connection) -> None:
-    """
-    New enum labels must be visible to following connections. Running ADD VALUE inside
-    the same engine.begin() block as other DDL/DML can be rolled back entirely, or
-    (with some drivers) new labels are not usable until commit — so inserts then fail
-    with invalid input value for enum. Use AUTOCOMMIT for ALTER TYPE ... ADD VALUE.
-    """
-    if "sqlite" in DATABASE_URL:
-        return
-    typ = _pg_filetype_enum_name(connection)
-    aut = connection.execution_options(isolation_level=IsolationLevel.AUTOCOMMIT)
-    for val in ("EROM", "ULP", "TXT"):
-        try:
-            aut.execute(text(f'ALTER TYPE "{typ}" ADD VALUE IF NOT EXISTS \'{val}\''))
-        except Exception:
-            try:
-                aut.execute(text(f'ALTER TYPE "{typ}" ADD VALUE \'{val}\''))
-            except Exception:
-                pass
-
-
 async def _ensure_postgres_filetype_enum_values() -> None:
+    """
+    Add EROM/ULP/TXT to the PostgreSQL filetype enum.
+
+    Do NOT use execution_options(isolation_level=AUTOCOMMIT) on a connection from
+    engine.connect()/run_sync — SQLAlchemy may have already started a transaction
+    ("isolation_level may not be altered unless rollback() or commit() is called first").
+
+    A dedicated async transaction that only runs ALTER TYPE ... ADD VALUE commits
+    cleanly; backfill UPDATEs stay in a later migration block.
+    """
     if "sqlite" in DATABASE_URL or USE_SQLITE_DEMO:
         return
-    async with engine.connect() as ac:
-        await ac.run_sync(_sync_add_pg_filetype_enum_values_autocommit)
-        await ac.commit()
+
+    async with engine.begin() as conn:
+        typ = await conn.run_sync(_pg_filetype_enum_name)
+        for val in ("EROM", "ULP", "TXT"):
+            try:
+                await conn.execute(text(f'ALTER TYPE "{typ}" ADD VALUE IF NOT EXISTS \'{val}\''))
+            except Exception:
+                try:
+                    await conn.execute(text(f'ALTER TYPE "{typ}" ADD VALUE \'{val}\''))
+                except Exception:
+                    pass
 
 
 async def init_db():

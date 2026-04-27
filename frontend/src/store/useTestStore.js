@@ -27,6 +27,7 @@ import { getClientId } from '../utils/sessionStorage';
 import { isValidPaletteKey, TAG_PALETTE_MAP, splitTagsComma } from '../utils/tagPalette';
 import { rememberClientOwnerLabel, syncOwnerLabelsFromJobs, syncOwnerLabelsFromFiles } from '../utils/profileOwnerLabel';
 import api from '../services/api';
+import { formatClientNetworkError } from '../utils/apiEndpoints';
 
 /** Auto-dismiss timer for in-app job alert overlay */
 let jobAttentionBannerTimer = null;
@@ -1444,7 +1445,7 @@ export const useTestStore = create((set, get) => {
       return uploaded;
     } catch (error) {
       console.error('Failed to upload file', error);
-      const msg = error?.message || String(error) || 'Unknown error';
+      const msg = formatClientNetworkError(error);
       try {
         get().addToast?.({ type: 'error', message: `Upload failed: ${msg}` });
       } catch { /* addToast not ready */ }
