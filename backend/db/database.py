@@ -9,6 +9,7 @@ For quick offline/demo runs (no Postgres service required) you can opt in to
 the SQLite fallback by setting the environment variable ``USE_SQLITE_DEMO=1``.
 """
 from sqlalchemy import text
+from sqlalchemy.engine import IsolationLevel
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 import os
@@ -58,11 +59,65 @@ class Base(DeclarativeBase):
     pass
 
 
+def _pg_filetype_enum_name(connection) -> str:
+    """Name of the PostgreSQL enum type backing files.file_type (e.g. filetype)."""
+    row = connection.execute(
+        text(
+            """
+            SELECT t.typname::text
+            FROM pg_type t
+            JOIN pg_attribute a ON a.atttypid = t.oid
+            WHERE a.attrelid = 'files'::regclass
+              AND a.attname = 'file_type'
+              AND t.typtype = 'e'
+            LIMIT 1
+            """
+        )
+    ).first()
+    if row and row[0]:
+        return str(row[0])
+    return "filetype"
+
+
+def _sync_add_pg_filetype_enum_values_autocommit(connection) -> None:
+    """
+    New enum labels must be visible to following connections. Running ADD VALUE inside
+    the same engine.begin() block as other DDL/DML can be rolled back entirely, or
+    (with some drivers) new labels are not usable until commit — so inserts then fail
+    with invalid input value for enum. Use AUTOCOMMIT for ALTER TYPE ... ADD VALUE.
+    """
+    if "sqlite" in DATABASE_URL:
+        return
+    typ = _pg_filetype_enum_name(connection)
+    aut = connection.execution_options(isolation_level=IsolationLevel.AUTOCOMMIT)
+    for val in ("EROM", "ULP", "TXT"):
+        try:
+            aut.execute(text(f'ALTER TYPE "{typ}" ADD VALUE IF NOT EXISTS \'{val}\''))
+        except Exception:
+            try:
+                aut.execute(text(f'ALTER TYPE "{typ}" ADD VALUE \'{val}\''))
+            except Exception:
+                pass
+
+
+async def _ensure_postgres_filetype_enum_values() -> None:
+    if "sqlite" in DATABASE_URL or USE_SQLITE_DEMO:
+        return
+    async with engine.connect() as ac:
+        await ac.run_sync(_sync_add_pg_filetype_enum_values_autocommit)
+        await ac.commit()
+
+
 async def init_db():
     """Initialize database tables (create if not present). Runs migration to add set_id to files if needed."""
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+
+        # PostgreSQL: ensure filetype enum includes EROM/ULP/TXT (must not rely only on
+        # the transactional migration block — ADD VALUE can be rolled back or unusable
+        # until commit, which caused INSERT ... 'ULP' / 'TXT' to fail on upload).
+        await _ensure_postgres_filetype_enum_values()
 
         # Migration: add set_id to files if not present
         async with engine.begin() as conn:
@@ -412,7 +467,7 @@ async def init_db():
                 sync_conn.execute(text("ALTER TABLE results DROP COLUMN IF EXISTS firmware_filename"))
             await conn.run_sync(_drop_legacy_filename_columns)
 
-        # Migration: extend files.file_type with EROM, ULP, TXT; backfill by filename suffix
+        # Backfill: files.file_type from filename (enum labels EROM/ULP/TXT added in _ensure_postgres_filetype_enum_values)
         async with engine.begin() as conn:
             def _migrate_filetype_enum_backfill(sync_conn):
                 is_sqlite = "sqlite" in DATABASE_URL
@@ -432,14 +487,6 @@ async def init_db():
                         )
                     ).first()
                     pg_filetype = row[0] if row else None
-                    if pg_filetype:
-                        for val in ("EROM", "ULP", "TXT"):
-                            try:
-                                sync_conn.execute(
-                                    text(f'ALTER TYPE "{pg_filetype}" ADD VALUE \'{val}\'')
-                                )
-                            except Exception:
-                                pass
                 where_by_kind = {
                     "VCD": "LOWER(filename) LIKE '%.vcd'",
                     "EROM": "LOWER(filename) LIKE '%.erom' OR LOWER(filename) LIKE '%.bin' OR LOWER(filename) LIKE '%.hex' OR LOWER(filename) LIKE '%.elf'",
