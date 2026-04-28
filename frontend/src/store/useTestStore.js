@@ -780,7 +780,7 @@ function collectFileNamesFromTestCaseForSetSnapshot(tc) {
   });
   const ex = tc.extraColumns || {};
   Object.keys(ex).forEach((k) => {
-    if (/^(VCD|ERoM|ULP)\d+$/i.test(k)) add(ex[k]);
+    if (/^(VCD|ERoM|ULP|MDI)\d+$/i.test(k)) add(ex[k]);
   });
   return [...names];
 }
@@ -3927,6 +3927,12 @@ export const useTestStore = create((set, get) => {
       const fileIndex = files.findIndex(f => f.id === fileId);
       
       if (fileIndex <= 0) return state;
+
+      const st = (s) => String(s || '').toLowerCase();
+      const cur = files[fileIndex];
+      const above = files[fileIndex - 1];
+      /** Only reorder within the pending queue — never swap past running/completed/etc. */
+      if (st(cur.status) !== 'pending' || st(above.status) !== 'pending') return state;
       
       const tempOrder = files[fileIndex].order;
       files[fileIndex].order = files[fileIndex - 1].order;
@@ -3952,6 +3958,11 @@ export const useTestStore = create((set, get) => {
       const fileIndex = files.findIndex(f => f.id === fileId);
       
       if (fileIndex >= files.length - 1) return state;
+
+      const st = (s) => String(s || '').toLowerCase();
+      const cur = files[fileIndex];
+      const below = files[fileIndex + 1];
+      if (st(cur.status) !== 'pending' || st(below.status) !== 'pending') return state;
       
       const tempOrder = files[fileIndex].order;
       files[fileIndex].order = files[fileIndex + 1].order;

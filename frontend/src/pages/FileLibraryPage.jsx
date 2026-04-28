@@ -641,6 +641,39 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     return names;
   }, [fileStatusByName]);
 
+  /** Filenames referenced by saved Test Cases or Set items (idle) — same delete/stability rules as batch in-use. */
+  const fileNamesReferencedBySavedLibrary = useMemo(() => {
+    const names = new Set();
+    const addFromTc = (tc) => {
+      if (!tc || typeof tc !== 'object') return;
+      const add = (n) => {
+        const s = (n ?? '').toString().trim();
+        if (s) names.add(s);
+      };
+      add(tc.vcdName);
+      add(tc.binName);
+      add(tc.linName);
+      (tc.commands || []).forEach((c) => {
+        if (c?.file) add(c.file);
+      });
+      const ex = tc.extraColumns || {};
+      Object.keys(ex).forEach((k) => {
+        if (/^(VCD|ERoM|ULP|MDI)\d+$/i.test(k)) add(ex[k]);
+      });
+    };
+    (fileReferenceTestCases || []).forEach(addFromTc);
+    (fileReferenceTestCaseSets || []).forEach((set) => {
+      (set.items || []).forEach(addFromTc);
+    });
+    return names;
+  }, [fileReferenceTestCaseSets, fileReferenceTestCases]);
+
+  const fileNamesLockedForLibraryDelete = useMemo(() => {
+    const out = new Set(fileNamesInUseByBatch);
+    fileNamesReferencedBySavedLibrary.forEach((n) => out.add(n));
+    return out;
+  }, [fileNamesInUseByBatch, fileNamesReferencedBySavedLibrary]);
+
   useEffect(() => { refreshFiles(); }, [refreshFiles]);
   const fileImportInputRef = useRef(null);
   const inlineFileImportInputRef = useRef(null);
@@ -1880,7 +1913,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     });
     const ex = tc.extraColumns || {};
     Object.keys(ex).forEach((k) => {
-      if (/^(VCD|ERoM|ULP)\d+$/i.test(k)) add(ex[k]);
+      if (/^(VCD|ERoM|ULP|MDI)\d+$/i.test(k)) add(ex[k]);
     });
     return [...names];
   }, []);
@@ -2701,13 +2734,13 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
 
   const handleDeleteAll = async () => {
     if (!uploadedFiles?.length) return;
-    const inUseCount = uploadedFiles.filter((f) => fileNamesInUseByBatch.has(f.name)).length;
-    const toDelete = uploadedFiles.filter((f) => !fileNamesInUseByBatch.has(f.name));
+    const inUseCount = uploadedFiles.filter((f) => fileNamesLockedForLibraryDelete.has(f.name)).length;
+    const toDelete = uploadedFiles.filter((f) => !fileNamesLockedForLibraryDelete.has(f.name));
     if (toDelete.length === 0) {
-      addToast({ type: 'warning', message: 'ไฟล์ทั้งหมดกำลังถูกใช้โดย set (running/pending) — ไม่สามารถลบได้จนกว่า process จะจบ' });
+      addToast({ type: 'warning', message: 'ไฟล์ทั้งหมดถูกอ้างอิงโดย Test Case / Set ที่บันทึกไว้ หรือกำลัง running/pending — ลบไม่ได้จนกว่าจะไม่ถูกใช้' });
       return;
     }
-    if (!window.confirm(`Delete ${toDelete.length} file(s) from Library?${inUseCount > 0 ? `\n\n${inUseCount} file(s) กำลังถูกใช้ (running/pending) จะไม่ถูกลบ` : ''}`)) return;
+    if (!window.confirm(`Delete ${toDelete.length} file(s) from Library?${inUseCount > 0 ? `\n\n${inUseCount} file(s) ถูกอ้างอิง (saved / running/pending) จะไม่ถูกลบ` : ''}`)) return;
     setIsDeleting(true);
     let deleted = 0;
     for (const f of toDelete) {
@@ -2716,15 +2749,15 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     }
     setIsDeleting(false);
     if (deleted > 0) addToast({ type: 'success', message: `Deleted ${deleted} file(s)` });
-    if (inUseCount > 0) addToast({ type: 'info', message: `${inUseCount} file(s) ไม่ถูกลบ (กำลังถูกใช้โดย set)` });
+    if (inUseCount > 0) addToast({ type: 'info', message: `${inUseCount} file(s) ไม่ถูกลบ (ถูกอ้างอิงโดย saved Test Case / Set หรือ process)` });
   };
 
   const handleDeleteBox = async (setId, files) => {
     if (!files?.length) return;
-    const toDelete = files.filter((f) => !fileNamesInUseByBatch.has(f.name));
+    const toDelete = files.filter((f) => !fileNamesLockedForLibraryDelete.has(f.name));
     const inUseCount = files.length - toDelete.length;
     if (toDelete.length === 0) {
-      addToast({ type: 'warning', message: 'ไฟล์ในกล่องนี้ทั้งหมดกำลังถูกใช้ (running/pending) — ไม่สามารถลบได้' });
+      addToast({ type: 'warning', message: 'ไฟล์ในกล่องนี้ทั้งหมดถูกอ้างอิง (saved / running/pending) — ไม่สามารถลบได้' });
       return;
     }
     if (!window.confirm(`Delete ${toDelete.length} file(s) in this box from Library?${inUseCount > 0 ? `\n\n${inUseCount} file(s) กำลังถูกใช้ จะไม่ถูกลบ` : ''}`)) return;
@@ -5493,6 +5526,13 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
           const hasRunningOrPendingInSelection = libraryFilteredRows.some(
             (r) => selectedSet.has(r._key) && (r._status === 'running' || r._status === 'pending'),
           );
+          const hasLibraryTcSavedInSetInSelection = libraryFilteredRows.some(
+            (r) =>
+              selectedSet.has(r._key) &&
+              r._source === 'current' &&
+              Array.isArray(r._inSetNames) &&
+              r._inSetNames.length > 0,
+          );
           const hasStorePendingInSelection = libraryFilteredRows.some(
             (r) =>
               selectedSet.has(r._key) &&
@@ -5592,6 +5632,14 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
             }
             if (hasRunningOrPendingInSelection) {
               addToast({ type: 'warning', message: 'Test case are running/pending — cannot be deleted until process is finished' });
+              return;
+            }
+            if (hasLibraryTcSavedInSetInSelection) {
+              addToast({
+                type: 'warning',
+                message:
+                  'Test case(s) are still listed in one or more saved sets — remove them from those sets first, or delete the set entry, before removing the Test Case from Library.',
+              });
               return;
             }
             const toRemove = libraryRawRows
@@ -7002,7 +7050,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                     }
                                     const lastModified = f.updatedAt || f.uploadDate || f.createdAt || null;
                                     const ownerShort = resolveFileOwnerDisplay(f, ownerLabelCtx);
-                                    const inUseByBatch = fileNamesInUseByBatch.has(f.name);
+                                    const inUseByBatch = fileNamesLockedForLibraryDelete.has(f.name);
                                     const isClosed = isFileManuallyClosed(f);
                                     return (
                                       <tr
@@ -7156,7 +7204,11 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                             onClick={(e) => {
                                               e.stopPropagation();
                                               if (inUseByBatch) {
-                                                addToast({ type: 'warning', message: 'File is locked by a running or pending set — cannot change Vis' });
+                                                addToast({
+                                                  type: 'warning',
+                                                  message:
+                                                    'File is referenced by saved Test Cases/Sets or an active job — cannot change visibility until unused',
+                                                });
                                                 return;
                                               }
                                               const nextClosed = !isClosed;
@@ -7165,7 +7217,13 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                             className={`inline-flex items-center justify-center p-1 rounded ${
                                               inUseByBatch ? 'text-blue-500 hover:bg-blue-500/10 cursor-not-allowed opacity-80' : isClosed ? 'text-amber-500 hover:bg-amber-500/10' : 'text-slate-400 hover:bg-slate-500/10'
                                             }`}
-                                            title={inUseByBatch ? 'Locked by system (running/pending)' : isClosed ? 'Closed — click to open/selectable' : 'Open — click to close/lock from select all'}
+                                            title={
+                                              inUseByBatch
+                                                ? 'Locked — referenced by saved content or active job'
+                                                : isClosed
+                                                  ? 'Closed — click to open/selectable'
+                                                  : 'Open — click to close/lock from select all'
+                                            }
                                           >
                                             {inUseByBatch ? <Lock size={14} className="inline" /> : isClosed ? <Lock size={14} className="inline" /> : <Globe size={14} className="inline" />}
                                           </button>
@@ -7404,10 +7462,10 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
         (() => {
           const selectedFileSet = new Set(selectedLibraryFileIds);
           const selectableFileIds = filteredFiles
-            .filter((f) => !fileNamesInUseByBatch.has(f.name) && !isFileManuallyClosed(f))
+            .filter((f) => !fileNamesLockedForLibraryDelete.has(f.name) && !isFileManuallyClosed(f))
             .map((f) => f.id)
             .filter(Boolean);
-          const allFilesInUse = (uploadedFiles || []).length > 0 && (uploadedFiles || []).every((f) => fileNamesInUseByBatch.has(f.name));
+          const allFilesInUse = (uploadedFiles || []).length > 0 && (uploadedFiles || []).every((f) => fileNamesLockedForLibraryDelete.has(f.name));
           const toggleFileSelect = (fileId, index, e) => {
             const row = filteredFiles[index];
             if (row && isFileManuallyClosed(row)) return;
@@ -7440,7 +7498,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
           };
           const selectedInUse = selectedLibraryFileIds.filter((id) => {
             const f = filteredFiles.find((x) => x.id === id);
-            return f && fileNamesInUseByBatch.has(f.name);
+            return f && fileNamesLockedForLibraryDelete.has(f.name);
           }).length;
           const handleDeleteSelectedFiles = async () => {
             if (selectedFileSet.size === 0) {
@@ -7452,7 +7510,11 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
               return;
             }
             if (selectedInUse > 0) {
-              addToast({ type: 'warning', message: 'ไฟล์ที่กำลังถูกใช้โดย set (running/pending) ไม่สามารถลบได้ — รอให้ process จบก่อน' });
+              addToast({
+                type: 'warning',
+                message:
+                  'ไฟล์ที่ถูกอ้างอิงโดย Test Case / Set ที่บันทึกไว้ หรือกำลัง running/pending — ลบจาก Library ไม่ได้จนกว่าจะไม่ถูกใช้',
+              });
               return;
             }
             if (!window.confirm(`Delete ${selectedFileSet.size} selected file(s) from Library?`)) return;
@@ -7460,7 +7522,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
             let deleted = 0;
             for (const id of selectedLibraryFileIds) {
               const f = filteredFiles.find((x) => x.id === id);
-              if (f && fileNamesInUseByBatch.has(f.name)) continue;
+              if (f && fileNamesLockedForLibraryDelete.has(f.name)) continue;
               const ok = await removeUploadedFile(id);
               if (ok) deleted++;
             }
@@ -7795,11 +7857,11 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                   else setSelectedLibraryFileIds([]);
                                 }}
                                 className="w-4 h-4 rounded cursor-pointer"
-                                title="Select all (excluding files in use by running/pending set)"
+                                title="Select all (excluding files referenced by saved Test Cases/Sets or active jobs)"
                               />
                               <span className="text-xs text-slate-500 dark:text-slate-400">
                                 Select all ({filteredFiles.length})
-                                {selectableFileIds.length < filteredFiles.length ? ` — ${filteredFiles.length - selectableFileIds.length} locked (in use)` : ''}
+                                {selectableFileIds.length < filteredFiles.length ? ` — ${filteredFiles.length - selectableFileIds.length} locked (referenced)` : ''}
                               </span>
                             </div>
                           </th>
@@ -7840,7 +7902,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                           const isFocused = libraryFocusFileName && f.name === libraryFocusFileName;
                           const isHighlighted = isSelected || isFocused;
                           const usedByTcsTitle = usedByTcs.length > 0 ? usedByTcs.map((u) => `${u.name}${u.set ? ` (${u.set})` : ''}`).join('\n') : '';
-                          const inUseByBatch = fileNamesInUseByBatch.has(f.name);
+                          const inUseByBatch = fileNamesLockedForLibraryDelete.has(f.name);
                           const isFileClosed = isFileManuallyClosed(f);
                           const isFileInProcess = inUseByBatch;
                           /** System lock (running/pending job): dim row — opacity on all but first td so explicit text-slate-700 / colored chips still look grey; checkbox column stays full strength */
@@ -7852,7 +7914,11 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                             <tr
                               key={f.id}
                               ref={isFocused ? focusedLibraryFileRef : null}
-                              title={dimProcessRow ? 'Running / Pending — ระบบล็อก (แถวจางลง — ยังเลือก checkbox ได้)' : undefined}
+                              title={
+                                dimProcessRow
+                                  ? 'Referenced by saved Test Cases/Sets or active job — locked row (still selectable)'
+                                  : undefined
+                              }
                               className={`text-slate-800 dark:text-slate-100 ${fpBusy ? 'ring-1 ring-amber-400/50 dark:ring-amber-500/40' : ''} ${isFileClosed ? 'opacity-75 bg-slate-50/50 dark:bg-slate-800/30 cursor-not-allowed' : 'cursor-pointer'} ${isHighlighted ? 'bg-blue-50 dark:bg-blue-900/20' : dimProcessRow ? 'bg-slate-100/75 dark:bg-slate-900/50' : ''} ${dimProcessRow ? '[&_td:not(:first-child)]:opacity-55 dark:[&_td:not(:first-child)]:opacity-60' : ''} ${!isHighlighted && !isFileClosed && !isFileInProcess ? 'hover:bg-slate-50 dark:hover:bg-slate-700/40' : ''} ${!isHighlighted && dimProcessRow ? 'hover:bg-slate-100/90 dark:hover:bg-slate-800/60' : ''}`}
                               onClick={(e) => {
                                 if (e.target.closest('input[type="checkbox"]') || e.target.closest('button') || e.target.closest('input[type="text"]')) return;
@@ -7885,7 +7951,15 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                   }}
                                   onClick={(e) => e.stopPropagation()}
                                   className={`w-4 h-4 rounded shrink-0 border-slate-300 text-blue-600 ${isFileClosed || fpBusy ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
-                                  title={fpBusy ? 'กำลังบันทึก/ลบ — รอสักครู่' : isFileClosed ? 'Vis=close — not selectable' : inUseByBatch ? 'File in use by a running/pending set — cannot delete, but can select' : undefined}
+                                  title={
+                                    fpBusy
+                                      ? 'กำลังบันทึก/ลบ — รอสักครู่'
+                                      : isFileClosed
+                                        ? 'Vis=close — not selectable'
+                                        : inUseByBatch
+                                          ? 'File referenced by saved Test Case/Set or active job — cannot delete; can select'
+                                          : undefined
+                                  }
                                 />
                               </td>
                               <td className="px-2 py-1.5 align-top min-w-0">
@@ -8144,7 +8218,11 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                     e.stopPropagation();
                                     if (fpBusy) return;
                                     if (inUseByBatch) {
-                                      addToast({ type: 'warning', message: 'File is locked by a running or pending set — cannot change Vis' });
+                                      addToast({
+                                        type: 'warning',
+                                        message:
+                                          'File is referenced by saved Test Cases/Sets or an active job — cannot change visibility until unused',
+                                      });
                                       return;
                                     }
                                     const nextClosed = !isFileClosed;
@@ -8164,7 +8242,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                     fpBusy
                                       ? 'กำลังบันทึก/ลบ — รอสักครู่'
                                       : inUseByBatch
-                                        ? 'Locked by system (running/pending) — system lock'
+                                        ? 'Locked — referenced by saved content or active job'
                                         : isFileClosed
                                           ? 'Closed — click to open/selectable'
                                           : 'Open — click to close/lock from select all'
@@ -8205,13 +8283,13 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                           const title = setInfo.name || `Set ${idx + 1}`;
                           const boxId = setInfo.id;
                           const isDeletingBox = deletingBoxId === boxId;
-                          const boxDeletableFiles = files.filter((f) => !fileNamesInUseByBatch.has(f.name));
+                          const boxDeletableFiles = files.filter((f) => !fileNamesLockedForLibraryDelete.has(f.name));
                           const boxAllInUse = boxDeletableFiles.length === 0;
                           return (
                             <div key={boxId} className="rounded-lg border border-slate-200 dark:border-slate-600 overflow-hidden bg-slate-50/50 dark:bg-slate-800/30">
                               <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800/50 flex items-center justify-between gap-2">
                                 <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">{title} <span className="text-xs font-normal text-slate-500">({files.length})</span></span>
-                                <button type="button" onClick={() => handleDeleteBox(boxId, files)} disabled={isDeletingBox || boxAllInUse} className={`p-1.5 rounded ${boxAllInUse ? 'opacity-50 cursor-not-allowed text-slate-400' : 'text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20'} disabled:opacity-60`} title={boxAllInUse ? 'ไฟล์ในกล่องนี้กำลังถูกใช้ (running/pending) — ไม่สามารถลบได้' : 'Delete all files in this box'}><Trash2 size={16} strokeWidth={2} /></button>
+                                <button type="button" onClick={() => handleDeleteBox(boxId, files)} disabled={isDeletingBox || boxAllInUse} className={`p-1.5 rounded ${boxAllInUse ? 'opacity-50 cursor-not-allowed text-slate-400' : 'text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20'} disabled:opacity-60`} title={boxAllInUse ? 'ไฟล์ในกล่องนี้ถูกอ้างอิง (saved / running/pending) — ไม่สามารถลบได้' : 'Delete all files in this box'}><Trash2 size={16} strokeWidth={2} /></button>
                               </div>
                               <div className="divide-y divide-slate-100 dark:divide-slate-700">
                                 {files.map((f, fileIdx) => {
@@ -8225,20 +8303,24 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                     if ((setNames?.length || 0) === 0) setNames = fromJobs.setNames;
                                   }
                                   const usedByTcsTitle = usedByTcs.length > 0 ? usedByTcs.map((u) => `${u.name}${u.set ? ` (${u.set})` : ''}`).join('\n') : '';
-                                  const inUseByBatch = fileNamesInUseByBatch.has(f.name);
+                                  const inUseByBatch = fileNamesLockedForLibraryDelete.has(f.name);
                                   const fpBusy = !!(filePendingById && filePendingById[f.id]);
                                   const isFileClosedBox = isFileManuallyClosed(f);
                                   const dimFileProcess = inUseByBatch && !isFileClosedBox;
                                   return (
                                     <div
                                       key={f.id}
-                                      title={dimFileProcess ? 'Running / Pending — สีเทาเพื่อให้เห็นว่าไฟล์อยู่ใน process (ยังเลือกได้)' : undefined}
+                                      title={
+                                        dimFileProcess
+                                          ? 'ถูกอ้างอิงโดย saved Test Case/Set หรือ job — แถวจาง (ยังเลือกได้)'
+                                          : undefined
+                                      }
                                       className={`flex items-center gap-2 px-4 py-2 flex-wrap select-none bg-white/50 dark:bg-transparent ${fpBusy ? 'ring-1 ring-amber-400/40 dark:ring-amber-500/30' : ''} ${isFileClosedBox ? 'opacity-75 cursor-not-allowed' : 'cursor-pointer'} ${isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : dimFileProcess ? 'bg-slate-50/90 dark:bg-slate-900/40 text-slate-500 dark:text-slate-400' : ''} ${!isSelected && !dimFileProcess && !isFileClosedBox ? 'hover:bg-white dark:hover:bg-slate-800/50' : ''} ${!isSelected && dimFileProcess ? 'hover:bg-slate-100/85 dark:hover:bg-slate-800/50' : ''}`}
                                       onClick={(e) => { if (e.target.closest('input[type="checkbox"]') || e.target.closest('button')) return; if (fpBusy || isFileClosedBox) return; toggleFileSelect(f.id, globalIndex >= 0 ? globalIndex : fileIdx, e); }}
                                       onMouseDown={(e) => { if (e.target.closest('input[type="checkbox"]') || e.target.closest('button')) return; if (fpBusy || isFileClosedBox) return; if (e.button === 0) { isDragSelectingFileRef.current = true; if (!selectedFileSet.has(f.id)) setSelectedLibraryFileIds((prev) => [...prev, f.id]); } }}
                                       onMouseEnter={() => { if (fpBusy || isFileClosedBox) return; if (!isDragSelectingFileRef.current) return; if (!selectedFileSet.has(f.id)) setSelectedLibraryFileIds((prev) => [...prev, f.id]); }}
                                     >
-                                      <input type="checkbox" checked={isSelected} disabled={fpBusy || isFileClosedBox} onChange={() => { if (!fpBusy && !isFileClosedBox) toggleFileSelect(f.id, globalIndex >= 0 ? globalIndex : fileIdx, { shiftKey: false, ctrlKey: false, metaKey: false }); }} onClick={(e) => e.stopPropagation()} className={`w-4 h-4 rounded shrink-0 ${fpBusy || isFileClosedBox ? 'cursor-not-allowed opacity-50' : 'cursor-pointer opacity-100'}`} title={fpBusy ? 'กำลังบันทึก/ลบ — รอสักครู่' : isFileClosedBox ? 'Vis=close — not selectable' : inUseByBatch ? 'กำลังถูกใช้โดย set ที่รันอยู่ — เลือกได้ แต่ลบไม่ได้จนกว่า process จบ' : undefined} />
+                                      <input type="checkbox" checked={isSelected} disabled={fpBusy || isFileClosedBox} onChange={() => { if (!fpBusy && !isFileClosedBox) toggleFileSelect(f.id, globalIndex >= 0 ? globalIndex : fileIdx, { shiftKey: false, ctrlKey: false, metaKey: false }); }} onClick={(e) => e.stopPropagation()} className={`w-4 h-4 rounded shrink-0 ${fpBusy || isFileClosedBox ? 'cursor-not-allowed opacity-50' : 'cursor-pointer opacity-100'}`} title={fpBusy ? 'กำลังบันทึก/ลบ — รอสักครู่' : isFileClosedBox ? 'Vis=close — not selectable' : inUseByBatch ? 'ถูกอ้างอิงโดย saved Test Case/Set หรือ job — เลือกได้ แต่ลบจาก Library ไม่ได้' : undefined} />
                                       <span className="flex-1 min-w-0 truncate text-sm text-slate-700 dark:text-slate-200">{f.name}</span>
                                       <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0 max-w-[70px] truncate" title={f.ownerId ? `Owner: ${resolveFileOwnerDisplay(f, ownerLabelCtx)} (${f.ownerId})` : '—'}>
                                         {resolveFileOwnerDisplay(f, ownerLabelCtx)}

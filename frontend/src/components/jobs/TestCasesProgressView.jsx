@@ -18,7 +18,7 @@ const TestCasesProgressView = ({
   onStopFile,
   onRerunFile,
   onRerunFailedFile,
-  onReorderFile, // optional: drag & drop reorder handler
+  onReorderFile, // optional: (fromFileId, toFileId). Parent should omit while job.status !== 'pending' (no queue reorder during run).
   onOpenInLibrary, // open in File Library (legacy)
   onOpenInTestCasesLibrary, // navigate to Test Cases tab and auto-select this test case row
   onDeleteFile, // remove a pending test case from this batch only
@@ -69,6 +69,8 @@ const TestCasesProgressView = ({
     stopped: files.filter(f => f.status === 'stopped').length
   };
   
+  const isPendingTc = (f) => String(f?.status || '').toLowerCase() === 'pending';
+
   // Find current running test case
   const currentRunningIndex = filteredFiles.findIndex(f => f.status === 'running');
   
@@ -386,16 +388,17 @@ const TestCasesProgressView = ({
                   const isRunning = file.status === 'running';
                   const isFailed = file.result === 'fail' || file.status === 'error';
                   const fileIndex = files.findIndex(f => f.id === file.id);
+                  const rowCanDrag = !!(onReorderFile && isPendingTc(file));
                   return (
                     <div
                       key={file.id}
-                      draggable={!!onReorderFile}
+                      draggable={rowCanDrag}
                       data-drop-index={index}
                       onDragStart={(e) => {
-                        if (!onReorderFile) return;
+                        if (!onReorderFile || !isPendingTc(file)) return;
                         e.dataTransfer.setData(
                           'application/json',
-                          JSON.stringify({ type: 'jobFile', fromIndex: index })
+                          JSON.stringify({ type: 'jobFile', fromFileId: file.id })
                         );
                         e.dataTransfer.effectAllowed = 'move';
                       }}
@@ -403,7 +406,8 @@ const TestCasesProgressView = ({
                         if (!onReorderFile) return;
                         e.preventDefault();
                         e.stopPropagation();
-                        e.dataTransfer.dropEffect = 'move';
+                        const canDropHere = isPendingTc(filteredFiles[index]);
+                        e.dataTransfer.dropEffect = canDropHere ? 'move' : 'none';
                       }}
                       onDrop={(e) => {
                         if (!onReorderFile) return;
@@ -413,17 +417,17 @@ const TestCasesProgressView = ({
                           const raw = e.dataTransfer.getData('application/json');
                           if (!raw) return;
                           const data = JSON.parse(raw);
-                          if (
-                            data.type === 'jobFile' &&
-                            typeof data.fromIndex === 'number' &&
-                            data.fromIndex !== index
-                          ) {
-                            onReorderFile(data.fromIndex, index);
+                          if (data.type !== 'jobFile' || !data.fromFileId) return;
+                          const toFile = filteredFiles[index];
+                          if (!toFile || !isPendingTc(toFile)) return;
+                          if (data.fromFileId !== toFile.id) {
+                            onReorderFile(data.fromFileId, toFile.id);
                           }
                         } catch (_) {}
                       }}
                       ref={isRunning ? runningFileRef : null}
-                      className={`${compactKanbanDetails ? 'p-2' : 'p-4'} transition-all ${
+                      title={rowCanDrag ? 'Drag to reorder (pending queue only)' : undefined}
+                      className={`${compactKanbanDetails ? 'p-2' : 'p-4'} transition-all ${rowCanDrag ? 'cursor-grab active:cursor-grabbing' : ''} ${
                         isRunning 
                           ? `bg-blue-50 dark:bg-blue-950/35 border-blue-500 ${compactKanbanDetails ? 'border-l-[3px]' : 'border-l-4'}` 
                           : selectedFileIds.includes(file.id)

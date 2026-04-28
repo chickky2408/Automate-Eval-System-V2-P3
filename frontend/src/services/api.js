@@ -39,9 +39,20 @@ const apiRequest = async (endpoint, options = {}) => {
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ message: response.statusText }));
-      const err = new Error(errorData.detail || errorData.message || `HTTP error! status: ${response.status}`);
+      const d = errorData.detail;
+      let msg;
+      if (typeof d === 'string' && String(d).trim()) {
+        msg = d;
+      } else if (d && typeof d === 'object' && typeof d.message === 'string') {
+        msg = d.message;
+      } else if (typeof errorData.message === 'string' && errorData.message.trim()) {
+        msg = errorData.message;
+      } else {
+        msg = `HTTP error! status: ${response.status}`;
+      }
+      const err = new Error(msg);
       err.status = response.status;
-      err.detail = errorData.detail || errorData.message;
+      err.detail = d !== undefined ? d : errorData;
       throw err;
     }
     

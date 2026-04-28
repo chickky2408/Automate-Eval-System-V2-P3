@@ -74,8 +74,30 @@ def _model_to_dict(item: BaseModel) -> dict:
     return item.dict()
 
 
+def _library_name_to_id_prefer_newest(library_files: List[dict]) -> Dict[str, str]:
+    """Map filename -> library file id when the same name exists more than once.
+
+    ``file_store.list_files()`` returns rows ordered by ``uploaded_at DESC`` (newest first).
+    A plain dict comprehension overwrites keys so the *last* row wins — that is the *oldest*
+    duplicate, which breaks checksum checks after re-uploading the same filename.
+    We keep the first occurrence of each name (newest upload).
+    """
+    out: Dict[str, str] = {}
+    for f in library_files or []:
+        n = f.get("name")
+        tid = f.get("id")
+        if n is None or tid is None:
+            continue
+        ns = str(n).strip()
+        if not ns:
+            continue
+        if ns not in out:
+            out[ns] = str(tid)
+    return out
+
+
 def _resolve_job_file_ids(file_payloads: List[dict], fallback_firmware: Optional[str], library_files: List[dict]) -> tuple[Optional[str], Optional[str], str, str]:
-    name_to_id = {str(f.get("name") or ""): str(f.get("id") or "") for f in (library_files or [])}
+    name_to_id = _library_name_to_id_prefer_newest(library_files)
     first_name = file_payloads[0]["name"] if file_payloads else ""
     fw_name = fallback_firmware or ""
     vcd_id = name_to_id.get(first_name) or None
@@ -396,7 +418,7 @@ async def start_job(job_id: str):
     modified = []
     if file_names:
         library = await file_store.list_files(set_id=None)
-        name_to_id = {f["name"]: f["id"] for f in library}
+        name_to_id = _library_name_to_id_prefer_newest(library)
         for name in file_names:
             fid = name_to_id.get(name)
             if fid and not await file_store.verify_file_checksum(fid):

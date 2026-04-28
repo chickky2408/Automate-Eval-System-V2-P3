@@ -892,12 +892,9 @@ const RunSetPage = ({ onNavigateJobs }) => {
             ? `${created} job(s) sent to queue — see Jobs Manager (Running)`
             : `${created} job(s) created in Pending — see Jobs Manager (Pending)`,
         });
+        clearSection3RunConfig();
         if (startImmediately) {
           setRunPreview([]);
-          setRunSetName('');
-          setTag('');
-          setRunSetTagColor('mint');
-          setSelectedBoardIds([]);
         }
         if (navigateToJobs && onNavigateJobs) onNavigateJobs();
       }
@@ -912,6 +909,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
   const saveSelectedNotRun = useCallback(() => {
     if (runPreview.length > 0) {
       saveCurrentRunSet({ showToast: true });
+      clearSection3RunConfig();
       return;
     }
     if (selectedSetIds.length !== 1) {
@@ -949,9 +947,11 @@ const RunSetPage = ({ onNavigateJobs }) => {
     }
     updateSavedTestCaseSet(set.id, patch);
     addToast({ type: 'success', message: `Saved "${name}"` });
+    clearSection3RunConfig();
   }, [
     runPreview.length,
     saveCurrentRunSet,
+    clearSection3RunConfig,
     selectedSetIds,
     safeSets,
     runSetName,

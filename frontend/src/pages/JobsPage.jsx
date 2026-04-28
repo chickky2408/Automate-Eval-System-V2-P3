@@ -99,7 +99,8 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
     () =>
       jobs.filter(
         (j) =>
-          selectedJobIds.includes(j.id) && (j.status || '').toLowerCase() === 'pending'
+          selectedJobIds.some((sid) => String(sid) === String(j.id)) &&
+          (j.status || '').toLowerCase() === 'pending'
       ),
     [jobs, selectedJobIds]
   );
@@ -344,24 +345,41 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
     setIsRunningBatch(true);
 
     try {
-      const api = await import('../services/api');
       const results = await Promise.allSettled(pendingSelectedJobs.map((job) => api.startJob(job.id)));
-      const fileModified = results.find((r) => r.status === 'rejected' && r.reason?.status === 409 && r.reason?.detail?.code === 'FILE_MODIFIED');
-      if (fileModified) {
-        const d = fileModified.reason?.detail;
-        const msg = (d?.message || 'One or more files were modified after upload.') + (Array.isArray(d?.files) && d.files.length ? ` (${d.files.join(', ')})` : '');
-        addToast({ type: 'error', message: msg, duration: 8000 });
-      } else {
-        addToast({
-          type: 'success',
-          message: `เริ่มรัน ${pendingSelectedJobs.length} batch ที่เลือกแล้ว`,
-        });
-      }
+      const fileModified = results.find(
+        (r) => r.status === 'rejected' && r.reason?.status === 409 && r.reason?.detail?.code === 'FILE_MODIFIED'
+      );
       const { refreshJobs } = useTestStore.getState();
       await refreshJobs();
-      if (!fileModified) {
-        const startedIds = new Set(pendingSelectedJobs.map((j) => j.id));
-        upd('selectedJobIds', (prev) => prev.filter((id) => !startedIds.has(id)));
+
+      if (fileModified) {
+        const d = fileModified.reason?.detail;
+        const msg =
+          (d?.message || 'One or more files were modified after upload.') +
+          (Array.isArray(d?.files) && d.files.length ? ` (${d.files.join(', ')})` : '');
+        addToast({ type: 'error', message: msg, duration: 8000 });
+      } else {
+        const rejected = results.filter((r) => r.status === 'rejected');
+        if (rejected.length > 0) {
+          const first = rejected[0].reason;
+          const detail = first?.detail;
+          let msg =
+            (typeof detail === 'object' && detail !== null && detail.message && String(detail.message)) ||
+            (typeof detail === 'string' ? detail : null) ||
+            first?.message ||
+            'เริ่มรัน batch ไม่สำเร็จ';
+          if (typeof detail === 'object' && detail !== null && typeof detail.detail === 'string') {
+            msg = detail.detail;
+          }
+          addToast({ type: 'error', message: String(msg), duration: 8000 });
+        } else {
+          addToast({
+            type: 'success',
+            message: `เริ่มรัน ${pendingSelectedJobs.length} batch ที่เลือกแล้ว`,
+          });
+          const startedIds = new Set(pendingSelectedJobs.map((j) => String(j.id)));
+          upd('selectedJobIds', (prev) => prev.filter((id) => !startedIds.has(String(id))));
+        }
       }
     } catch (error) {
       console.error('Failed to start selected jobs', error);
@@ -951,21 +969,30 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
                     const failed = sortedFiles.filter((f) => fileIds.includes(f.id) && (f.result === 'fail' || f.status === 'error'));
                     if (failed.length) setRerunFailedModal({ job, failedFiles: failed });
                   }}
-                  onReorderFile={(fromIndex, toIndex) => {
-                    if (fromIndex === toIndex) return;
-                    const filesForJob = getSortedFiles(job);
-                    const fromFile = filesForJob[fromIndex];
-                    if (!fromFile) return;
-                    const steps = Math.abs(toIndex - fromIndex);
-                    const direction = toIndex < fromIndex ? 'up' : 'down';
-                    for (let i = 0; i < steps; i += 1) {
-                      if (direction === 'up') {
-                        moveFileUp(job.id, fromFile.id);
-                      } else {
-                        moveFileDown(job.id, fromFile.id);
-                      }
-                    }
-                  }}
+                  onReorderFile={
+                    (job.status || '').toLowerCase() === 'pending'
+                      ? (fromFileId, toFileId) => {
+                          if (!fromFileId || !toFileId || fromFileId === toFileId) return;
+                          const filesForJob = getSortedFiles(job);
+                          const fromIndex = filesForJob.findIndex((f) => f.id === fromFileId);
+                          const toIndex = filesForJob.findIndex((f) => f.id === toFileId);
+                          if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return;
+                          const fromFile = filesForJob[fromIndex];
+                          const toFile = filesForJob[toIndex];
+                          const pend = (s) => String(s || '').toLowerCase() === 'pending';
+                          if (!pend(fromFile.status) || !pend(toFile.status)) return;
+                          const steps = Math.abs(toIndex - fromIndex);
+                          const direction = toIndex < fromIndex ? 'up' : 'down';
+                          for (let i = 0; i < steps; i += 1) {
+                            if (direction === 'up') {
+                              moveFileUp(job.id, fromFileId);
+                            } else {
+                              moveFileDown(job.id, fromFileId);
+                            }
+                          }
+                        }
+                      : undefined
+                  }
                   onOpenInLibrary={onNavigateToFileLibrary}
                   onOpenInTestCasesLibrary={onNavigateToTestCases}
                   onDeleteFile={(fileId) => deleteJobFile(job.id, fileId)}

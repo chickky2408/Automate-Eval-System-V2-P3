@@ -8,6 +8,7 @@ from fastapi.exceptions import HTTPException as FastAPIHTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
+import json
 import logging
 import os
 from urllib.parse import urlparse
@@ -70,16 +71,35 @@ app = FastAPI(
 )
 
 
+def _http_exception_detail_message(detail) -> str:
+    """Match FastAPI shapes: str, or dict with message/detail (e.g. FILE_MODIFIED)."""
+    if isinstance(detail, str):
+        return detail
+    if isinstance(detail, dict):
+        m = detail.get("message")
+        if isinstance(m, str) and m.strip():
+            return m
+        inner = detail.get("detail")
+        if isinstance(inner, str) and inner.strip():
+            return inner
+        try:
+            return json.dumps(detail, ensure_ascii=False)
+        except Exception:
+            return str(detail)
+    if isinstance(detail, list):
+        try:
+            return json.dumps(detail, ensure_ascii=False)
+        except Exception:
+            return str(detail)
+    return str(detail)
+
+
 @app.exception_handler(FastAPIHTTPException)
 async def http_exception_handler(request: Request, exc: FastAPIHTTPException):
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
-            "message": exc.detail if isinstance(exc.detail, str) else "Request error",
-            "code": "HTTP_ERROR",
-            "details": exc.detail if isinstance(exc.detail, dict) else {},
-        },
-    )
+    # Clients expect FastAPI-style {"detail": ...}; also set "message" for plain-text UIs / older parsers.
+    payload = {"detail": exc.detail}
+    payload["message"] = _http_exception_detail_message(exc.detail)
+    return JSONResponse(status_code=exc.status_code, content=payload)
 
 
 @app.exception_handler(Exception)
