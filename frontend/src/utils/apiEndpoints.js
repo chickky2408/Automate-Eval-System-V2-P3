@@ -32,6 +32,41 @@ const WS_BASE_URL =
     return 'ws://localhost:8000';
   })();
 
+/**
+ * ใช้ในข้อความ error เมื่อ fetch ล้ม (เช่น Safari "Load failed")
+ * @param {Error|unknown} error
+ * @returns {string}
+ */
+export function formatClientNetworkError(error) {
+  const raw = error?.message != null ? String(error.message) : String(error) || 'Unknown error';
+  const low = raw.toLowerCase();
+  const looksNetwork =
+    low.includes('load failed') ||
+    low.includes('failed to fetch') ||
+    low.includes('networkerror') ||
+    low.includes('network request failed');
+  if (!looksNetwork) return raw;
+
+  const host = typeof window !== 'undefined' ? window.location.hostname : '';
+  const onLan = host && !['localhost', '127.0.0.1', '::1'].includes(host);
+  const baseStr = String(API_BASE_URL || '');
+  let apiToLocalhost = false;
+  if (baseStr.startsWith('/')) {
+    apiToLocalhost = false;
+  } else {
+    apiToLocalhost = /\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(baseStr);
+  }
+
+  const uvicornHostHint =
+    ' ถ้ารัน Uvicorn เอง: ต้อง `--host 0.0.0.0` (ค่าเริ่มต้น 127.0.0.1 จะรับ `http://<LAN-IP>:8000` ไม่ได้)';
+
+  const hint =
+    onLan && apiToLocalhost
+      ? ` ตั้ง VITE_API_BASE_URL=http://${host}:8000/api ใน env ของ frontend แล้วรีสตาร์ต npm run dev (ตอนนี้ API=${baseStr || '—'})`
+      : ` ตรวจ backend รันที่พอร์ตเดียวกับ API (${baseStr || '—'}) แล้วรีเฟรช${uvicornHostHint}`;
+  return `${raw} —${hint}`;
+}
+
 export const API_ENDPOINTS = {
   // System Health
   HEALTH: `${API_ORIGIN}/api/health`,
@@ -144,4 +179,5 @@ export const API_ENDPOINTS = {
   WS_WAVEFORM: `${WS_BASE_URL}/ws/waveform`,
 };
 
+export { API_BASE_URL, API_ORIGIN, WS_BASE_URL };
 export default API_ENDPOINTS;

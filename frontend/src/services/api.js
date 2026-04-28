@@ -7,7 +7,7 @@
  * All functions return Promises that resolve with the response data or reject with an error.
  */
 
-import API_ENDPOINTS from '../utils/apiEndpoints';
+import API_ENDPOINTS, { formatClientNetworkError } from '../utils/apiEndpoints';
 
 // Helper function for making API requests
 const apiRequest = async (endpoint, options = {}) => {
@@ -551,14 +551,60 @@ export const getAllTestCasesFromProfiles = () => apiRequest(API_ENDPOINTS.PROFIL
  */
 export const getProfileData = (profileId) => apiRequest(API_ENDPOINTS.PROFILE_DATA(profileId));
 
+/** Retries for transient failures (Safari "Load failed", tab sleep, brief offline). */
+const PROFILE_PUT_MAX_ATTEMPTS = 4;
+
+function isTransientProfilePutFailure(error) {
+  if (!error) return true;
+  const s = error.status;
+  if (s == null) return true;
+  if (s === 502 || s === 503 || s === 504 || s === 408) return true;
+  return false;
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 /**
- * Put profile data (sync from this device)
+ * Put profile data (sync from this device).
+ * Retries on network / gateway errors so Library → Sets sync survives flaky LAN or dev reload.
  */
 export const putProfileData = (profileId, data) => {
-  return apiRequest(API_ENDPOINTS.PROFILE_DATA(profileId), {
-    method: 'PUT',
-    body: JSON.stringify(data),
-  });
+  const body = JSON.stringify(data);
+  const endpoint = API_ENDPOINTS.PROFILE_DATA(profileId);
+
+  const runOnce = () =>
+    apiRequest(endpoint, {
+      method: 'PUT',
+      body,
+    });
+
+  const run = async () => {
+    let lastErr;
+    for (let attempt = 0; attempt < PROFILE_PUT_MAX_ATTEMPTS; attempt += 1) {
+      if (attempt > 0) {
+        await sleep(200 * 2 ** (attempt - 1));
+      }
+      try {
+        return await runOnce();
+      } catch (e) {
+        lastErr = e;
+        if (attempt < PROFILE_PUT_MAX_ATTEMPTS - 1 && isTransientProfilePutFailure(e)) {
+          continue;
+        }
+        if (e && typeof e === 'object' && e.message) {
+          try {
+            e.message = formatClientNetworkError(e);
+          } catch {
+            /* ignore */
+          }
+        }
+        throw e;
+      }
+    }
+    throw lastErr;
+  };
+
+  return run();
 };
 
 /**

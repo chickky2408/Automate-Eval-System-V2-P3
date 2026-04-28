@@ -18,6 +18,7 @@ import {
   jobTagPillClasses,
 } from '../utils/tagPalette';
 import TagColorSwatchPicker from '../components/TagColorSwatchPicker';
+import { isTestCasePrimaryFileSetComplete } from '../utils/testCasePrimaryFiles';
 
 /** จัดกลุ่มไฟล์เช่น TC0008.vcd + TC0008_erom_1.erom → คีย์ TC0008 */
 function extractTcGroupKeyFromFileName(filename) {
@@ -839,6 +840,17 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
         addToast({ type: 'warning', message: 'No test cases to send to Run Set' });
         return;
       }
+      const incomplete = list.filter((tc) => !isTestCasePrimaryFileSetComplete(tc));
+      if (incomplete.length > 0) {
+        const names = incomplete
+          .map((t) => String(t?.name || '').trim() || '—')
+          .slice(0, 5);
+        addToast({
+          type: 'warning',
+          message: `แต่ละ test case ต้องมี VCD, ERoM และ ULP ให้ครบ — ${incomplete.length} แถวยังไม่ครบ: ${names.join(', ')}${incomplete.length > 5 ? '…' : ''}`,
+        });
+        return;
+      }
       const items = list.map((tc) => ({
         name: String(tc?.name || '').trim(),
         vcdName: tc?.vcdName || '',
@@ -932,6 +944,20 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
     if (uploaded > 0) addToast({ type: 'success', message: `${uploaded} file(s) uploaded to library` });
     if (reused > 0) addToast({ type: 'info', message: `${reused} file(s) reused from library` });
     if (toSave?.length > 0) {
+      const badRows = toSave.filter((tc) => !isTestCasePrimaryFileSetComplete(tc));
+      if (badRows.length > 0) {
+        setSaveLibraryUploadModal(null);
+        const names = badRows.map((t) => String(t.name || '—').trim() || '—').slice(0, 5);
+        addToast({
+          type: 'warning',
+          message: `แต่ละ test case ต้องมี VCD, ERoM และ ULP ให้ครบ — ยังไม่บันทึก (${badRows.length} แถว): ${names.join(', ')}${badRows.length > 5 ? '…' : ''}`,
+        });
+        if (sendToRunSetAfterSaveRef.current) {
+          sendToRunSetAfterSaveRef.current = false;
+          sendToRunSetItemsRef.current = null;
+        }
+        return;
+      }
       const existingSaved = useTestStore.getState().savedTestCases || [];
       const existingByKey = new Map(
         existingSaved.map((t) => [getFullTestCaseFileKeyFromMerged(t, mergeCommandsIntoExtraForSave(t)), t])
@@ -1301,14 +1327,14 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
     prevUploadedCountRef.current = curr;
   }, [uploadedFiles.length, savedTestCases.length, pendingDraftTestCases.length, activeProfileId]);
 
-  // Auto-pair: เมื่อเลือกไฟล์ (VCD + ERoM) ให้สร้าง test case อัตโนมัติ — ใส่ draft จนกว่าจะกด Save
+  // Auto-pair: เมื่อเลือกไฟล์ (VCD + ERoM + ULP) ให้สร้าง test case อัตโนมัติ — ใส่ draft จนกว่าจะกด Save
   useEffect(() => {
     const orderedFiles = selectedFiles;
     if (orderedFiles.length === 0) return;
     const orderedVcds = orderedFiles.filter((f) => getFileKind(f) === 'vcd');
     const orderedBins = orderedFiles.filter((f) => getFileKind(f) === 'bin');
     const orderedLins = orderedFiles.filter((f) => getFileKind(f) === 'lin');
-    if (orderedVcds.length === 0 || orderedBins.length === 0) return;
+    if (orderedVcds.length === 0 || orderedBins.length === 0 || orderedLins.length === 0) return;
     orderedVcds.forEach((vcdFile, vcdIdx) => {
       const vcdIndexInOrdered = orderedFiles.findIndex((f) => f.id === vcdFile.id);
       let nearestBin = null, minDistance = Infinity;
@@ -1367,6 +1393,11 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
   const pairAll = () => {
     if (vcdSelected.length === 0 || binSelected.length === 0) {
       addToast({ type: 'warning', message: 'Select at least one VCD and one ERoM file first' });
+      return;
+    }
+    const linSelected = selectedFiles.filter((f) => getFileKind(f) === 'lin');
+    if (linSelected.length === 0) {
+      addToast({ type: 'warning', message: 'Select at least one ULP/LIN file — VCD, ERoM, and ULP are required for each test case' });
       return;
     }
     const orderedFiles = selectedFiles;
@@ -1436,7 +1467,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
     }
   };
 
-  /** จากรายการ file id ใน Library: จัดกลุ่มตาม TCxxxx ในชื่อไฟล์ แล้วสร้างแถว test case (VCD+ERoM ขั้นต่ำ, ULP/MDI ถ้ามี) */
+  /** จากรายการ file id ใน Library: จัดกลุ่มตาม TCxxxx ในชื่อไฟล์ แล้วสร้างแถว test case (ต้องมี VCD+ERoM+ULP ใน Library, MDI ถ้ามี) */
   const runLibraryGroupingFromFileIds = (fileIds) => {
     const ids = [...new Set((fileIds || []).filter(Boolean))];
     const files = ids.map((id) => uploadedFiles.find((f) => f.id === id)).filter(Boolean);
@@ -1455,6 +1486,35 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
       groups.get(key).push(f);
     }
     const sortPick = (arr) => [...arr].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    /** รวมไฟล์ที่เลือกกับทุกไฟล์ใน Library ที่ extractTcGroupKey ตรงกัน — เติม VCD/ERoM/ULP/MDI ที่ user ยังไม่ติ๊ก */
+    const mergeSelectedWithLibraryByKey = (gKey, groupFiles) => {
+      const byId = new Map();
+      for (const f of groupFiles) {
+        if (f?.id) byId.set(f.id, f);
+      }
+      for (const f of uploadedFiles || []) {
+        if (!f?.id || byId.has(f.id)) continue;
+        if (extractTcGroupKeyFromFileName(f.name) === gKey) {
+          byId.set(f.id, f);
+        }
+      }
+      return sortPick([...byId.values()]);
+    };
+    const buildMdiColumnsAndCommands = (mdis) => {
+      const list = [...(mdis || [])].sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+      if (list.length === 0) return { extraColumns: undefined, mdiCmd: [] };
+      const t = Date.now();
+      const extraColumns = list.reduce((acc, mdi, i) => {
+        acc[`MDI${i + 1}`] = mdi.name;
+        return acc;
+      }, {});
+      const mdiCmd = list.map((mdi, i) => ({
+        id: `cmd-${t}-${i}-${Math.random().toString(36).slice(2, 9)}`,
+        type: 'mdi',
+        file: mdi.name,
+      }));
+      return { extraColumns, mdiCmd };
+    };
 
     const makeNameForGroup = (gKey, namesUsed) => {
       if (/^TC\d+$/i.test(gKey)) {
@@ -1498,31 +1558,30 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
       );
 
       let added = 0;
+      let totalPulledFromLib = 0;
       const skipped = [];
       for (const [gKey, groupFiles] of groups) {
-        const gf = sortPick(groupFiles);
+        const gf = mergeSelectedWithLibraryByKey(gKey, groupFiles);
+        totalPulledFromLib += Math.max(0, gf.length - groupFiles.length);
         const vcd = gf.find((f) => getFileKind(f) === 'vcd');
         const bin = gf.find((f) => getFileKind(f) === 'bin');
         const lin = gf.find((f) => getFileKind(f) === 'lin');
-        const mdi = gf.find((f) => getFileKind(f) === 'mdi');
-        if (!vcd || !bin) {
+        const mdis = gf.filter((f) => getFileKind(f) === 'mdi');
+        const { extraColumns, mdiCmd } = buildMdiColumnsAndCommands(mdis);
+        if (!vcd || !bin || !lin) {
           skipped.push(gKey);
           continue;
         }
-        const pairEntry = { vcdName: vcd.name, binName: bin.name, linName: lin?.name || '' };
+        const pairEntry = { vcdName: vcd.name, binName: bin.name, linName: lin.name };
         const key = normalizeTCTestCaseKeyFull(pairEntry);
         if (existingKeys.has(key)) continue;
         existingKeys.add(key);
         const name = makeNameForGroup(gKey, namesUsed);
-        const mdiCmd = mdi
-          ? [{ id: `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`, type: 'mdi', file: mdi.name }]
-          : [];
-        const extraColumns = mdi ? { MDI1: mdi.name } : undefined;
         addSavedTestCase({
           name,
           vcdName: vcd.name,
           binName: bin.name,
-          linName: lin?.name || '',
+          linName: lin.name,
           tryCount: 1,
           createdAt: new Date().toISOString(),
           ...(extraColumns ? { extraColumns } : {}),
@@ -1533,7 +1592,13 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
       if (skipped.length) {
         addToast({
           type: 'warning',
-          message: `skipped ${skipped.length} groups that must have both VCD and ERoM: ${skipped.slice(0, 6).join(', ')}${skipped.length > 6 ? '…' : ''}`,
+          message: `skipped ${skipped.length} groups that need VCD, ERoM, and ULP in your Library: ${skipped.slice(0, 6).join(', ')}${skipped.length > 6 ? '…' : ''}`,
+        });
+      }
+      if (totalPulledFromLib > 0) {
+        addToast({
+          type: 'info',
+          message: `รวม ${totalPulledFromLib} ไฟล์เพิ่มจาก Library (ชื่อ TC เดียวกัน) เพื่อจับคู่ VCD/ERoM/ULP/MDI ให้ครบ`,
         });
       }
       if (added > 0) {
@@ -1558,31 +1623,30 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
 
       const newRows = [];
       const skipped = [];
+      let totalPulledFromLib = 0;
       for (const [gKey, groupFiles] of groups) {
-        const gf = sortPick(groupFiles);
+        const gf = mergeSelectedWithLibraryByKey(gKey, groupFiles);
+        totalPulledFromLib += Math.max(0, gf.length - groupFiles.length);
         const vcd = gf.find((f) => getFileKind(f) === 'vcd');
         const bin = gf.find((f) => getFileKind(f) === 'bin');
         const lin = gf.find((f) => getFileKind(f) === 'lin');
-        const mdi = gf.find((f) => getFileKind(f) === 'mdi');
-        if (!vcd || !bin) {
+        const mdis = gf.filter((f) => getFileKind(f) === 'mdi');
+        const { extraColumns, mdiCmd } = buildMdiColumnsAndCommands(mdis);
+        if (!vcd || !bin || !lin) {
           skipped.push(gKey);
           continue;
         }
-        const pairEntry = { vcdName: vcd.name, binName: bin.name, linName: lin?.name || '' };
+        const pairEntry = { vcdName: vcd.name, binName: bin.name, linName: lin.name };
         const key = normalizeTCTestCaseKeyFull(pairEntry);
         if (existingKeys.has(key)) continue;
         existingKeys.add(key);
         const name = makeNameForGroup(gKey, namesUsed);
-        const mdiCmd = mdi
-          ? [{ id: `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`, type: 'mdi', file: mdi.name }]
-          : [];
-        const extraColumns = mdi ? { MDI1: mdi.name } : undefined;
         newRows.push({
           id: `tc-draft-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
           name,
           vcdName: vcd.name,
           binName: bin.name,
-          linName: lin?.name || '',
+          linName: lin.name,
           tryCount: 1,
           createdAt: new Date().toISOString(),
           ...(extraColumns ? { extraColumns } : {}),
@@ -1594,7 +1658,13 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
         if (skipped.length) {
           addToast({
             type: 'warning',
-            message: `skipped ${skipped.length} groups that must have both VCD and ERoM: ${skipped.slice(0, 6).join(', ')}${skipped.length > 6 ? '…' : ''}`,
+            message: `skipped ${skipped.length} groups that need VCD, ERoM, and ULP in your Library: ${skipped.slice(0, 6).join(', ')}${skipped.length > 6 ? '…' : ''}`,
+          });
+        }
+        if (totalPulledFromLib > 0) {
+          addToast({
+            type: 'info',
+            message: `รวม ${totalPulledFromLib} ไฟล์เพิ่มจาก Library (ชื่อ TC เดียวกัน) เพื่อจับคู่ VCD/ERoM/ULP/MDI ให้ครบ`,
           });
         }
         if (newRows.length) {
@@ -1870,8 +1940,8 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
       const idxLin = header.findIndex((h) => h === 'lin' || h === 'ulp');
       const idxTry = header.findIndex((h) => h === 'try' || h === 'tries' || h === 'retry');
 
-      if (idxVcd === -1 || idxBin === -1) {
-        addToast({ type: 'error', message: 'CSV must have at least VCD and BIN/EROM columns' });
+      if (idxVcd === -1 || idxBin === -1 || idxLin === -1) {
+        addToast({ type: 'error', message: 'CSV must have VCD, BIN/EROM, and ULP (or LIN) columns' });
         return;
       }
 
@@ -1901,10 +1971,10 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
         if (!cols.some((c) => c.trim() !== '')) continue;
         const vcdName = (cols[idxVcd] || '').trim();
         const binName = (cols[idxBin] || '').trim();
-        if (!vcdName || !binName) continue;
+        const linName = (cols[idxLin] || '').trim();
+        if (!vcdName || !binName || !linName) continue;
         const rawName = idxName >= 0 ? cols[idxName] : vcdName;
         const name = makeUniqueName(rawName);
-        const linName = idxLin >= 0 ? (cols[idxLin] || '').trim() : '';
         let tryCount = 1;
         if (idxTry >= 0) {
           const parsed = parseInt(cols[idxTry], 10);
@@ -1930,7 +2000,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
       }
 
       if (created.length === 0) {
-        addToast({ type: 'warning', message: 'No rows in CSV have both VCD and BIN/EROM' });
+        addToast({ type: 'warning', message: 'No rows in CSV have VCD, BIN/EROM, and ULP/LIN (all three required)' });
         return;
       }
 
@@ -2006,6 +2076,17 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
     if (toSave.length === 0 && (savedTestCases?.length || 0) === 0) {
       addToast({ type: 'warning', message: 'No test cases to save' });
       return;
+    }
+    if (toSave.length > 0) {
+      const bad = toSave.filter((tc) => !isTestCasePrimaryFileSetComplete(tc));
+      if (bad.length > 0) {
+        const names = bad.map((t) => String(t.name || '—').trim() || '—').slice(0, 5);
+        addToast({
+          type: 'warning',
+          message: `แต่ละ test case ต้องมี VCD, ERoM และ ULP ให้ครบ — กรุณาเลือกไฟล์ (${bad.length} แถว): ${names.join(', ')}${bad.length > 5 ? '…' : ''}`,
+        });
+        return;
+      }
     }
     // Upload any dropped-but-not-yet-uploaded files first; compare by checksum so duplicates are not re-uploaded
     const toUpload = (localDroppedFiles || []).filter((f) => f && f.file instanceof File);
@@ -3188,6 +3269,15 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                   addToast({
                     type: 'warning',
                     message: 'ชุด Set นี้กำลังถูกใช้รันอยู่ ไม่สามารถอัปเดต test cases / files ได้จนกว่ารันเสร็จ',
+                  });
+                  return;
+                }
+                const badUpdate = (displayedSavedTestCases || []).filter((t) => !isTestCasePrimaryFileSetComplete(t));
+                if (badUpdate.length > 0) {
+                  const names = badUpdate.map((t) => String(t.name || '—').trim() || '—').slice(0, 5);
+                  addToast({
+                    type: 'warning',
+                    message: `แต่ละ test case ต้องมี VCD, ERoM และ ULP ให้ครบก่อนอัปเดต Set — ${badUpdate.length} แถว: ${names.join(', ')}${badUpdate.length > 5 ? '…' : ''}`,
                   });
                   return;
                 }

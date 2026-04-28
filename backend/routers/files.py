@@ -6,9 +6,8 @@ from fastapi.responses import Response
 from typing import Optional, Set
 from datetime import datetime
 from pydantic import BaseModel
-import os
-
 from services.file_store import file_store
+from utils.file_type_utils import classify_file_type_from_filename
 from services.profile_lookup import batch_profile_names_by_ids
 from services.job_queue import job_queue_service
 from services.fe_job_store import fe_job_store
@@ -96,7 +95,8 @@ async def upload_file(
     visibility: 'private' | 'team' | 'public'."""
     content = await file.read()
     filename = file.filename or "upload.bin"
-    file_type = (os.path.splitext(filename)[1] or "").lstrip(".") or (file.content_type or "bin")
+    # Stored in DB as enum: VCD, EROM, ULP, TXT, … (not raw extension / OTHER for .erom/.ulp/.txt)
+    file_type = classify_file_type_from_filename(filename)
     force_save_new = str(force_new or "").lower() in ("true", "1", "yes")
     vis = (visibility or "public").lower()
     if vis not in ("private", "team", "public"):

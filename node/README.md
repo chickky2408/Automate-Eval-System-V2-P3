@@ -10,7 +10,11 @@ Node (Pico/PC)  →  POST /api/waveform/chunk  →  Backend  →  broadcast  →
 
 ## รัน Node (PC / dev)
 
-1. เปิด Backend ก่อน: `cd backend && pipenv run uvicorn main:app --reload`
+1. เปิด Backend ก่อน (รับ request ไปยัง IP ใน LAN ได้ ต้อง bind `0.0.0.0`):
+
+`cd backend && pipenv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload`
+
+(หรือ `cd backend && pipenv run dev` — สคริปต์ใน `backend/Pipfile`)
 2. ติดตั้งและรัน Node:
 
 ```bash

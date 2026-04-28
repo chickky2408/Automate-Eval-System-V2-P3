@@ -27,6 +27,7 @@ import {
 } from '../utils/tagPalette';
 import TagColorSwatchPicker from '../components/TagColorSwatchPicker';
 import UploadChoiceModal from '../components/UploadChoiceModal';
+import { isTestCasePrimaryFileSetComplete } from '../utils/testCasePrimaryFiles';
 
 // Set names that use this file (from fileLibrarySnapshot or items)
 const getSetNamesUsingFile = (fileName, savedTestCaseSets) => {
@@ -400,6 +401,9 @@ const cloneSavedLibraryTcToSetItem = (tc, finalName) => {
 /** Files tab — same keys as `TAG_PALETTE_MAP` (fileTagColors in store). */
 const FILE_TAG_PALETTE_MAP = TAG_PALETTE_MAP;
 
+/** Order of Library sub-tabs: Files → Test Cases → Sets (for prev/next navigation). */
+const LIBRARY_TAB_ORDER = ['files', 'rawTestCases', 'testCases'];
+
 // FILE LIBRARY PAGE — default: Test Case Library (เรียง set ลงมา แต่ละ set มีตารางแนวนอน + แสดงไฟล์); ปุ่มสลับView files in Library
 const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigateToJob }) => {
   const {
@@ -527,6 +531,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
   const createJob = useTestStore((s) => s.createJob);
   const refreshFiles = useTestStore((s) => s.refreshFiles);
   const addToast = useTestStore((s) => s.addToast);
+  const duplicateSavedTestCaseSet = useTestStore((s) => s.duplicateSavedTestCaseSet);
   const setLibraryEditContext = useTestStore((s) => s.setLibraryEditContext);
   const clearLibraryEditContext = useTestStore((s) => s.clearLibraryEditContext);
   const setRunSetImportContext = useTestStore((s) => s.setRunSetImportContext);
@@ -728,6 +733,22 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     setLibraryView(fileLibraryViewOnNavigate);
     clearFileLibraryViewOnNavigate();
   }, [fileLibraryViewOnNavigate, clearFileLibraryViewOnNavigate]);
+
+  const goPrevLibraryTab = useCallback(() => {
+    setLibraryView((v) => {
+      const i = LIBRARY_TAB_ORDER.indexOf(v);
+      const idx = i < 0 ? 0 : i;
+      return LIBRARY_TAB_ORDER[(idx - 1 + LIBRARY_TAB_ORDER.length) % LIBRARY_TAB_ORDER.length];
+    });
+  }, []);
+  const goNextLibraryTab = useCallback(() => {
+    setLibraryView((v) => {
+      const i = LIBRARY_TAB_ORDER.indexOf(v);
+      const idx = i < 0 ? 0 : i;
+      return LIBRARY_TAB_ORDER[(idx + 1) % LIBRARY_TAB_ORDER.length];
+    });
+  }, []);
+
   const [fileFilter, setFileFilter] = useState('all');
   const [fileStatusFilter, setFileStatusFilter] = useState('all'); // 'all' | 'pending' | 'running' | 'completed'
   const [fileSearch, setFileSearch] = useState('');
@@ -2092,6 +2113,12 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     const ownerF = addTcsPickerOwnerFilter === 'mine' || addTcsPickerOwnerFilter === '__active__' ? '__active__' : addTcsPickerOwnerFilter;
     const resolvedOwner =
       ownerF === '__active__' ? (activeProfileId ? String(activeProfileId) : 'all') : String(ownerF || 'all');
+    /** Match libraryRawRows: local saved TCs often omit _ownerId — treat as current profile. */
+    const effectiveTcOwnerId = (tc) => {
+      const o = tc?._ownerId;
+      if (o != null && String(o).trim() !== '') return String(o);
+      return activeProfileId ? String(activeProfileId) : '';
+    };
 
     return addTcsPickerBaseTcs
       .filter((tc) => {
@@ -2101,8 +2128,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
         if (resolvedOwner === 'all') {
           /* all owners */
         } else if (resolvedOwner === 'shared') {
-          if (tc._ownerId === activeProfileId || !tc._ownerId) return false;
-        } else if (String(tc._ownerId || '') !== resolvedOwner) {
+          const eid = effectiveTcOwnerId(tc);
+          if (!eid || eid === String(activeProfileId || '')) return false;
+        } else if (effectiveTcOwnerId(tc) !== resolvedOwner) {
           return false;
         }
         if (addTcsPickerTagColorFilter.trim()) {
@@ -2443,6 +2471,10 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     const binName = (rawTcEditorDraft.binName || '').trim();
     const linName = (rawTcEditorDraft.linName || '').trim();
     const tag = (rawTcEditorDraft.tag || '').trim();
+    if (!isTestCasePrimaryFileSetComplete({ vcdName, binName, linName })) {
+      addToast({ type: 'warning', message: 'กรุณาเลือก VCD, ERoM และ ULP ให้ครบก่อนบันทึก' });
+      return;
+    }
 
     // In "duplicate" mode for Running/Pending rows, prevent saving if user didn't change anything.
     // This avoids clutter of duplicate TC entries that are still the same as the one currently in use.
@@ -4331,27 +4363,47 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Library</h1>
         <div className="flex items-center gap-2">
-          <div className="flex rounded-lg border border-slate-200 dark:border-slate-600 overflow-hidden shrink-0">
+          <div className="flex items-center gap-0.5 shrink-0">
             <button
               type="button"
-              onClick={() => setLibraryView('files')}
-              className={`px-3 py-1.5 text-xs font-semibold ${libraryView === 'files' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
+              onClick={goPrevLibraryTab}
+              title="Previous tab (Files → Test Cases → Sets)"
+              aria-label="Previous Library tab"
+              className="inline-flex items-center justify-center p-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
             >
-              Files
+              <ChevronLeft size={16} />
             </button>
+            <div className="flex rounded-lg border border-slate-200 dark:border-slate-600 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setLibraryView('files')}
+                className={`px-3 py-1.5 text-xs font-semibold ${libraryView === 'files' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
+              >
+                Files
+              </button>
+              <button
+                type="button"
+                onClick={() => setLibraryView('rawTestCases')}
+                className={`px-3 py-1.5 text-xs font-semibold ${libraryView === 'rawTestCases' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
+              >
+                Test Cases
+              </button>
+              <button
+                type="button"
+                onClick={() => setLibraryView('testCases')}
+                className={`px-3 py-1.5 text-xs font-semibold ${libraryView === 'testCases' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
+              >
+                Sets
+              </button>
+            </div>
             <button
               type="button"
-              onClick={() => setLibraryView('rawTestCases')}
-              className={`px-3 py-1.5 text-xs font-semibold ${libraryView === 'rawTestCases' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
+              onClick={goNextLibraryTab}
+              title="Next tab (Files → Test Cases → Sets)"
+              aria-label="Next Library tab"
+              className="inline-flex items-center justify-center p-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
             >
-              Test Cases
-            </button>
-            <button
-              type="button"
-              onClick={() => setLibraryView('testCases')}
-              className={`px-3 py-1.5 text-xs font-semibold ${libraryView === 'testCases' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
-            >
-              Sets
+              <ChevronRight size={16} />
             </button>
           </div>
           {onNavigateToTestCases && (
@@ -4782,6 +4834,10 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                     !isSetLocked &&
                     !setBusy &&
                     (set._ownerId == null || String(set._ownerId) === String(activeProfileId));
+                  /** สำเนา set ได้แม้ set กำลัง running/pending (ก็อปปี้รายการไปชุดใหม่) */
+                  const canDuplicateSet =
+                    !setBusy &&
+                    (set._ownerId == null || String(set._ownerId) === String(activeProfileId));
                   return (
                     <div
                       key={set.id}
@@ -4897,8 +4953,27 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                             </span>
                           )}
 
-                          {(setStatus || canEditSet) && (
+                          {(setStatus || canDuplicateSet || canEditSet) && (
                             <span className="w-px h-6 bg-slate-200 dark:bg-slate-700 mx-1" aria-hidden />
+                          )}
+
+                          {canDuplicateSet && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (setBusy) return;
+                                  void duplicateSavedTestCaseSet(set.id);
+                                }}
+                                disabled={setBusy}
+                                className="p-1.5 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-600 disabled:opacity-40 disabled:pointer-events-none"
+                                title="สำเนา set นี้ (เหมือน Run set)"
+                                aria-label="Duplicate set"
+                              >
+                                <Copy size={14} strokeWidth={2} />
+                              </button>
+                              <span className="w-px h-6 bg-slate-200 dark:bg-slate-700 mx-1" aria-hidden />
+                            </>
                           )}
 
                           {canEditSet && (
@@ -5573,6 +5648,17 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
               }));
             if (!rows.length) {
               addToast({ type: 'warning', message: 'ไม่พบ test case ที่เลือก' });
+              return;
+            }
+            const runIncomplete = rows.filter((r) => !isTestCasePrimaryFileSetComplete(r));
+            if (runIncomplete.length > 0) {
+              const names = runIncomplete
+                .map((r) => String(r.name || '—').trim() || '—')
+                .slice(0, 5);
+              addToast({
+                type: 'warning',
+                message: `ส่ง Run Set ได้เฉพาะเคสที่มี VCD, ERoM และ ULP ครบ — ${runIncomplete.length} รายการยังไม่ครบ: ${names.join(', ')}${runIncomplete.length > 5 ? '…' : ''}`,
+              });
               return;
             }
             setRunSetImportContext({

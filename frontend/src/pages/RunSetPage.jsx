@@ -1387,8 +1387,8 @@ const RunSetPage = ({ onNavigateJobs }) => {
                         type="button"
                         disabled={setBusy}
                         onClick={() => {
-                          duplicateSavedTestCaseSet(set.id);
-                          addToast({ type: 'success', message: `Duplicated set "${set.name}"` });
+                          if (setBusy) return;
+                          void duplicateSavedTestCaseSet(set.id);
                         }}
                         className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-300 disabled:opacity-40 disabled:pointer-events-none"
                         title="Clone set"

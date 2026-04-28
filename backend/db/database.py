@@ -58,11 +58,62 @@ class Base(DeclarativeBase):
     pass
 
 
+def _pg_filetype_enum_name(connection) -> str:
+    """Name of the PostgreSQL enum type backing files.file_type (e.g. filetype)."""
+    row = connection.execute(
+        text(
+            """
+            SELECT t.typname::text
+            FROM pg_type t
+            JOIN pg_attribute a ON a.atttypid = t.oid
+            WHERE a.attrelid = 'files'::regclass
+              AND a.attname = 'file_type'
+              AND t.typtype = 'e'
+            LIMIT 1
+            """
+        )
+    ).first()
+    if row and row[0]:
+        return str(row[0])
+    return "filetype"
+
+
+async def _ensure_postgres_filetype_enum_values() -> None:
+    """
+    Add EROM/ULP/TXT to the PostgreSQL filetype enum.
+
+    Do NOT use execution_options(isolation_level=AUTOCOMMIT) on a connection from
+    engine.connect()/run_sync — SQLAlchemy may have already started a transaction
+    ("isolation_level may not be altered unless rollback() or commit() is called first").
+
+    A dedicated async transaction that only runs ALTER TYPE ... ADD VALUE commits
+    cleanly; backfill UPDATEs stay in a later migration block.
+    """
+    if "sqlite" in DATABASE_URL or USE_SQLITE_DEMO:
+        return
+
+    async with engine.begin() as conn:
+        typ = await conn.run_sync(_pg_filetype_enum_name)
+        for val in ("EROM", "ULP", "TXT"):
+            try:
+                await conn.execute(text(f'ALTER TYPE "{typ}" ADD VALUE IF NOT EXISTS \'{val}\''))
+            except Exception:
+                try:
+                    await conn.execute(text(f'ALTER TYPE "{typ}" ADD VALUE \'{val}\''))
+                except Exception:
+                    pass
+
+
 async def init_db():
     """Initialize database tables (create if not present). Runs migration to add set_id to files if needed."""
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+
+        # PostgreSQL: ensure filetype enum includes EROM/ULP/TXT (must not rely only on
+        # the transactional migration block — ADD VALUE can be rolled back or unusable
+        # until commit, which caused INSERT ... 'ULP' / 'TXT' to fail on upload).
+        await _ensure_postgres_filetype_enum_values()
 
         # Migration: add set_id to files if not present
         async with engine.begin() as conn:
@@ -411,6 +462,63 @@ async def init_db():
                 sync_conn.execute(text("ALTER TABLE results DROP COLUMN IF EXISTS vcd_filename"))
                 sync_conn.execute(text("ALTER TABLE results DROP COLUMN IF EXISTS firmware_filename"))
             await conn.run_sync(_drop_legacy_filename_columns)
+
+        # Backfill: files.file_type from filename (enum labels EROM/ULP/TXT added in _ensure_postgres_filetype_enum_values)
+        async with engine.begin() as conn:
+            def _migrate_filetype_enum_backfill(sync_conn):
+                is_sqlite = "sqlite" in DATABASE_URL
+                pg_filetype = None
+                if not is_sqlite:
+                    row = sync_conn.execute(
+                        text(
+                            """
+                            SELECT t.typname::text
+                            FROM pg_type t
+                            JOIN pg_attribute a ON a.atttypid = t.oid
+                            WHERE a.attrelid = 'files'::regclass
+                              AND a.attname = 'file_type'
+                              AND t.typtype = 'e'
+                            LIMIT 1
+                            """
+                        )
+                    ).first()
+                    pg_filetype = row[0] if row else None
+                where_by_kind = {
+                    "VCD": "LOWER(filename) LIKE '%.vcd'",
+                    "EROM": "LOWER(filename) LIKE '%.erom' OR LOWER(filename) LIKE '%.bin' OR LOWER(filename) LIKE '%.hex' OR LOWER(filename) LIKE '%.elf'",
+                    "ULP": "LOWER(filename) LIKE '%.ulp' OR LOWER(filename) LIKE '%.lin'",
+                    "TXT": "LOWER(filename) LIKE '%.txt'",
+                }
+                for val, w in where_by_kind.items():
+                    if is_sqlite:
+                        stmt = f"UPDATE files SET file_type = '{val}' WHERE ({w})"
+                    elif pg_filetype:
+                        stmt = f"UPDATE files SET file_type = '{val}'::\"{pg_filetype}\" WHERE ({w})"
+                    else:
+                        continue
+                    try:
+                        sync_conn.execute(text(stmt))
+                    except Exception:
+                        pass
+                if is_sqlite:
+                    try:
+                        sync_conn.execute(
+                            text("UPDATE files SET file_type = 'EROM' WHERE file_type = 'FIRMWARE'")
+                        )
+                    except Exception:
+                        pass
+                elif pg_filetype:
+                    try:
+                        sync_conn.execute(
+                            text(
+                                f"UPDATE files SET file_type = 'EROM'::\"{pg_filetype}\" "
+                                f"WHERE file_type::text = 'FIRMWARE'"
+                            )
+                        )
+                    except Exception:
+                        pass
+
+            await conn.run_sync(_migrate_filetype_enum_backfill)
 
         # Seed demo boards when inventory is empty (dev / first boot)
         from db.seed_boards import seed_demo_boards_if_empty

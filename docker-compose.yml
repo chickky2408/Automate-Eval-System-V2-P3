@@ -6,7 +6,7 @@
 # Only-DB mode (run backend natively via `pipenv run uvicorn ...`):
 #   docker compose up -d db
 #   # then from repo root:
-#   export $(cat .env | xargs) && DB_HOST=localhost pipenv run uvicorn main:app --reload
+#   export $(cat .env | xargs) && DB_HOST=localhost pipenv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 #
 # For real deployment use docker-compose.prod.yml.
 

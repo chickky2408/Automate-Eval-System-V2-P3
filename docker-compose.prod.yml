@@ -3,7 +3,16 @@
 # Quick start:
 #   1. cp .env.example .env           # then edit credentials
 #   2. docker compose -f docker-compose.prod.yml up --build -d
-#   3. Open http://<server-ip>:8000
+#   3. Open in browser: use APP_EXTERNAL_URL from .env (see below)
+#
+# LAN / team access:
+#   - Bind to all interfaces: ports below use 0.0.0.0 so other machines on the
+#     same Wi-Fi can reach http://<host-lan-ip>:<APP_PORT>
+#   - In .env set APP_EXTERNAL_URL to that full URL (e.g. http://192.168.1.108:8000)
+#     so container logs and [STARTUP] show the same link you share with the team
+#   - Reserve a fixed DHCP / static IP for the host so the address does not change
+#   - On the server machine itself, if http://<lan-ip> fails in Safari, use
+#     http://127.0.0.1:8000 (same app; some setups block “hairpin” to own LAN IP)
 #
 # Persistent state:
 #   - pg_data       : PostgreSQL data directory
@@ -45,7 +54,8 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "${APP_PORT:-8000}:8000"
+      # 0.0.0.0 = listen on all host interfaces (LAN + localhost), not 127.0.0.1 only
+      - "0.0.0.0:${APP_PORT:-8000}:8000"
     environment:
       USE_SQLITE_DEMO: "0"
       DB_USER: ${DB_USER:-eval_admin}
@@ -53,8 +63,10 @@ services:
       DB_HOST: db
       DB_PORT: "5432"
       DB_NAME: ${DB_NAME:-eval_system}
-      # Printed on startup so the log shows the URL users actually open in the browser
-      APP_EXTERNAL_URL: http://localhost:${APP_PORT:-8000}
+      # Set APP_EXTERNAL_URL in .env to your LAN URL, e.g. http://192.168.1.108:8000
+      # Default follows APP_PORT (host) so 127.0.0.1 matches docker compose port mapping
+      APP_PORT: ${APP_PORT:-8000}
+      APP_EXTERNAL_URL: ${APP_EXTERNAL_URL:-http://127.0.0.1:${APP_PORT:-8000}}
     volumes:
       - eval_uploads:/app/uploads
     healthcheck:
