@@ -12,7 +12,7 @@ from sqlalchemy import select, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.database import async_session
-from db.orm_models import ProfileORM, TestCaseORM, TestSetORM, TestSetItemORM
+from db.orm_models import FileORM, ProfileORM, TestCaseORM, TestSetORM, TestSetItemORM
 
 router = APIRouter()
 
@@ -148,6 +148,10 @@ async def _sync_normalized_test_tables(session: AsyncSession, all_profiles: List
     - test_set_items
     Rebuilt from scratch on each profile data mutation.
     """
+    # vcd_file_id is FK -> files.id; client JSON may reference missing/legacy ids → IntegrityError/500
+    file_id_rows = (await session.execute(select(FileORM.id))).scalars().all()
+    valid_vcd_file_ids: set[str] = set(file_id_rows)
+
     tc_by_key: Dict[str, TestCaseORM] = {}
     set_rows: List[TestSetORM] = []
     set_item_rows: List[TestSetItemORM] = []
@@ -172,10 +176,12 @@ async def _sync_normalized_test_tables(session: AsyncSession, all_profiles: List
             if tc_id in tc_by_key:
                 return tc_id
             name = _normalize_tc_name(tc.get("name")) or f"TC_{tc_id[:8]}"
+            raw_vcd = str(tc.get("vcdId") or tc.get("vcd_file_id") or "").strip() or None
+            vcd_file_id = raw_vcd if (raw_vcd and raw_vcd in valid_vcd_file_ids) else None
             tc_by_key[tc_id] = TestCaseORM(
                 id=tc_id,
                 name=name,
-                vcd_file_id=str(tc.get("vcdId") or tc.get("vcd_file_id") or "").strip() or None,
+                vcd_file_id=vcd_file_id,
                 firmware_filename=str(tc.get("binName") or tc.get("firmware_filename") or "").strip() or None,
                 tags=_extract_tc_tags(tc),
                 owner_id=p.id,

@@ -4505,16 +4505,16 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
               const setName = (set.name || '').trim() || 'Set';
               const st = (setStatusByName.get(setName) || '').toLowerCase();
               if (st === 'running' || st === 'pending') {
-                addToast({ type: 'warning', message: `ลบจาก set ไม่ได้ — "${setName}" กำลัง ${st}` });
+                addToast({ type: 'warning', message: `Can't remove from set — "${setName}" is ${st}` });
                 return;
               }
               if (savedTestCaseSetPendingById?.[String(setId)]) {
-                addToast({ type: 'warning', message: `ลบจาก set ไม่ได้ — "${setName}" กำลังมี action ค้าง` });
+                addToast({ type: 'warning', message: `Can't remove from set — "${setName}" has a pending action` });
                 return;
               }
               const canEdit = set._ownerId == null || String(set._ownerId) === String(activeProfileId);
               if (!canEdit) {
-                addToast({ type: 'warning', message: `ลบจาก set ไม่ได้ — "${setName}" ไม่ใช่ set ของโปรไฟล์คุณ` });
+                addToast({ type: 'warning', message: `Can't remove from set — "${setName}" belongs to another profile` });
                 return;
               }
               const ok = removeSavedTestCaseSetRows(setId, indices);
@@ -4555,12 +4555,12 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
           const handleBulkDeleteSelectedSets = async () => {
             const rawIds = [...new Set(selectedLibrarySetHeaderIds)];
             if (rawIds.length === 0) {
-              addToast({ type: 'info', message: 'เลือก set ที่จะลบ (ช่องหัวแต่ละกล่อง) ก่อน' });
+              addToast({ type: 'info', message: 'Select sets to delete (header checkboxes) first.' });
               return;
             }
             if (
               !window.confirm(
-                `ลบ ${rawIds.length} set ที่เลือกออกจาก Saved หรือไม่?\n\nTest cases และไฟล์ใน Library จะยังอยู่ — ลบเฉพาะรายการ set`
+                `Remove ${rawIds.length} selected set(s) from Saved?\n\nTest cases and files in the Library stay — only the set entries are removed.`
               )
             ) {
               return;
@@ -4576,18 +4576,18 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
               const setName = (set.name || '').trim() || 'Set';
               const st = (setStatusByName.get(setName) || '').toLowerCase();
               if (st === 'running' || st === 'pending') {
-                addToast({ type: 'warning', message: `ข้าม "${setName}" — กำลัง ${st}` });
+                addToast({ type: 'warning', message: `Skipped "${setName}" — ${st}` });
                 skipped += 1;
                 continue;
               }
               if (savedTestCaseSetPendingById?.[String(set.id)]) {
-                addToast({ type: 'warning', message: `ข้าม "${setName}" — มี action ค้าง` });
+                addToast({ type: 'warning', message: `Skipped "${setName}" — pending action` });
                 skipped += 1;
                 continue;
               }
               const canEdit = set._ownerId == null || String(set._ownerId) === String(activeProfileId);
               if (!canEdit) {
-                addToast({ type: 'warning', message: `ข้าม "${setName}" — ไม่ใช่ set ของโปรไฟล์คุณ` });
+                addToast({ type: 'warning', message: `Skipped "${setName}" — not your profile's set` });
                 skipped += 1;
                 continue;
               }
@@ -4604,10 +4604,10 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
             setSelectedLibrarySetHeaderIds((prev) => prev.filter((id) => !rawIds.includes(id)));
             setSelectedLibrarySetTcKeys((prev) => prev.filter((k) => !rawIds.some((rid) => k.startsWith(`${rid}::`))));
             if (deleted > 0) {
-              addToast({ type: 'success', message: `ลบ set แล้ว ${deleted} ชุด` });
+              addToast({ type: 'success', message: `Deleted ${deleted} set(s)` });
             }
             if (skipped > 0 && deleted === 0) {
-              addToast({ type: 'info', message: 'ไม่มี set ที่ลบได้ในชุดที่เลือก' });
+              addToast({ type: 'info', message: 'Nothing could be deleted from the current selection.' });
             }
           };
 
@@ -4718,7 +4718,6 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                 </button>
                 {selectedSetKeys.size > 0 && <span className="text-xs text-slate-500">{selectedSetKeys.size} row(s)</span>}
                 <span className="w-px h-5 self-center bg-slate-200 dark:bg-slate-600 mx-0.5" aria-hidden title="" />
-                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 shrink-0">Set delete</span>
                 <button
                   type="button"
                   onClick={() => {
@@ -4732,21 +4731,21 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                   }}
                   disabled={deletableSetIdsInView.length === 0}
                   className="px-2 py-1 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800/80 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
-                  title="เลือก/ยกเลิก set ทั้งหมดที่ลบได้ในรายการตามตัวกรอง"
+                  title="Select or clear all sets that can be deleted in the filtered list"
                 >
                   {deletableSetIdsInView.length > 0 && deletableSetIdsInView.every((id) => selectedLibrarySetHeaderIds.includes(id))
-                    ? 'ยกเลิกเลือก set'
-                    : 'เลือก set ทั้งหมด'}
+                    ? 'Clear selection'
+                    : 'Select all sets'}
                 </button>
                 <button
                   type="button"
                   onClick={handleBulkDeleteSelectedSets}
                   disabled={selectedLibrarySetHeaderIds.length === 0}
                   className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 disabled:pointer-events-none transition-colors"
-                  title="ลบ set ที่ติ๊กหัวกล่อง — ไม่ลบ test cases/ไฟล์ใน Library"
+                  title="Delete checked sets — does not remove test cases or files from the Library"
                 >
                   <Trash2 size={14} strokeWidth={2.25} />
-                  ลบ set ({selectedLibrarySetHeaderIds.length})
+                  Delete set ({selectedLibrarySetHeaderIds.length})
                 </button>
                 {selectedLibrarySetHeaderIds.length > 0 && (
                   <span className="text-xs text-slate-500 dark:text-slate-400">{selectedLibrarySetHeaderIds.length} set(s) selected</span>
@@ -4834,7 +4833,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                     !isSetLocked &&
                     !setBusy &&
                     (set._ownerId == null || String(set._ownerId) === String(activeProfileId));
-                  /** สำเนา set ได้แม้ set กำลัง running/pending (ก็อปปี้รายการไปชุดใหม่) */
+                  /** Duplicate allowed even while running/pending (copies rows into a new set). */
                   const canDuplicateSet =
                     !setBusy &&
                     (set._ownerId == null || String(set._ownerId) === String(activeProfileId));
@@ -4862,9 +4861,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                             title={
                               !canEditSet
                                 ? (set._ownerId != null && String(set._ownerId) !== String(activeProfileId)
-                                    ? 'Set นี้ไม่ใช่ของโปรไฟล์คุณ'
-                                    : 'ลบ/เลือกไม่ได้ — set กำลัง running/pending หรือมี action ค้าง')
-                                : 'เลือก set นี้เพื่อลบหลายชุดพร้อมกัน'
+                                    ? 'This set belongs to another profile'
+                                    : 'Cannot select/delete — set is running/pending or has a pending action')
+                                : 'Select this set for multi-delete'
                             }
                             aria-label={`Select set ${setName} for bulk delete`}
                           />
@@ -4967,7 +4966,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                 }}
                                 disabled={setBusy}
                                 className="p-1.5 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-600 disabled:opacity-40 disabled:pointer-events-none"
-                                title="สำเนา set นี้ (เหมือน Run set)"
+                                title="Duplicate this set (same as Run Set page)"
                                 aria-label="Duplicate set"
                               >
                                 <Copy size={14} strokeWidth={2} />
@@ -4990,7 +4989,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                   setAddTcsPickerTimeQ('');
                                 }}
                                 className="p-1.5 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-600"
-                                title="แก้ไขชื่อ set และ/หรือเพิ่ม test case จาก Library"
+                                title="Edit set name and/or add test cases from Library"
                                 aria-label="Edit set name and add test cases from library"
                               >
                                 <Pencil size={14} strokeWidth={2} />
@@ -5003,7 +5002,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                             onClick={() => {
                               if (setBusy) return;
                               if (isSetLocked) {
-                                addToast({ type: 'warning', message: 'Set นี้กำลัง running/pending — ยัง run ซ้ำไม่ได้' });
+                                addToast({ type: 'warning', message: 'This set is running/pending — cannot run again yet' });
                                 return;
                               }
                               void runSavedSetNow(set);
@@ -5014,7 +5013,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                 ? 'bg-slate-200 dark:bg-slate-700 text-slate-400 cursor-not-allowed'
                                 : 'bg-emerald-600 text-white hover:bg-emerald-700'
                             }`}
-                            title={setBusy ? 'กำลังลบ/สำเนา/จัดเรียง set — รอสักครู่' : isSetLocked ? 'Set นี้กำลัง running/pending' : 'Run this set now'}
+                            title={setBusy ? 'Deleting/duplicating/reordering set — please wait' : isSetLocked ? 'This set is running/pending' : 'Run this set now'}
                           >
                             <Play size={12} />
                             Run
@@ -5025,7 +5024,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                             onClick={async () => {
                               if (setBusy) return;
                               if (isSetLocked) {
-                                addToast({ type: 'warning', message: 'Set กำลังรันหรือรอคิว — ไม่สามารถลบได้จนกว่าจะจบ process' });
+                                addToast({ type: 'warning', message: 'Set is running or queued — cannot delete until it finishes' });
                                 return;
                               }
                               const selectedIndicesInThisSet = new Set();
@@ -5042,14 +5041,14 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                     type: 'warning',
                                     message:
                                       set._ownerId != null && String(set._ownerId) !== String(activeProfileId)
-                                        ? 'แก้ได้เฉพาะ set ของโปรไฟล์คุณ'
-                                        : 'ไม่สามารถนำออกได้ขณะ set ถูกล็อก',
+                                        ? 'Only your profile\'s sets can be edited'
+                                        : 'Cannot remove while the set is locked',
                                   });
                                   return;
                                 }
                                 if (
                                   !window.confirm(
-                                    `นำ ${selectedIndicesInThisSet.size} test case ที่เลือกออกจาก set "${setName}" เท่านั้น?\n\nไม่ลบจาก Test Case Library`
+                                    `Remove ${selectedIndicesInThisSet.size} selected test case(s) from set "${setName}" only?\n\nThey stay in Test Case Library`
                                   )
                                 ) {
                                   return;
@@ -5069,7 +5068,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                 }
                                 addToast({
                                   type: 'success',
-                                  message: `นำออกจาก set "${setName}" แล้ว (${selectedIndicesInThisSet.size} รายการ) — Library ยังอยู่`,
+                                  message: `Removed from set "${setName}" (${selectedIndicesInThisSet.size} row(s)) — Library unchanged`,
                                 });
                                 return;
                               }
@@ -5087,12 +5086,12 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                             className={`p-1.5 rounded ${isSetLocked || setBusy ? 'opacity-50 cursor-not-allowed text-slate-400' : 'hover:bg-red-600/10 text-red-600 dark:text-red-400'}`}
                             title={
                               setBusy
-                                ? 'กำลังลบ/สำเนา/จัดเรียง — รอสักครู่'
+                                ? 'Deleting/duplicating/reordering — please wait'
                                 : isSetLocked
                                   ? 'Cannot delete — Set is running/pending'
                                   : selectedRowKeysInThisSet > 0
-                                    ? `นำ test case ที่เลือกออกจาก set นี้เท่านั้น (${selectedRowKeysInThisSet} selected) — ไม่ลบ Library`
-                                    : 'Delete entire set from Saved (ไม่ลบ test cases หรือไฟล์ใน Library)'
+                                    ? `Remove selected test cases from this set only (${selectedRowKeysInThisSet} selected) — Library unchanged`
+                                    : 'Delete entire set from Saved (test cases and files in Library stay)'
                             }
                           >
                             <Trash2 size={14} />
@@ -5162,7 +5161,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                         if (isSetSelectionLocked) return;
                                       toggleSetTc(key, idx, e);
                                     }}
-                                    title="Set Library — เลือกแถวแล้วกดไอคอนถังข้างบนเพื่อนำออกจาก set (ไม่ลบ Library)"
+                                    title="Set Library — select rows, then use the trash icon above to remove from set (Library unchanged)"
                                     onMouseDown={(e) => {
                                         if (e.target.closest('input[type="checkbox"]') || e.target.closest('button') || isSetSelectionLocked) return;
                                       if (e.button === 0) {

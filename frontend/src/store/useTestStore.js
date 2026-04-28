@@ -557,7 +557,12 @@ const putActiveProfileDataWithRecovery = async (getPayload, opts = {}) => {
     console.error('[putProfileData failed]', err);
     if (!suppressSyncErrorToast) {
       try {
-        st().addToast?.({ type: 'error', message: `${failMessage}: ${formatClientNetworkError(err)}` });
+        // api.putProfileData may already set err.message via formatClientNetworkError — don't wrap twice
+        const detail =
+          err != null && String(err.message || '').trim() !== ''
+            ? String(err.message)
+            : formatClientNetworkError(err);
+        st().addToast?.({ type: 'error', message: `${failMessage}: ${detail}` });
       } catch {
         /* ignore */
       }
@@ -2001,13 +2006,7 @@ export const useTestStore = create((set, get) => {
     const list = state.workingTestCases || [];
     saveSavedTestCases(list);
     set({ savedTestCases: list });
-    if (isBackendProfileId(getActiveProfileId())) {
-      const p = loadProfile(getActiveProfileId());
-      void api.putProfileData(getActiveProfileId(), { savedTestCases: list, savedTestCaseSets: p?.savedTestCaseSets ?? [] }).catch((err) => {
-        console.error('[putProfileData failed: saveWorkingToLibrary]', err);
-        try { get().addToast?.({ type: 'error', message: `Save to server failed: ${err?.message || err}` }); } catch { /* ignore */ }
-      });
-    }
+    // Server sync + toast: putActiveProfileDataWithRecovery inside saveSavedTestCases only (no duplicate PUT)
   },
 
   bulkUpdateTryCount: (ids, tryCount) => set((state) => {
@@ -2456,14 +2455,6 @@ export const useTestStore = create((set, get) => {
     });
     const next = [...fromCurrent, ...toAdd];
     saveSavedTestCases(next);
-    const activeId = getActiveProfileId();
-    if (isBackendProfileId(activeId)) {
-      const p = loadProfile(activeId);
-      void api.putProfileData(activeId, { savedTestCases: next, savedTestCaseSets: p?.savedTestCaseSets ?? [] }).catch((err) => {
-        console.error('[putProfileData failed: append TCs]', err);
-        try { get().addToast?.({ type: 'error', message: `Save to server failed: ${err?.message || err}` }); } catch { /* ignore */ }
-      });
-    }
     return { savedTestCases: next };
   }),
 

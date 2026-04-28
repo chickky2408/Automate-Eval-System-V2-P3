@@ -8,8 +8,11 @@ from fastapi.exceptions import HTTPException as FastAPIHTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
+import logging
 import os
 from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
 
 from routers import boards, jobs, results, system, files, notifications, ws, agent, sets, profiles, test_cases, test_commands, job_files
 from services.job_queue import job_queue_service
@@ -81,6 +84,7 @@ async def http_exception_handler(request: Request, exc: FastAPIHTTPException):
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("%s %s", request.method, request.url.path)
     return JSONResponse(
         status_code=500,
         content={
