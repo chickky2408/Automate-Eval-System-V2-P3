@@ -141,11 +141,27 @@
         },
         "click": {
             "hashes": [
+<<<<<<< Updated upstream
                 "sha256:398329ad4837b2ff7cbe1dd166a4c0f8900c3ca3a218de04466f38f6497f18a2",
                 "sha256:a2bf429bb3033c89fa4936ffb35d5cb471e3719e1f3c8a7c3fff0b8314305613"
             ],
             "markers": "python_version >= '3.10'",
             "version": "==8.3.3"
+=======
+                "sha256:14162b8b3b3550a7d479eafa77dfd3c38d9dc8951f6f69c78913a8f9a7540fd5",
+                "sha256:1924d2c27c5653561cd2cae4548d1406039cb79b858b747cfea24924bbc1616d"
+            ],
+            "markers": "python_version >= '3.10'",
+            "version": "==8.3.2"
+        },
+        "colorama": {
+            "hashes": [
+                "sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44",
+                "sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6"
+            ],
+            "markers": "python_version >= '2.7' and python_version not in '3.0, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6'",
+            "version": "==0.4.6"
+>>>>>>> Stashed changes
         },
         "fastapi": {
             "hashes": [
@@ -231,6 +247,7 @@
         },
         "h5py": {
             "hashes": [
+<<<<<<< Updated upstream
                 "sha256:099f2525c9dcf28de366970a5fb34879aab20491589fa89ce2863a84218bb524",
                 "sha256:0f456f556e4e2cebeebd9d66adf8dc321770a42593494a0b6f0af54a7567b242",
                 "sha256:15922e485844f77c0b9d275396d435db3baa58292a9c2176a386e072e0cf2491",
@@ -279,6 +296,10 @@
                 "sha256:fb1720028d99040792bb2fb31facb8da44a6f29df7697e0b84f0d79aff2e9bd3",
                 "sha256:ff24039e2573297787c3063df64b60aab0591980ac898329a08b0320e0cf2527",
                 "sha256:ffbab2fedd6581f6aa31cf1639ca2cb86e02779de525667892ebf4cc9fd26434"
+=======
+                "sha256:18f2bbcd545e6991412253b98727374c356d67caa920e68dc79eab36bf5fedad",
+                "sha256:a0dbaad796840ccaa67a4c144a0d0c8080073c34c76d5a6941d6818678ef2738"
+>>>>>>> Stashed changes
             ],
             "index": "pypi",
             "markers": "python_version >= '3.10'",
@@ -560,7 +581,10 @@
                 "sha256:527e6342b3e44c2f0544f6b8e927d60de7f163f5723b8f1dfa7d2a84298738cd",
                 "sha256:54a0dfecab1b48731f934e06139dfe11e24219fb6d0ceb32177cf0375f14c7b5",
                 "sha256:5a0253224780c978746cb9be55a946bcdaf40fe3519c0f622924cdabdafe2c39",
+<<<<<<< Updated upstream
                 "sha256:5ac9444edc768c02a6b6a591f070b8aae28ff3a99be57560ac996001580f294c",
+=======
+>>>>>>> Stashed changes
                 "sha256:5c7cb4cbf894a1d36c720d713de507952c7c58f66d30834708f03dbe5c822ccf",
                 "sha256:5c8ce6c61bd1b1f6b9c24ee32211599f6166af2c55abb19456090a21fd16554b",
                 "sha256:5cdc05117180c5fa9c40eea8ea559ce64d73824c39d928b7da9fb5f6a9392433",
@@ -946,6 +970,7 @@
                 "standard"
             ],
             "hashes": [
+<<<<<<< Updated upstream
                 "sha256:2db26f588131aeec7439de00f2dd52d5f210710c1f01e407a52c90b880d1fd4f",
                 "sha256:3fe650df136c5bd2b9b06efc5980636344a2fbb840e9ddd86437d53144fa335d"
             ],
@@ -1006,6 +1031,13 @@
             ],
             "markers": "python_full_version >= '3.8.1'",
             "version": "==0.22.1"
+=======
+                "sha256:6c942071b68f07e178264b9152f1f16dfac5da85880c4ce06366a96d70d4f31e",
+                "sha256:ce937c99a2cc70279556967274414c087888e8cec9f9c94644dfca11bd3ced89"
+            ],
+            "markers": "python_version >= '3.10'",
+            "version": "==0.44.0"
+>>>>>>> Stashed changes
         },
         "watchfiles": {
             "hashes": [
@@ -1207,6 +1239,14 @@
             "markers": "python_version >= '3.7'",
             "version": "==2026.4.22"
         },
+        "colorama": {
+            "hashes": [
+                "sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44",
+                "sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6"
+            ],
+            "markers": "python_version >= '2.7' and python_version not in '3.0, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6'",
+            "version": "==0.4.6"
+        },
         "h11": {
             "hashes": [
                 "sha256:4e35b956cf45792e4caa5885e69fba00bdbc6ffafbfa020300e549b208ee5ff1",
@@ -1280,6 +1320,7 @@
             "index": "pypi",
             "markers": "python_version >= '3.10'",
             "version": "==9.0.3"
+<<<<<<< Updated upstream
         },
         "typing-extensions": {
             "hashes": [
@@ -1288,6 +1329,8 @@
             ],
             "markers": "python_version >= '3.9'",
             "version": "==4.15.0"
+=======
+>>>>>>> Stashed changes
         }
     }
 }
