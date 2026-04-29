@@ -1,7 +1,7 @@
 import React from 'react';
 import { CheckCircle2, MoreVertical, Terminal, Wifi, WifiOff, XCircle } from 'lucide-react';
 
-const BoardTableRow = ({ board, selected, onSelect, onClick, onSSHClick }) => {
+const BoardTableRow = ({ board, selected, onSelect, onClick, onSSHClick, pulseHighlight = false }) => {
   const getStatusBadge = (status) => {
     const colors = {
       online: 'bg-emerald-100 text-emerald-700',
@@ -16,8 +16,11 @@ const BoardTableRow = ({ board, selected, onSelect, onClick, onSSHClick }) => {
   };
   
   return (
-    <tr 
-      className={`hover:bg-slate-50/80 transition-colors cursor-pointer ${selected ? 'bg-blue-50' : ''}`}
+    <tr
+      data-board-row-id={board.id != null ? String(board.id) : undefined}
+      className={`hover:bg-slate-50/80 dark:hover:bg-slate-800/70 transition-colors cursor-pointer ${
+        selected ? 'bg-blue-50 dark:bg-blue-950/25' : ''
+      } ${pulseHighlight ? 'ring-2 ring-inset ring-amber-400 dark:ring-amber-500 bg-amber-50/40 dark:bg-amber-950/25' : ''}`}
       onClick={onClick}
     >
       <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>

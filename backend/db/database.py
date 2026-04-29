@@ -450,6 +450,39 @@ async def init_db():
 
             await conn.run_sync(_add_tc_set_owner_visibility)
 
+        # Migration: test_cases file snapshots + try/status (normalized mirror of profile JSON).
+        async with engine.begin() as conn:
+            def _add_test_cases_snapshot_columns(sync_conn):
+                is_sqlite = "sqlite" in DATABASE_URL
+                targets = [
+                    ("test_cases", "vcd_filename", "VARCHAR(255)", "VARCHAR(255)"),
+                    ("test_cases", "ulp_filename", "VARCHAR(255)", "VARCHAR(255)"),
+                    ("test_cases", "mdi_text_filename", "VARCHAR(255)", "VARCHAR(255)"),
+                    ("test_cases", "try_count", "INTEGER", "INTEGER"),
+                    ("test_cases", "status_cached", "VARCHAR(64)", "VARCHAR(64)"),
+                ]
+                if is_sqlite:
+                    existing = {}
+                    cur = sync_conn.execute(text("PRAGMA table_info(test_cases)"))
+                    existing["test_cases"] = {row[1] for row in cur.fetchall()}
+                    for table, col, sqlite_type, _ in targets:
+                        if col not in existing.get(table, set()):
+                            sync_conn.execute(
+                                text(f"ALTER TABLE {table} ADD COLUMN {col} {sqlite_type}")
+                            )
+                else:
+                    for table, col, _, pg_type in targets:
+                        try:
+                            sync_conn.execute(
+                                text(
+                                    f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {pg_type}"
+                                )
+                            )
+                        except Exception:
+                            pass
+
+            await conn.run_sync(_add_test_cases_snapshot_columns)
+
         # Final cutover: drop legacy filename columns after file-id migration is in place.
         async with engine.begin() as conn:
             def _drop_legacy_filename_columns(sync_conn):

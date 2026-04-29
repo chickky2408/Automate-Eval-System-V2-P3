@@ -166,7 +166,14 @@ class TestCaseORM(Base):
     id = Column(String(32), primary_key=True)
     name = Column(String(255), nullable=False)
     vcd_file_id = Column(String(36), ForeignKey("files.id"), nullable=True)
+    # ERoM (.erom / binName) — legacy column name kept for compatibility.
     firmware_filename = Column(String(255), nullable=True)
+    # Denormalized filenames from profile JSON (queries / admin views without walking JSON).
+    vcd_filename = Column(String(255), nullable=True)
+    ulp_filename = Column(String(255), nullable=True)
+    mdi_text_filename = Column(String(255), nullable=True)
+    try_count = Column(Integer, nullable=True)
+    status_cached = Column(String(64), nullable=True)
     tags = Column(String(255), nullable=True)
     # Ownership / visibility — mirrors files.owner_id / files.visibility so that
     # Library filters can query normalized tables directly (no JSON blob walks).

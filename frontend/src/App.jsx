@@ -32,6 +32,7 @@ const App = () => {
   const [expandJobId, setExpandJobId] = useState(null); // for expanding job from history / deep-link
   const [tagManagerJobId, setTagManagerJobId] = useState(null);
   const { systemHealth, boards, theme, toggleTheme } = useTestStore();
+  const setBoardsPageFocusBoardId = useTestStore((s) => s.setBoardsPageFocusBoardId);
   const profiles = useTestStore((s) => s.profiles) || [];
   const activeProfileId = useTestStore((s) => s.activeProfileId);
   const refreshSystemHealth = useTestStore((state) => state.refreshSystemHealth);
@@ -158,7 +159,7 @@ const App = () => {
           <NavItem icon={<FileCode size={20}/>} label="Create Test Case" active={activePage === 'testCases'} isOpen={isSidebarOpen} onClick={() => setActivePage('testCases')} />
           <NavItem icon={<PlayCircle size={20}/>} label="Run Set" active={activePage === 'runSet'} isOpen={isSidebarOpen} onClick={() => setActivePage('runSet')} />
           <NavItem icon={<Monitor size={20}/>} label="Jobs Manager" active={activePage === 'jobs'} isOpen={isSidebarOpen} onClick={() => setActivePage('jobs')} />
-          <NavItem icon={<Cpu size={20}/>} label="Board Status" active={activePage === 'boards'} isOpen={isSidebarOpen} onClick={() => setActivePage('boards')} />
+          <NavItem icon={<Cpu size={20}/>} label="Board Status" active={activePage === 'boards'} isOpen={isSidebarOpen} onClick={() => { setBoardsPageFocusBoardId(null); useTestStore.getState().setBoardsFleetStatusPreset(null); useTestStore.getState().setFleetFilter('status', null); setActivePage('boards'); }} />
           <NavItem icon={<History size={20}/>} label="Test History" active={activePage === 'history'} isOpen={isSidebarOpen} onClick={() => setActivePage('history')} />
           <NavItem icon={<Activity size={20}/>} label="Realtime Waveform" active={activePage === 'waveform'} isOpen={isSidebarOpen} onClick={() => setActivePage('waveform')} />
         </nav>
@@ -307,9 +308,22 @@ const App = () => {
           {/* Other pages can unmount normally */}
           {activePage === 'dashboard' && (
             <DashboardPage
-              onNavigateBoards={() => setActivePage('boards')}
-              onNavigateJobs={(jobId) => {
+              onNavigateBoards={(boardId) => {
+                if (boardId != null && String(boardId).trim() !== '') {
+                  setBoardsPageFocusBoardId(String(boardId).trim());
+                } else {
+                  setBoardsPageFocusBoardId(null);
+                }
+                setActivePage('boards');
+              }}
+              onNavigateJobs={(jobId, options = {}) => {
                 if (jobId != null) setExpandJobId(jobId);
+                if (options && typeof options.jobsStatusFilter === 'string') {
+                  useTestStore.getState().setJobsPageSession((prev) => ({
+                    ...prev,
+                    jobsStatusFilter: options.jobsStatusFilter,
+                  }));
+                }
                 setActivePage('jobs');
               }}
               onManageTags={(jobId) => setTagManagerJobId(jobId)}

@@ -1,7 +1,20 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Activity, AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Clock, Copy, Eye, MoreVertical, Pause, Play, RefreshCw, Search, Settings, Square, Tag, Terminal, Trash2, Wifi, WifiOff, X, XCircle } from 'lucide-react';
 
-const BoardCard = ({ board, jobs = [], selected, onSelect, onClick, onRightClick, onViewDetails, onPauseQueue, onResumeQueue, onRestart, onShutdown }) => {
+const BoardCard = ({
+  board,
+  jobs = [],
+  selected,
+  onSelect,
+  onClick,
+  onRightClick,
+  onViewDetails,
+  onPauseQueue,
+  onResumeQueue,
+  onRestart,
+  onShutdown,
+  pulseHighlight = false,
+}) => {
   const jobId = (board.currentJob || '').replace(/^(Batch|Set) #/, '');
   const currentJob = jobId ? (jobs || []).find(j => j.id === jobId) : null;
   const currentJobLabel = currentJob
@@ -31,13 +44,14 @@ const BoardCard = ({ board, jobs = [], selected, onSelect, onClick, onRightClick
   
   return (
     <div
+      data-board-row-id={board.id != null ? String(board.id) : undefined}
       className={`bg-white p-4 rounded-xl border-2 transition-all hover:shadow-lg cursor-pointer relative ${
         board.status === 'error' 
           ? 'border-red-200 bg-red-50/20 dark:border-slate-600 dark:bg-slate-800' 
           : board.status === 'busy'
           ? 'border-blue-200 bg-blue-50/10 dark:border-slate-600 dark:bg-slate-800'
           : 'border-emerald-200 bg-white dark:border-slate-700 dark:bg-slate-800'
-      } ${selected ? 'ring-2 ring-blue-500' : ''}`}
+      } ${selected && !pulseHighlight ? 'ring-2 ring-blue-500' : ''} ${pulseHighlight ? 'ring-[3px] ring-amber-400 dark:ring-amber-500 ring-offset-2 ring-offset-white dark:ring-offset-slate-950 shadow-lg z-[1]' : ''}`}
       onClick={onClick}
       onContextMenu={onRightClick}
     >

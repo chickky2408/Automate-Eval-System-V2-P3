@@ -40,6 +40,10 @@ const BoardsPage = () => {
   const addToast = useTestStore((state) => state.addToast);
   const setBoardQueuePaused = useTestStore((state) => state.setBoardQueuePaused);
   const boardQueuePaused = useTestStore((state) => state.boardQueuePaused || {});
+  const boardsPageFocusBoardId = useTestStore((state) => state.boardsPageFocusBoardId);
+  const setBoardsPageFocusBoardId = useTestStore((state) => state.setBoardsPageFocusBoardId);
+  const boardsFleetStatusPreset = useTestStore((state) => state.boardsFleetStatusPreset);
+  const setBoardsFleetStatusPresetStore = useTestStore((state) => state.setBoardsFleetStatusPreset);
 
   const realBoards = boards || [];
 
@@ -221,6 +225,60 @@ const BoardsPage = () => {
   const [isDeletingSelected, setIsDeletingSelected] = useState(false);
   const [isBatchActionRunning, setIsBatchActionRunning] = useState(false);
   const [isRefreshingBoards, setIsRefreshingBoards] = useState(false);
+  const [pulseBoardId, setPulseBoardId] = useState(null);
+  const pulseClearTimerRef = useRef(null);
+
+  /** Dashboard / Device popup → highlight & scroll this board on Fleet Manager. */
+  useEffect(() => {
+    const fid = boardsPageFocusBoardId;
+    if (fid == null || String(fid).trim() === '') return;
+    const str = String(fid).trim();
+    setBoardsPageFocusBoardId(null);
+    setPulseBoardId(str);
+    if (pulseClearTimerRef.current != null) {
+      clearTimeout(pulseClearTimerRef.current);
+      pulseClearTimerRef.current = null;
+    }
+    const esc = typeof CSS !== 'undefined' && typeof CSS.escape === 'function' ? CSS.escape(str) : str.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const scroll = () => {
+      const el = document.querySelector(`[data-board-row-id="${esc}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } else {
+        addToast({
+          type: 'info',
+          message: `Board "${str}" was not found in the current view. Clear filters if the board is hidden.`,
+        });
+      }
+    };
+    const tScroll = window.setTimeout(scroll, 120);
+    pulseClearTimerRef.current = window.setTimeout(() => {
+      pulseClearTimerRef.current = null;
+      setPulseBoardId(null);
+    }, 4200);
+    return () => {
+      window.clearTimeout(tScroll);
+      // Intentionally do not clear pulseClearTimerRef here — avoid losing highlight when store clears focus id.
+    };
+  }, [boardsPageFocusBoardId, setBoardsPageFocusBoardId, addToast]);
+
+  useEffect(
+    () => () => {
+      if (pulseClearTimerRef.current != null) {
+        clearTimeout(pulseClearTimerRef.current);
+        pulseClearTimerRef.current = null;
+      }
+    },
+    [],
+  );
+
+  /** Dashboard Online/Busy stat cards — preset status filter once on entry. */
+  useEffect(() => {
+    const p = boardsFleetStatusPreset;
+    if (p !== 'online' && p !== 'busy') return;
+    setFleetFilter('status', p);
+    queueMicrotask(() => setBoardsFleetStatusPresetStore(null));
+  }, [boardsFleetStatusPreset, setFleetFilter, setBoardsFleetStatusPresetStore]);
   
   // Filter boards (real + demo)
   const filteredBoards = boardsWithDemo.filter(board => {
@@ -508,6 +566,7 @@ const BoardsPage = () => {
               onResumeQueue={handleResumeQueue}
               onRestart={handleRestartBoard}
               onShutdown={handleShutdownBoard}
+              pulseHighlight={pulseBoardId != null && String(pulseBoardId) === String(board.id)}
             />
       ))}
     </div>
@@ -546,6 +605,7 @@ const BoardsPage = () => {
                     setSelectedBoard(board);
                     setShowSSH(true);
                   }}
+                  pulseHighlight={pulseBoardId != null && String(pulseBoardId) === String(board.id)}
                 />
               ))}
         </tbody>

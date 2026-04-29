@@ -21,14 +21,27 @@ import { getClientId } from '../utils/sessionStorage';
 import { resolveJobOwnerDisplayName } from '../utils/profileOwnerLabel';
 import { jobTagPillClasses, TAG_PALETTE_KEYS, TAG_SWATCH_DOT_CLASS, normalizeTagColorKey, getJobPrimaryTagColorKey, jobHasAnyTagColor } from '../utils/tagPalette';
 
-const StatCard = ({ icon, label, value, sub, onClick }) => {
+const StatCard = ({ icon, label, value, sub, onClick, title: statTitle }) => {
   const isClickable = typeof onClick === 'function';
   return (
     <div
+      role={isClickable ? 'button' : undefined}
+      tabIndex={isClickable ? 0 : undefined}
+      title={statTitle || (isClickable ? `${label} — Open in Jobs or Fleet Manager` : undefined)}
       className={`bg-white dark:bg-slate-900 px-4 py-3 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm transition-shadow ${
-        isClickable ? 'cursor-pointer hover:shadow-md hover:border-blue-200 dark:hover:border-slate-600' : 'hover:shadow-md'
+        isClickable ? 'cursor-pointer hover:shadow-md hover:border-blue-200 dark:hover:border-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900' : 'hover:shadow-md'
       }`}
       onClick={onClick}
+      onKeyDown={
+        isClickable
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onClick?.(e);
+              }
+            }
+          : undefined
+      }
     >
       <div className="flex items-center gap-3 mb-3">
         <div className="p-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl">{icon}</div>
@@ -320,26 +333,49 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
   }, [boards, dashboardDemoBoards, boardQueuePaused]);
 
   const fleetTotalBoards = fleetBoards.length;
+  /** Dashboard fleet KPIs: count all online/busy operational boards (includes queue-paused). Run SetAssignment may still block paused boards separately. */
+  const isFleetStatLiveBoard = (b) => {
+    const st = String(b?.status || '').toLowerCase();
+    if (st === 'error' || st === 'offline') return false;
+    return st === 'online' || st === 'busy';
+  };
+  const fleetOnlineBoards = fleetBoards.filter(
+    (b) => isFleetStatLiveBoard(b) && String(b?.status || '').toLowerCase() === 'online',
+  ).length;
+  const fleetBusyBoards = fleetBoards.filter(
+    (b) => isFleetStatLiveBoard(b) && String(b?.status || '').toLowerCase() === 'busy',
+  ).length;
+  /** Boards user can attach work to — excludes error/offline and queue-paused (matches Run Set behavior). Shown nowhere by default; use for tooltip / future badge. */
+  const fleetSelectableCombined = fleetBoards.filter((b) => {
+    const st = String(b?.status || '').toLowerCase();
+    if (st === 'error' || st === 'offline') return false;
+    if (b?.queuePaused) return false;
+    return st === 'online' || st === 'busy';
+  }).length;
+
+  /** Used for Device Progress / queue semantics — excludes queue-paused boards from “available”. */
   const isBoardSelectable = (b) => {
     const st = String(b?.status || '').toLowerCase();
-    // "Online" on dashboard means: user can select this board in Run Set.
-    // Exclude boards that are broken/shutdown/offline, or explicitly paused from selection.
     if (st === 'error' || st === 'offline') return false;
     if (b?.queuePaused) return false;
     return st === 'online' || st === 'busy';
   };
-  const fleetOnlineBoards = fleetBoards.filter(isBoardSelectable).length;
 
-  const pendingJobs = jobs.filter((j) => j.status === 'pending');
+  const pendingJobs = useMemo(() => (jobs || []).filter((j) => j.status === 'pending'), [jobs]);
   const jobQueueCount = pendingJobs.length;
-  const jobErrorCount = jobs.filter((job) => {
-    if (job.status !== 'completed' && job.status !== 'stopped') return false;
-    return (job.files || []).some((f) => {
-      const result = (f.result || '').toLowerCase();
-      const status = (f.status || '').toLowerCase();
-      return result === 'fail' || status === 'error';
-    });
-  }).length;
+  const jobsInErrorBucket = useMemo(
+    () =>
+      (jobs || []).filter((job) => {
+        if (job.status !== 'completed' && job.status !== 'stopped') return false;
+        return (job.files || []).some((f) => {
+          const result = (f.result || '').toLowerCase();
+          const status = (f.status || '').toLowerCase();
+          return result === 'fail' || status === 'error';
+        });
+      }),
+    [jobs],
+  );
+  const jobErrorCount = jobsInErrorBucket.length;
 
   const clientId = getClientId();
   const systemSearchLower = systemSearch.trim().toLowerCase();
@@ -612,9 +648,6 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
     ).length;
     return { board: b, progress, job, completedFiles, totalFiles, remainingFiles, jobsWaitingForBoard };
   });
-  const fleetBusyBoards = deviceProgressRows.filter(
-    (r) => isBoardSelectable(r.board) && (r.jobsWaitingForBoard || 0) > 0
-  ).length;
 
   const handleCopyCommand = (command) => {
     navigator.clipboard.writeText(command);
@@ -625,12 +658,31 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
   const hasDashboardError = errors?.systemHealth || errors?.boards || errors?.jobs;
   const isDashboardLoading = loading?.systemHealth || loading?.boards || loading?.jobs;
 
-  const goToBoardStatus = () => {
-    if (onNavigateBoards) onNavigateBoards();
+  const goToBoardStatus = (boardFocusId) => {
+    if (onNavigateBoards) onNavigateBoards(boardFocusId ?? null);
   };
 
   const goToJobManager = (jobId = null, options = {}) => {
     if (onNavigateJobs) onNavigateJobs(jobId, options);
+  };
+
+  const setBoardsPageFocusBoardIdGlobal = useTestStore((s) => s.setBoardsPageFocusBoardId);
+  const setBoardsFleetStatusPresetGlobal = useTestStore((s) => s.setBoardsFleetStatusPreset);
+
+  const openFleetFiltered = (preset) => {
+    setBoardsPageFocusBoardIdGlobal(null);
+    setBoardsFleetStatusPresetGlobal(preset === 'busy' ? 'busy' : 'online');
+    goToBoardStatus(null);
+  };
+
+  const openJobsErrorFocused = () => {
+    const jid = jobsInErrorBucket.length > 0 ? jobsInErrorBucket[0]?.id ?? null : null;
+    goToJobManager(jid, { jobsStatusFilter: 'error' });
+  };
+
+  const openJobsPendingFocused = () => {
+    const jid = pendingJobs.length > 0 ? pendingJobs[0]?.id ?? null : null;
+    goToJobManager(jid, { jobsStatusFilter: 'pending' });
   };
 
   const systemModalJob = systemModalJobId ? jobs.find((j) => j.id === systemModalJobId) : null;
@@ -695,29 +747,33 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
           icon={<CheckCircle2 className="text-emerald-500" />}
           label="Online"
           value={fleetOnlineBoards}
-          sub={`${fleetTotalBoards} Total Boards`}
-          onClick={goToBoardStatus}
+          sub={`${fleetTotalBoards} total · ${fleetSelectableCombined} ready for Run`}
+          title="Fleet Manager — filter Online boards"
+          onClick={() => openFleetFiltered('online')}
         />
         <StatCard
           icon={<Zap className="text-blue-500" />}
           label="Busy"
           value={fleetBusyBoards}
-          sub="Running Board"
-          onClick={goToBoardStatus}
+          sub="Running board"
+          title="Fleet Manager — filter Busy boards"
+          onClick={() => openFleetFiltered('busy')}
         />
         <StatCard
           icon={<AlertCircle className="text-red-500" />}
           label="Job Errors"
           value={jobErrorCount}
           sub="Set with failed tests"
-          onClick={goToJobManager}
+          title="Jobs Manager — Error column; expands first error set if present"
+          onClick={openJobsErrorFocused}
         />
         <StatCard
           icon={<Activity className="text-purple-500" />}
           label="Job Queue"
           value={jobQueueCount}
           sub="Set waiting to run"
-          onClick={goToJobManager}
+          title="Jobs Manager — Pending column; expands first queued set if present"
+          onClick={openJobsPendingFocused}
         />
         <StatCard
           icon={<HardDrive className="text-orange-500" />}
@@ -1120,18 +1176,18 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
             </div>
             <div className="px-5 py-4 space-y-3">
               <div className="text-xs text-slate-500 dark:text-slate-400">{systemModalSummaryText}</div>
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+              <div className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-600 bg-slate-50/90 dark:bg-slate-900/60 shadow-inner">
+                <div className="px-3 py-2 bg-slate-100/80 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-600 flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
                     <span>Test Cases</span>
-                    <span className="text-[10px] font-normal text-slate-500">
+                    <span className="text-[10px] font-normal text-slate-500 dark:text-slate-400">
                       (running / failed highlighted)
                     </span>
                   </div>
                 </div>
-                <div className="max-h-72 overflow-y-auto text-xs">
+                <div className="max-h-72 overflow-y-auto text-xs divide-y divide-slate-100 dark:divide-slate-700/80">
                   {(!systemModalJob.files || systemModalJob.files.length === 0) ? (
-                    <div className="px-4 py-6 text-center text-slate-400">
+                    <div className="px-4 py-6 text-center text-slate-500 dark:text-slate-400 bg-slate-50/80 dark:bg-slate-950/40">
                       No test cases in this set.
                     </div>
                   ) : (
@@ -1145,35 +1201,35 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
                           (file.status || '').toLowerCase() === 'error' ||
                           (file.status || '').toLowerCase() === 'failed';
                         const rowBg = isFailed
-                          ? 'bg-red-50'
+                          ? 'bg-red-50 dark:bg-red-950/35'
                           : isRunning
-                            ? 'bg-blue-50'
-                            : 'bg-white';
+                            ? 'bg-blue-50 dark:bg-blue-950/35'
+                            : 'bg-white/90 dark:bg-slate-950/35';
                         return (
                           <div
                             key={file.id}
-                            className={`px-4 py-2 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 ${rowBg}`}
+                            className={`px-4 py-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 ${rowBg}`}
                           >
                             <div className="flex items-center gap-2 min-w-0">
-                              <span className="text-[10px] text-slate-400 shrink-0">
+                              <span className="text-[10px] text-slate-400 dark:text-slate-500 shrink-0">
                                 #{file.order || file.id}
                               </span>
-                              <span className="truncate font-medium text-slate-700">
+                              <span className="truncate font-medium text-slate-700 dark:text-slate-200">
                                 {getDashboardTestCaseDisplayName(file)}
                               </span>
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
-                              <span className="text-[10px] uppercase font-semibold text-slate-500">
+                              <span className="text-[10px] uppercase font-semibold text-slate-500 dark:text-slate-400">
                                 {file.status || 'pending'}
                               </span>
                               {file.result && (
                                 <span
                                   className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                                     file.result === 'pass'
-                                      ? 'bg-emerald-100 text-emerald-700'
+                                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/55 dark:text-emerald-300'
                                       : file.result === 'fail'
-                                        ? 'bg-red-100 text-red-700'
-                                        : 'bg-slate-100 text-slate-500'
+                                        ? 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-200'
+                                        : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
                                   }`}
                                 >
                                   {file.result.toUpperCase()}
@@ -1188,8 +1244,9 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
               </div>
               <div className="flex justify-end gap-2 pt-1">
                 <button
+                  type="button"
                   onClick={() => setSystemModalJobId(null)}
-                  className="px-3 py-1.5 text-xs font-semibold text-slate-600 rounded-lg hover:bg-slate-100"
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent dark:border-slate-600"
                 >
                   Close
                 </button>
@@ -1258,33 +1315,41 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
             </div>
             <div className="px-5 py-4 border-t border-slate-200 dark:border-slate-700 flex flex-wrap gap-2 justify-end">
               <button
-                onClick={() => setSystemModalBoardId(null)}
-                className="px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                Close
-              </button>
-              <button
+                type="button"
                 onClick={() => {
                   setSystemModalBoardId(null);
-                  goToBoardStatus();
+                  const bid =
+                    systemModalBoardRow.board?.id != null && systemModalBoardRow.board?.id !== ''
+                      ? String(systemModalBoardRow.board.id)
+                      : String(systemModalBoardRow.board?.name || '').trim() || null;
+                  goToBoardStatus(bid);
                 }}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700"
               >
                 <Activity size={14} />
                 Board Status
               </button>
-              {systemModalBoardRow.job && (
-                <button
-                  onClick={() => {
-                    setSystemModalBoardId(null);
-                    goToJobManager();
-                  }}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-600 text-white hover:bg-slate-700"
-                >
-                  <Monitor size={14} />
-                  Job Manager
-                </button>
-              )}
+              {(() => {
+                const mj = systemModalBoardRow.job;
+                if (!mj) return null;
+                const jid = mj.id != null && String(mj.id) !== '' ? String(mj.id) : null;
+                const isSyntheticDemoJob = !!(jid && String(jid).startsWith('DEMO-'));
+                if (!jid || isSyntheticDemoJob) return null;
+                return (
+                  <button
+                    type="button"
+                    title="Open Jobs Manager with this running set highlighted"
+                    onClick={() => {
+                      setSystemModalBoardId(null);
+                      goToJobManager(jid);
+                    }}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-600 text-white hover:bg-slate-700"
+                  >
+                    <Monitor size={14} />
+                    Open running job
+                  </button>
+                );
+              })()}
             </div>
           </div>
         </div>

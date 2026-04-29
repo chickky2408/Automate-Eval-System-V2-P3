@@ -259,6 +259,26 @@ const getActiveProfileDisplayNameForSnapshot = (get) => {
   return typeof n === 'string' && n.trim() ? n.trim() : null;
 };
 
+/**
+ * Merged preferences sent with PUT /profiles/:id/data so normalized test_cases.owner_display_name
+ * matches uploads (multipart passes owner_display_name) even when ProfileORM.name on server was stale.
+ */
+function mergePreferencesForActiveProfilePut() {
+  const id = getActiveProfileId();
+  const blob = loadProfile(id) || {};
+  const profList = loadProfilesList();
+  const entry = Array.isArray(profList) ? profList.find((x) => String(x.id) === String(id)) : null;
+  let dn =
+    typeof entry?.name === 'string' && entry.name.trim()
+      ? entry.name.trim()
+      : typeof blob.name === 'string' && blob.name.trim()
+        ? blob.name.trim()
+        : '';
+  if (dn && dn.toLowerCase() === 'default') dn = '';
+  const base = blob.preferences && typeof blob.preferences === 'object' ? { ...blob.preferences } : {};
+  return dn ? { ...base, ownerDisplayName: dn } : base;
+}
+
 // File tags (global, per-device)
 const loadFileTags = () => {
   try {
@@ -305,15 +325,19 @@ const migrateLocalFileTagsToServer = async (files) => {
   const localTags = loadFileTags();
   const localColors = loadFileTagColors();
   const needs = (files || []).filter((f) => {
+    const idKey = f.id != null ? String(f.id) : '';
     const hasServer = 'tags' in f && f.tags != null && String(f.tags).trim() !== '';
-    return !hasServer && localTags[f.id] && String(localTags[f.id]).trim();
+    const localT = localTags[idKey] ?? localTags[f.id];
+    return !hasServer && localT && String(localT).trim();
   });
   if (!needs.length) return false;
   await Promise.allSettled(
     needs.map((f) => {
-      const p = { tags: localTags[f.id] };
-      if (localColors[f.id]) p.tagColor = localColors[f.id];
-      return api.patchFileLibraryTags(f.id, p);
+      const idKey = f.id != null ? String(f.id) : '';
+      const p = { tags: localTags[idKey] ?? localTags[f.id] };
+      const col = localColors[idKey] ?? localColors[f.id];
+      if (col) p.tagColor = col;
+      return api.patchFileLibraryTags(idKey || f.id, p);
     })
   );
   return true;
@@ -326,12 +350,13 @@ const buildFileTagMapsFromApiFiles = (files) => {
   const tagMap = { ...localTags };
   const colorMap = { ...localColors };
   (files || []).forEach((file) => {
-    const id = file.id;
+    const id = file.id != null ? String(file.id) : null;
+    if (!id) return;
     if ('tags' in file) {
       tagMap[id] = file.tags != null && String(file.tags).trim() !== '' ? String(file.tags) : '';
     }
-    if ('tagColor' in file) {
-      const c = file.tagColor;
+    if ('tagColor' in file || 'tag_color' in file) {
+      const c = file.tagColor ?? file.tag_color;
       if (c != null && String(c).trim() !== '') colorMap[id] = String(c).trim();
       else delete colorMap[id];
     }
@@ -599,6 +624,7 @@ const saveSavedTestCases = (list) => {
         return {
           savedTestCases: list,
           savedTestCaseSets: p?.savedTestCaseSets ?? s.savedTestCaseSets ?? [],
+          preferences: mergePreferencesForActiveProfilePut(),
         };
       },
       { failMessage: 'Save to server failed' }
@@ -643,6 +669,7 @@ const saveSavedTestCaseSets = (sets, opts = {}) => {
         return {
           savedTestCases: p?.savedTestCases ?? s.savedTestCases ?? [],
           savedTestCaseSets: p?.savedTestCaseSets ?? sets,
+          preferences: mergePreferencesForActiveProfilePut(),
         };
       },
       {
@@ -934,7 +961,15 @@ export const useTestStore = create((set, get) => {
   // Boards/Devices
   boards: [],
   boardQueuePaused: {},
-  
+  /** When set, Boards page scrolls/highlights this board id (Dashboard → Board Status). Cleared after apply. */
+  boardsPageFocusBoardId: null,
+  setBoardsPageFocusBoardId: (id) =>
+    set({ boardsPageFocusBoardId: id != null && id !== '' ? String(id) : null }),
+  /** From dashboard Online/Busy stat cards — applied once on Fleet Manager open. */
+  boardsFleetStatusPreset: null,
+  setBoardsFleetStatusPreset: (v) =>
+    set({ boardsFleetStatusPreset: v === 'online' || v === 'busy' ? v : null }),
+
   // Jobs/Batches
   jobs: [],
   
@@ -1235,12 +1270,13 @@ export const useTestStore = create((set, get) => {
   addFirmwareFile: (file) => set((state) => ({ firmwareFiles: [...state.firmwareFiles, file] })),
   setFileTag: async (fileId, tag) => {
     if (!fileId) return false;
-    if (!beginFilePending(fileId, 'tags')) return false;
+    const idKey = String(fileId);
+    if (!beginFilePending(idKey, 'tags')) return false;
     try {
       const value = (tag || '').trim();
       const state = get();
       const payload = { tags: value };
-      const col = state.fileTagColors?.[fileId];
+      const col = state.fileTagColors?.[idKey] ?? state.fileTagColors?.[fileId];
       if (col) payload.tagColor = col;
 
       // Optimistic update so tags disappear immediately (no flicker / snap-back)
@@ -1249,19 +1285,19 @@ export const useTestStore = create((set, get) => {
         const current = s.fileTags || {};
         prevSnapshot = { ...current };
         const next = { ...current };
-        if (!value) delete next[fileId];
-        else next[fileId] = value;
+        if (!value) delete next[idKey];
+        else next[idKey] = value;
         saveFileTags(next);
         return { fileTags: next };
       });
 
       try {
-        await api.patchFileLibraryTags(fileId, payload);
+        await api.patchFileLibraryTags(idKey, payload);
         const ts = new Date().toISOString();
         set((s) => {
           const bump = (arr) =>
             Array.isArray(arr)
-              ? arr.map((f) => (f && f.id === fileId ? { ...f, updatedAt: ts } : f))
+              ? arr.map((f) => (f && String(f?.id) === idKey ? { ...f, updatedAt: ts } : f))
               : arr;
           return {
             uploadedFiles: bump(s.uploadedFiles),
@@ -1279,26 +1315,28 @@ export const useTestStore = create((set, get) => {
         return false;
       }
     } finally {
-      endFilePending(fileId);
+      endFilePending(idKey);
     }
   },
   setFileTagColor: async (fileId, colorKey) => {
     if (!fileId) return false;
-    if (!beginFilePending(fileId, 'tags')) return false;
+    const idKey = String(fileId);
+    if (!beginFilePending(idKey, 'tags')) return false;
     try {
       const k = String(colorKey || '').trim();
       const normalized = isValidPaletteKey(k) ? k : null;
-      const tags = (get().fileTags || {})[fileId] || '';
+      const ft = get().fileTags || {};
+      const tags = ft[idKey] ?? ft[fileId] ?? '';
       const prevSnapshot = { ...(get().fileTagColors || {}) };
       set((s) => {
         const next = { ...(s.fileTagColors || {}) };
-        if (!normalized) delete next[fileId];
-        else next[fileId] = normalized;
+        if (!normalized) delete next[idKey];
+        else next[idKey] = normalized;
         saveFileTagColors(next);
         return { fileTagColors: next };
       });
       try {
-        await api.patchFileLibraryTags(fileId, {
+        await api.patchFileLibraryTags(idKey, {
           tags,
           tagColor: normalized || '',
         });
@@ -1306,7 +1344,7 @@ export const useTestStore = create((set, get) => {
         set((s) => {
           const bump = (arr) =>
             Array.isArray(arr)
-              ? arr.map((f) => (f && f.id === fileId ? { ...f, updatedAt: ts } : f))
+              ? arr.map((f) => (f && String(f?.id) === idKey ? { ...f, updatedAt: ts } : f))
               : arr;
           return {
             uploadedFiles: bump(s.uploadedFiles),
@@ -1324,7 +1362,7 @@ export const useTestStore = create((set, get) => {
         return false;
       }
     } finally {
-      endFilePending(fileId);
+      endFilePending(idKey);
     }
   },
   setFileDisplayName: (fileId, name) => {
@@ -1463,6 +1501,7 @@ export const useTestStore = create((set, get) => {
       if (uploaded.duplicateByName && !uploaded.duplicateByContent) {
         get().addToast({ type: 'info', message: `Another file named "${uploaded.name}" already exists in the library` });
       }
+      const tagCol = uploaded.tagColor ?? uploaded.tag_color;
       const mapped = {
         id: uploaded.id,
         name: uploaded.name,
@@ -1478,7 +1517,7 @@ export const useTestStore = create((set, get) => {
         ownerName: uploaded.ownerName ?? uploaded.owner_name ?? null,
         visibility: uploaded.visibility || 'public',
         tags: uploaded.tags,
-        tagColor: uploaded.tagColor,
+        tagColor: tagCol,
       };
       syncOwnerLabelsFromFiles([mapped]);
       set((prev) => {
@@ -1493,8 +1532,8 @@ export const useTestStore = create((set, get) => {
             uploaded.tags != null && String(uploaded.tags).trim() !== '' ? String(uploaded.tags) : '';
         }
         const nextColors = { ...(prev.fileTagColors || {}) };
-        if (uploaded.tagColor != null && String(uploaded.tagColor).trim() !== '') {
-          nextColors[mapped.id] = String(uploaded.tagColor).trim();
+        if (tagCol != null && String(tagCol).trim() !== '') {
+          nextColors[String(mapped.id)] = String(tagCol).trim();
         }
         saveFileTags(nextTags);
         saveFileTagColors(nextColors);
@@ -3223,7 +3262,7 @@ export const useTestStore = create((set, get) => {
         ownerName: file.ownerName ?? file.owner_name ?? null,
         visibility: file.visibility || 'public',
         tags: file.tags,
-        tagColor: file.tagColor,
+        tagColor: file.tagColor ?? file.tag_color,
       }));
       syncOwnerLabelsFromFiles(mapped);
       set({
@@ -3270,7 +3309,7 @@ export const useTestStore = create((set, get) => {
         ownerName: file.ownerName ?? file.owner_name ?? null,
         visibility: file.visibility || 'public',
         tags: file.tags,
-        tagColor: file.tagColor,
+        tagColor: file.tagColor ?? file.tag_color,
       }));
       syncOwnerLabelsFromFiles(mapped);
       set({

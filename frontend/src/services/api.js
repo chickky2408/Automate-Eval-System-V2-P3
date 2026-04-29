@@ -623,7 +623,7 @@ export const putProfileData = (profileId, data) => {
  */
 export const updateProfileNameApi = (profileId, name) => {
   return apiRequest(API_ENDPOINTS.PROFILE_BY_ID(profileId), {
-    method: 'PUT',
+    method: 'PATCH',
     body: JSON.stringify({ name }),
   });
 };

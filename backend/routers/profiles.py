@@ -7,6 +7,7 @@ from typing import Optional, Dict, Any, List
 from datetime import datetime
 import uuid
 import hashlib
+import re
 
 from sqlalchemy import select, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +16,106 @@ from db.database import async_session
 from db.orm_models import FileORM, ProfileORM, TestCaseORM, TestSetORM, TestSetItemORM
 
 router = APIRouter()
+
+
+def _effective_profile_display_name(p: ProfileORM) -> Optional[str]:
+    """
+    Name shown for Owner / normalized test_tables.owner_display_name.
+    Prefer preferences.ownerDisplayName from PUT /profiles/{id}/data when ProfileORM.name
+    is unset or literally 'Default' (client list may be ahead of PATCH name updates).
+    """
+    dn_column = (p.name or "").strip()
+    data = p.data if isinstance(getattr(p, "data", None), dict) else {}
+    prefs = data.get("preferences") if isinstance(data.get("preferences"), dict) else {}
+    blob = prefs.get("ownerDisplayName") or prefs.get("displayName")
+    from_prefs = blob.strip() if isinstance(blob, str) else ""
+    if from_prefs and (not dn_column or dn_column.lower() == "default"):
+        return from_prefs
+    return dn_column if dn_column else None
+
+
+def _tc_stable_seed_for_id(tc: Dict[str, Any], fallback: str) -> str:
+    """
+    Stable id input so the same display name in library + set does not create two test_cases rows.
+    Generic placeholder names still use the frontend id to avoid collapsing distinct drafts.
+    """
+    generic = {"", "new test case", "test case"}
+    nm = _normalize_tc_name(tc.get("name")).strip().lower()
+    rid = str(tc.get("id") or "").strip()
+    if nm and nm not in generic:
+        return nm
+    return rid if rid else fallback
+
+
+def _first_mdi_txt_filename(tc: Dict[str, Any]) -> Optional[str]:
+    """First non-empty MDI*.txt slot from extraColumns or mdi commands."""
+    ex = tc.get("extraColumns") if isinstance(tc.get("extraColumns"), dict) else {}
+    mdi_keys = sorted(
+        [k for k in ex.keys() if isinstance(k, str) and re.match(r"^MDI\d+$", k, re.I)],
+        key=lambda k: int(re.search(r"(\d+)$", str(k), re.I).group(1)),  # type: ignore[union-attr]
+    )
+    for k in mdi_keys:
+        v = str(ex.get(k) or "").strip()
+        if v:
+            return v
+    for c in tc.get("commands") or []:
+        if isinstance(c, dict) and c.get("type") == "mdi":
+            v = str(c.get("file") or "").strip()
+            if v:
+                return v
+    return None
+
+
+def _parse_try_count(tc: Dict[str, Any]) -> Optional[int]:
+    tc_try = tc.get("tryCount")
+    if tc_try is None:
+        return None
+    if isinstance(tc_try, int):
+        return tc_try if tc_try > 0 else None
+    try:
+        n = int(str(tc_try).strip())
+        return n if n > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _extract_status_cached(tc: Dict[str, Any]) -> Optional[str]:
+    raw = tc.get("_status") or tc.get("runStatus")
+    if raw is None and isinstance(tc.get("extraColumns"), dict):
+        raw = tc["extraColumns"].get("runStatus") or tc["extraColumns"].get("status")
+    if raw is None or raw == "":
+        return None
+    s = str(raw).strip()
+    if len(s) > 63:
+        s = s[:63]
+    return s
+
+
+def _build_filename_to_file_id_map(file_rows: List[Any]) -> Dict[str, str]:
+    """First file id wins per lowercased filename (Library file names are unique enough for lookup)."""
+    out: Dict[str, str] = {}
+    for f in file_rows:
+        fid = getattr(f, "id", None)
+        fn = getattr(f, "filename", None)
+        if not fid or not fn:
+            continue
+        lk = _norm_file(fn)
+        if lk and lk not in out:
+            out[lk] = str(fid).strip()
+    return out
+
+
+def _resolve_vcd_file_id(tc: Dict[str, Any], file_by_lower: Dict[str, str], valid_ids: set) -> Optional[str]:
+    raw = str(tc.get("vcdId") or tc.get("vcd_file_id") or "").strip()
+    if raw and raw in valid_ids:
+        return raw
+    vn = str(tc.get("vcdName") or tc.get("vcd") or "").strip()
+    if not vn:
+        return None
+    lid = file_by_lower.get(_norm_file(vn))
+    if lid and lid in valid_ids:
+        return lid
+    return None
 
 
 def _normalize_tc_name(name: Any) -> str:
@@ -148,9 +249,9 @@ async def _sync_normalized_test_tables(session: AsyncSession, all_profiles: List
     - test_set_items
     Rebuilt from scratch on each profile data mutation.
     """
-    # vcd_file_id is FK -> files.id; client JSON may reference missing/legacy ids → IntegrityError/500
-    file_id_rows = (await session.execute(select(FileORM.id))).scalars().all()
-    valid_vcd_file_ids: set[str] = set(file_id_rows)
+    file_rows = (await session.execute(select(FileORM))).scalars().all()
+    valid_vcd_file_ids: set[str] = {str(f.id).strip() for f in file_rows if getattr(f, "id", None)}
+    file_by_lower = _build_filename_to_file_id_map(list(file_rows))
 
     tc_by_key: Dict[str, TestCaseORM] = {}
     set_rows: List[TestSetORM] = []
@@ -166,23 +267,31 @@ async def _sync_normalized_test_tables(session: AsyncSession, all_profiles: List
         data = p.data if isinstance(p.data, dict) else {}
         saved_cases = data.get("savedTestCases") or []
         saved_sets = data.get("savedTestCaseSets") or []
-        profile_display_name = (p.name or "").strip() or None
+        profile_display_name = _effective_profile_display_name(p)
 
         def ensure_case(tc: Any, fallback: str) -> Optional[str]:
             if not isinstance(tc, dict):
                 return None
-            raw_id = str(tc.get("id") or "").strip()
-            tc_id = _stable_id("tc", p.id, raw_id, fallback)
+            seed = _tc_stable_seed_for_id(tc, fallback)
+            tc_id = _stable_id("tc", p.id, seed, fallback)
             if tc_id in tc_by_key:
                 return tc_id
             name = _normalize_tc_name(tc.get("name")) or f"TC_{tc_id[:8]}"
-            raw_vcd = str(tc.get("vcdId") or tc.get("vcd_file_id") or "").strip() or None
-            vcd_file_id = raw_vcd if (raw_vcd and raw_vcd in valid_vcd_file_ids) else None
+            vcd_fn = str(tc.get("vcdName") or tc.get("vcd") or "").strip() or None
+            erom_fn = str(tc.get("binName") or tc.get("firmware_filename") or "").strip() or None
+            ulp_fn = str(tc.get("linName") or tc.get("ulpName") or "").strip() or None
+            mdi_fn = _first_mdi_txt_filename(tc)
+            vcd_file_id = _resolve_vcd_file_id(tc, file_by_lower, valid_vcd_file_ids)
             tc_by_key[tc_id] = TestCaseORM(
                 id=tc_id,
                 name=name,
                 vcd_file_id=vcd_file_id,
-                firmware_filename=str(tc.get("binName") or tc.get("firmware_filename") or "").strip() or None,
+                firmware_filename=erom_fn,
+                vcd_filename=vcd_fn,
+                ulp_filename=ulp_fn,
+                mdi_text_filename=mdi_fn,
+                try_count=_parse_try_count(tc),
+                status_cached=_extract_status_cached(tc),
                 tags=_extract_tc_tags(tc),
                 owner_id=p.id,
                 owner_display_name=profile_display_name,
@@ -293,7 +402,7 @@ async def get_all_test_cases():
                 {
                     **tc,
                     "_ownerId": p.id,
-                    "_ownerName": p.name or p.id,
+                    "_ownerName": _effective_profile_display_name(p) or p.name or p.id,
                 }
             )
 
@@ -302,7 +411,7 @@ async def get_all_test_cases():
                 {
                     **s,
                     "_ownerId": p.id,
-                    "_ownerName": p.name or p.id,
+                    "_ownerName": _effective_profile_display_name(p) or p.name or p.id,
                 }
             )
 

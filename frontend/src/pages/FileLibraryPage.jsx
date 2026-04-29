@@ -29,6 +29,52 @@ import TagColorSwatchPicker from '../components/TagColorSwatchPicker';
 import UploadChoiceModal from '../components/UploadChoiceModal';
 import { isTestCasePrimaryFileSetComplete } from '../utils/testCasePrimaryFiles';
 
+/** localStorage-backed datalist hints for toolbar text filters */
+const FILE_LIBRARY_FILTER_HISTORY_KEY = 'fileLibrary.toolbarFilterHistory.v1';
+
+function loadFileLibraryToolbarFilterHistoryAll() {
+  const empty = { name: [], tag: [], tc: [], set: [], date: [], size: [], owner: [] };
+  try {
+    const raw = localStorage.getItem(FILE_LIBRARY_FILTER_HISTORY_KEY);
+    if (!raw) return empty;
+    const o = JSON.parse(raw);
+    if (!o || typeof o !== 'object') return empty;
+    const pick = (k, cap = 20) =>
+      Array.isArray(o[k])
+        ? o[k].map((x) => String(x ?? '').trim()).filter(Boolean).slice(0, cap)
+        : [];
+    return {
+      name: pick('name'),
+      tag: pick('tag'),
+      tc: pick('tc'),
+      set: pick('set'),
+      date: pick('date'),
+      size: pick('size'),
+      owner: pick('owner'),
+    };
+  } catch {
+    return empty;
+  }
+}
+
+function pushFileLibraryToolbarFilterHistory(field, value) {
+  const v = String(value ?? '').trim();
+  if (!v) return;
+  const keys = ['name', 'tag', 'tc', 'set', 'date', 'size', 'owner'];
+  if (!keys.includes(field)) return;
+  try {
+    const merged = loadFileLibraryToolbarFilterHistoryAll();
+    const prev = Array.isArray(merged[field]) ? merged[field] : [];
+    const next = [v, ...prev.filter((x) => x !== v)].slice(0, 20);
+    const raw = localStorage.getItem(FILE_LIBRARY_FILTER_HISTORY_KEY);
+    const o = raw ? JSON.parse(raw) : {};
+    o[field] = next;
+    localStorage.setItem(FILE_LIBRARY_FILTER_HISTORY_KEY, JSON.stringify(o));
+  } catch {
+    /* ignore */
+  }
+}
+
 // Set names that use this file (from fileLibrarySnapshot or items)
 const getSetNamesUsingFile = (fileName, savedTestCaseSets) => {
   if (!fileName || !savedTestCaseSets?.length) return [];
@@ -243,6 +289,18 @@ function collectExtraSlotsFromTc(tc) {
   return slots;
 }
 
+/** True when the raw TC editor draft has no primary or extra file selections (for discarding an insert-only placeholder on X/cancel). */
+function isRawTcEditorDraftFileEmpty(d) {
+  if (!d || typeof d !== 'object') return false;
+  if ((d.vcdName || '').trim()) return false;
+  if ((d.binName || '').trim()) return false;
+  if ((d.linName || '').trim()) return false;
+  for (const s of d.extraSlots || []) {
+    if (String(s?.file || '').trim()) return false;
+  }
+  return true;
+}
+
 /**
  * ป้ายชื่อคอลัมน์ในตาราง Raw Test Cases สำหรับแถว extra (ลำดับตามแถวใน editor)
  * VCD/ERoM/ULP: ไฟล์หลัก = คอลัมน์หลัก — ไฟล์เสริมเริ่มที่ *2 (VCD2, ERoM2, ULP2)
@@ -401,6 +459,26 @@ const cloneSavedLibraryTcToSetItem = (tc, finalName) => {
 /** Files tab — same keys as `TAG_PALETTE_MAP` (fileTagColors in store). */
 const FILE_TAG_PALETTE_MAP = TAG_PALETTE_MAP;
 
+/**
+ * Canonical tag-pill palette key for a library file row — must stay aligned with tag-color filter:
+ * prefers `fileTagColors[id]` (string or numeric id keys), then `file.tagColor` from API row.
+ */
+const resolveFileLibraryRowTagColorKey = (file, colorsMap) => {
+  const fid = file?.id;
+  if (fid == null) return normalizeTagColorKey('');
+  const fromMap = colorsMap?.[String(fid)] ?? colorsMap?.[fid];
+  const mapStr =
+    fromMap !== undefined && fromMap !== null && String(fromMap).trim() !== ''
+      ? String(fromMap).trim()
+      : null;
+  const fromRow = file?.tagColor ?? file?.tag_color;
+  const rowStr =
+    fromRow !== undefined && fromRow !== null && String(fromRow).trim() !== ''
+      ? String(fromRow).trim()
+      : null;
+  return normalizeTagColorKey(mapStr ?? rowStr ?? '');
+};
+
 /** Order of Library sub-tabs: Files → Test Cases → Sets (for prev/next navigation). */
 const LIBRARY_TAB_ORDER = ['files', 'rawTestCases', 'testCases'];
 
@@ -551,6 +629,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     const s = (status || '').toLowerCase();
     if (s === 'running' || s === 'pending') return s;
     if (s === 'completed' || s === 'stopped') return 'completed';
+    if (s === 'error') return 'error';
     return null;
   };
   /** Per-file fail signal — mirrors `jobHasExecutionFailure` in JobsPage */
@@ -561,6 +640,39 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     if (!b) return a || null;
     return STATUS_PRIORITY[b] > STATUS_PRIORITY[a] ? b : a;
   };
+
+  /** Aligns with Jobs list + Library set status: `configName` then `name`. */
+  const getJobSetDisplayNameFromJob = useCallback(
+    (job) => String(job?.configName || job?.name || '').trim(),
+    []
+  );
+
+  /** Newest-first — same idea as JobsPage `getJobDate` for picking the latest run. */
+  const getJobSortTimeForNavigate = useCallback((job) => {
+    if (!job) return new Date(0);
+    const s = (job.status || '').toLowerCase();
+    if (s === 'completed' || s === 'stopped') {
+      if (job.completedAt) return new Date(job.completedAt);
+      if (job.startedAt) return new Date(job.startedAt);
+    }
+    if (job.createdAt) return new Date(job.createdAt);
+    if (job.startedAt) return new Date(job.startedAt);
+    return new Date(0);
+  }, []);
+
+  /** When several jobs share the saved set name — open the most recent run in Job Manager. */
+  const resolveLatestJobIdForSavedSetName = useCallback(
+    (savedSetTitle) => {
+      const target = String(savedSetTitle ?? '').trim();
+      if (!target) return null;
+      const matches = (jobs || []).filter((j) => getJobSetDisplayNameFromJob(j) === target);
+      if (matches.length === 0) return null;
+      matches.sort((a, b) => getJobSortTimeForNavigate(b) - getJobSortTimeForNavigate(a));
+      const id = matches[0]?.id;
+      return id != null ? id : null;
+    },
+    [jobs, getJobSetDisplayNameFromJob, getJobSortTimeForNavigate],
+  );
 
   const { setStatusByName, setBoardsByName, testCaseStatusByName, fileStatusByName, testCaseStatusByFileKey } = useMemo(() => {
     const setStatus = new Map();
@@ -613,12 +725,12 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
         const key = `${v}||${b}||${l}`;
         if (key !== '||||') update(tcStatusByFileKey, key, tcRowStatus);
 
-        if (f.vcd) update(fileStatus, f.vcd, status);
-        if (f.erom) update(fileStatus, f.erom, status);
-        if (f.ulp) update(fileStatus, f.ulp, status);
-        if (f.vcdName) update(fileStatus, f.vcdName, status);
-        if (f.binName) update(fileStatus, f.binName, status);
-        if (f.linName) update(fileStatus, f.linName, status);
+        if (f.vcd) update(fileStatus, f.vcd, tcRowStatus);
+        if (f.erom) update(fileStatus, f.erom, tcRowStatus);
+        if (f.ulp) update(fileStatus, f.ulp, tcRowStatus);
+        if (f.vcdName) update(fileStatus, f.vcdName, tcRowStatus);
+        if (f.binName) update(fileStatus, f.binName, tcRowStatus);
+        if (f.linName) update(fileStatus, f.linName, tcRowStatus);
       });
     });
 
@@ -783,7 +895,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
   }, []);
 
   const [fileFilter, setFileFilter] = useState('all');
-  const [fileStatusFilter, setFileStatusFilter] = useState('all'); // 'all' | 'pending' | 'running' | 'completed'
+  const [fileStatusFilter, setFileStatusFilter] = useState('all'); // 'all' | 'pending' | 'running' | 'completed' | 'error'
   const [fileSearch, setFileSearch] = useState('');
   const [fileTagSearch, setFileTagSearch] = useState('');
   const [fileTagColorFilter, setFileTagColorFilter] = useState(''); // '' = all
@@ -826,6 +938,115 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
   const [fileTcSearch, setFileTcSearch] = useState('');
   const [fileSetSearch, setFileSetSearch] = useState('');
   const [fileDateSearch, setFileDateSearch] = useState('');
+  /** bump when filter history in localStorage changes (recreate datalist options) */
+  const [fileLibraryToolbarHistTick, setFileLibraryToolbarHistTick] = useState(0);
+  const fileLibraryToolbarFilterHistory = useMemo(
+    () => loadFileLibraryToolbarFilterHistoryAll(),
+    [fileLibraryToolbarHistTick]
+  );
+  const recordFileLibraryToolbarFilterHistory = useCallback((field, raw) => {
+    pushFileLibraryToolbarFilterHistory(field, raw);
+    setFileLibraryToolbarHistTick((t) => t + 1);
+  }, []);
+
+  /** Compact suggestions popover for toolbar text filters (chevron icon — avoids wide “List” buttons). */
+  const libraryFilterPickTriggerRef = useRef(null);
+  const [libraryToolbarFilterPickField, setLibraryToolbarFilterPickField] = useState(null); // null | 'name' | 'tag' | …
+  const [libraryToolbarFilterPickAnchorRect, setLibraryToolbarFilterPickAnchorRect] = useState(null);
+
+  useEffect(() => {
+    if (!libraryToolbarFilterPickField) setLibraryToolbarFilterPickAnchorRect(null);
+  }, [libraryToolbarFilterPickField]);
+
+  useEffect(() => {
+    if (!libraryToolbarFilterPickField) return;
+    const update = () => {
+      if (libraryFilterPickTriggerRef.current) {
+        setLibraryToolbarFilterPickAnchorRect(libraryFilterPickTriggerRef.current.getBoundingClientRect());
+      }
+    };
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+    };
+  }, [libraryToolbarFilterPickField]);
+
+  useEffect(() => {
+    if (!libraryToolbarFilterPickField) return;
+    const onDoc = (e) => {
+      if (e.target.closest('[data-lib-filter-pick-root]')) return;
+      if (e.target.closest('[data-lib-filter-pick-pop]')) return;
+      setLibraryToolbarFilterPickField(null);
+      libraryFilterPickTriggerRef.current = null;
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [libraryToolbarFilterPickField]);
+
+  const toggleLibraryToolbarFilterPick = useCallback((field, triggerEl) => {
+    setLibraryToolbarFilterPickField((prev) => {
+      if (prev === field) {
+        libraryFilterPickTriggerRef.current = null;
+        return null;
+      }
+      libraryFilterPickTriggerRef.current = triggerEl;
+      setLibraryToolbarFilterPickAnchorRect(triggerEl.getBoundingClientRect());
+      return field;
+    });
+  }, []);
+
+  const applyLibraryToolbarFilterPick = useCallback(
+    (field, valueRaw) => {
+      const value = String(valueRaw ?? '');
+      if (field === 'name') {
+        setFileSearch(value);
+        recordFileLibraryToolbarFilterHistory('name', value);
+      } else if (field === 'tag') {
+        setFileTagSearch(value);
+        recordFileLibraryToolbarFilterHistory('tag', value);
+      } else if (field === 'tc') {
+        setFileTcSearch(value);
+        recordFileLibraryToolbarFilterHistory('tc', value);
+      } else if (field === 'set') {
+        setFileSetSearch(value);
+        recordFileLibraryToolbarFilterHistory('set', value);
+      } else if (field === 'date') {
+        setFileDateSearch(value);
+        recordFileLibraryToolbarFilterHistory('date', value);
+      } else if (field === 'size') {
+        setFileSizeSearch(value);
+        recordFileLibraryToolbarFilterHistory('size', value);
+      } else if (field === 'owner') {
+        setFileOwnerSearch(value);
+        recordFileLibraryToolbarFilterHistory('owner', value);
+      }
+      setLibraryToolbarFilterPickField(null);
+      libraryFilterPickTriggerRef.current = null;
+    },
+    [recordFileLibraryToolbarFilterHistory]
+  );
+
+  /** Files library toolbar — reset type, status, text filters, tag color UI, and close pickers. */
+  const clearFileLibraryToolbarFilters = useCallback(() => {
+    setFileFilter('all');
+    setFileStatusFilter('all');
+    setFileSearch('');
+    setFileTagSearch('');
+    setFileTagColorFilter('');
+    setFileTagColorSearch('');
+    setFileTagColorDropdownOpen(false);
+    setFileTcSearch('');
+    setFileSetSearch('');
+    setFileDateSearch('');
+    setFileSizeSearch('');
+    setFileOwnerSearch('');
+    setLibraryToolbarFilterPickField(null);
+    libraryFilterPickTriggerRef.current = null;
+  }, []);
+
   const [tagInputByFileId, setTagInputByFileId] = useState({});
   const [isTagEditorOpenByFileId, setIsTagEditorOpenByFileId] = useState({});
   const [editingDisplayNameFileId, setEditingDisplayNameFileId] = useState(null);
@@ -843,12 +1064,18 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
   const [pointerLibraryTcKey, setPointerLibraryTcKey] = useState(null); // rawTestCases table row _key
   const [pointerLibrarySetId, setPointerLibrarySetId] = useState(null); // sets tab set.id
   const [bulkTagInput, setBulkTagInput] = useState('');
-  const [fileSort, setFileSort] = useState('time');
+  /** TC Library — second row bulk edit (toggle + tag + try) */
+  const [libraryRawTcBulkBarOpen, setLibraryRawTcBulkBarOpen] = useState(false);
+  const [libraryRawTcBulkTagInput, setLibraryRawTcBulkTagInput] = useState('');
+  const [libraryRawTcBulkTryInput, setLibraryRawTcBulkTryInput] = useState('');
   const [fileViewMode, setFileViewMode] = useState('all'); // 'all' | 'bySet'
   const [isDeleting, setIsDeleting] = useState(false);
   const [deletingBoxId, setDeletingBoxId] = useState(null);
+  const [libraryTcNameSuggestOpen, setLibraryTcNameSuggestOpen] = useState(false);
   const [libraryTcNameFilter, setLibraryTcNameFilter] = useState('');
   const [libraryTcTagFilter, setLibraryTcTagFilter] = useState('');
+  const [libraryTcTagSuggestOpen, setLibraryTcTagSuggestOpen] = useState(false);
+  const [libraryTcDateFilter, setLibraryTcDateFilter] = useState(''); // '' = all; YYYY-MM-DD
   const [libraryTcTagColorFilter, setLibraryTcTagColorFilter] = useState(''); // '' = all
   const [libraryRawTcTagColorDropdownOpen, setLibraryRawTcTagColorDropdownOpen] = useState(false);
   /** Raw TC table: Insert row menu (Excel-like: select one row, then Insert above/below) */
@@ -856,6 +1083,41 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
   const [libraryRawTcTagColorSearch, setLibraryRawTcTagColorSearch] = useState('');
   const [libraryTcStatusFilter, setLibraryTcStatusFilter] = useState('all'); // 'all' | 'pending' | 'running' | 'error' | 'completed'
   const [selectedLibraryTcKeys, setSelectedLibraryTcKeys] = useState([]);
+
+  /** TC Library (raw test cases) toolbar — reset filters; owner → All owners. */
+  const clearLibraryTcToolbarFilters = useCallback(() => {
+    setLibraryTcNameFilter('');
+    setLibraryTcNameSuggestOpen(false);
+    setLibraryTcTagFilter('');
+    setLibraryTcTagSuggestOpen(false);
+    setLibraryTcDateFilter('');
+    setLibraryTcTagColorFilter('');
+    setLibraryRawTcTagColorSearch('');
+    setLibraryRawTcTagColorDropdownOpen(false);
+    setLibraryTcStatusFilter('all');
+    setLibraryTestCasesFilter('all');
+  }, []);
+
+  useEffect(() => {
+    if (!libraryTcTagSuggestOpen) return;
+    const onDoc = (e) => {
+      if (e.target.closest('[data-raw-tc-tag-filter-root]')) return;
+      setLibraryTcTagSuggestOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [libraryTcTagSuggestOpen]);
+
+  useEffect(() => {
+    if (!libraryTcNameSuggestOpen) return;
+    const onDoc = (e) => {
+      if (e.target.closest('[data-raw-tc-name-filter-root]')) return;
+      setLibraryTcNameSuggestOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [libraryTcNameSuggestOpen]);
+
   /** Raw Test Cases: inline editor — key = row _key */
   const [rawTcEditorKey, setRawTcEditorKey] = useState(null);
   const [rawTcEditorDraft, setRawTcEditorDraft] = useState(null);
@@ -887,6 +1149,8 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
   /** Edit TC panel: … opens tag color tools (same picker as TC column Tags modal). */
   const [rawTcEditorTagToolsOpen, setRawTcEditorTagToolsOpen] = useState(false);
   const rawTcEditorTagToolsRef = useRef(null);
+  /** Set when editor opened right after Insert row — close (X/cancel) without files/save removes that row. */
+  const rawTcEditorPendingInsertDiscardRef = useRef(null);
   /** Raw Test Cases table: tag overflow modal + inline + (same UX as Test Cases page) */
   const [libraryRawTcTagOverflowKey, setLibraryRawTcTagOverflowKey] = useState(null);
   const [libraryRawTcTagModalAddDraft, setLibraryRawTcTagModalAddDraft] = useState('');
@@ -948,6 +1212,46 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
   const [librarySetTagColorDropdownOpen, setLibrarySetTagColorDropdownOpen] = useState(false);
   const [librarySetTagColorSearch, setLibrarySetTagColorSearch] = useState('');
   const [selectedLibrarySetTcKeys, setSelectedLibrarySetTcKeys] = useState([]);
+  /** TC Library Status — click set chip → Sets tab, pointer + scroll to that set card. */
+  const navigateLibraryToSetByIdOrName = useCallback(
+    ({ setId, setName } = {}) => {
+      let setObj =
+        setId &&
+        ((savedTestCaseSets || []).find((s) => String(s.id) === String(setId)) ||
+          (fileReferenceTestCaseSets || []).find((s) => String(s.id) === String(setId)));
+      if (!setObj && setName) {
+        const sn = String(setName || '').trim();
+        if (sn) {
+          setObj =
+            (savedTestCaseSets || []).find((s) => String(s?.name || '').trim() === sn) ||
+            (fileReferenceTestCaseSets || []).find((s) => String(s?.name || '').trim() === sn) ||
+            null;
+        }
+      }
+      if (!setObj?.id) return;
+      setLibraryView('testCases');
+      setPointerLibrarySetId(setObj.id);
+      try {
+        const items = Array.isArray(setObj.items) ? setObj.items : [];
+        if (items.length > 0) {
+          setSelectedLibrarySetTcKeys([`${setObj.id}::0`]);
+        } else {
+          setSelectedLibrarySetTcKeys([]);
+        }
+      } catch {
+        /* ignore */
+      }
+      queueMicrotask(() => {
+        try {
+          const el = document.querySelector(`[data-library-set-id="${String(setObj.id)}"]`);
+          el?.scrollIntoView?.({ block: 'start', inline: 'nearest', behavior: 'smooth' });
+        } catch {
+          /* ignore */
+        }
+      });
+    },
+    [savedTestCaseSets, fileReferenceTestCaseSets]
+  );
   /** Set Library — multi-select whole saved sets (headers) for bulk delete */
   const [selectedLibrarySetHeaderIds, setSelectedLibrarySetHeaderIds] = useState([]);
   const lastClickedLibrarySetTcRef = useRef({ setId: null, index: null });
@@ -1002,6 +1306,20 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
   useEffect(() => {
     if (libraryView !== 'testCases') setSelectedLibrarySetHeaderIds([]);
   }, [libraryView]);
+  useEffect(() => {
+    if (libraryView !== 'rawTestCases') {
+      setLibraryRawTcBulkBarOpen(false);
+      setLibraryRawTcBulkTagInput('');
+      setLibraryRawTcBulkTryInput('');
+    }
+  }, [libraryView]);
+  useEffect(() => {
+    if (libraryView !== 'rawTestCases') return;
+    if (selectedLibraryTcKeys.length > 0) return;
+    setLibraryRawTcBulkBarOpen(false);
+    setLibraryRawTcBulkTagInput('');
+    setLibraryRawTcBulkTryInput('');
+  }, [libraryView, selectedLibraryTcKeys.length]);
   const fileTagsModalPendingBusy = !!(showAllTagsForFileId && filePendingById?.[showAllTagsForFileId]);
   const selectedFilesPending = selectedLibraryFileIds.some((id) => filePendingById?.[id]);
 
@@ -1377,6 +1695,98 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     return Number.isFinite(n) ? n : 0;
   };
 
+  /** Labels in native `<option>` (value stays full string for filtering). */
+  const shortenFilterOptionLabel = (s, max = 42) => {
+    const t = String(s ?? '');
+    return t.length > max ? `${t.slice(0, Math.max(0, max - 1))}…` : t;
+  };
+
+  /** Dedupe helpers for toolbar pick-lists — merge saved history + current library snapshot. */
+  const pushUniqueCi = (out, seen, raw) => {
+    const x = String(raw ?? '').trim();
+    if (!x) return;
+    const k = x.toLowerCase();
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push(x);
+  };
+
+  const libraryFilterPickNameOptions = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    (fileLibraryToolbarFilterHistory.name || []).forEach((x) => pushUniqueCi(out, seen, x));
+    (uploadedFiles || []).forEach((f) => pushUniqueCi(out, seen, f?.name));
+    return out.sort((a, b) => a.localeCompare(b)).slice(0, 120);
+  }, [uploadedFiles, fileLibraryToolbarFilterHistory]);
+
+  const libraryFilterPickTagOptions = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    (fileLibraryToolbarFilterHistory.tag || []).forEach((x) => pushUniqueCi(out, seen, x));
+    const fm = fileTags || {};
+    Object.keys(fm).forEach((kid) =>
+      splitTags(String(fm[kid] || '')).forEach((t) => pushUniqueCi(out, seen, t))
+    );
+    return out.sort((a, b) => a.localeCompare(b)).slice(0, 150);
+  }, [fileTags, fileLibraryToolbarFilterHistory]);
+
+  const libraryFilterPickTcOptions = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    (fileLibraryToolbarFilterHistory.tc || []).forEach((x) => pushUniqueCi(out, seen, x));
+    const addTcRow = (tc) => pushUniqueCi(out, seen, tc?.name || tc?.vcdName);
+    (fileReferenceTestCases || []).forEach(addTcRow);
+    (fileReferenceTestCaseSets || []).forEach((set) => (set.items || []).forEach(addTcRow));
+    return out.sort((a, b) => a.localeCompare(b)).slice(0, 200);
+  }, [fileReferenceTestCases, fileReferenceTestCaseSets, fileLibraryToolbarFilterHistory]);
+
+  const libraryFilterPickSetOptions = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    (fileLibraryToolbarFilterHistory.set || []).forEach((x) => pushUniqueCi(out, seen, x));
+    (fileReferenceTestCaseSets || []).forEach((set) =>
+      pushUniqueCi(out, seen, set?.name || set?.id)
+    );
+    return out.sort((a, b) => a.localeCompare(b)).slice(0, 150);
+  }, [fileReferenceTestCaseSets, fileLibraryToolbarFilterHistory]);
+
+  const libraryFilterPickDateOptions = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    (fileLibraryToolbarFilterHistory.date || []).forEach((x) => pushUniqueCi(out, seen, x));
+    (uploadedFiles || []).forEach((f) => {
+      const raw = f.updatedAt || f.uploadDate || f.createdAt || '';
+      const d = raw ? new Date(raw) : null;
+      if (d && !Number.isNaN(d.getTime())) {
+        pushUniqueCi(
+          out,
+          seen,
+          `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+        );
+      }
+    });
+    return out.sort((a, b) => b.localeCompare(a)).slice(0, 100);
+  }, [uploadedFiles, fileLibraryToolbarFilterHistory]);
+
+  const libraryFilterPickSizeOptions = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    (fileLibraryToolbarFilterHistory.size || []).forEach((x) => pushUniqueCi(out, seen, x));
+    (uploadedFiles || []).forEach((f) => pushUniqueCi(out, seen, f.sizeFormatted || f.size || ''));
+    return out.sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true })).slice(0, 80);
+  }, [uploadedFiles, fileLibraryToolbarFilterHistory]);
+
+  const libraryFilterPickOwnerOptions = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    (fileLibraryToolbarFilterHistory.owner || []).forEach((x) => pushUniqueCi(out, seen, x));
+    (uploadedFiles || []).forEach((f) => {
+      pushUniqueCi(out, seen, resolveFileOwnerDisplay(f, ownerLabelCtx));
+      pushUniqueCi(out, seen, f.ownerId);
+    });
+    return out.sort((a, b) => a.localeCompare(b)).slice(0, 50);
+  }, [uploadedFiles, ownerLabelCtx, fileLibraryToolbarFilterHistory]);
+
   const filteredFiles = [...(uploadedFiles || [])]
     .filter((f) => {
       const k = getFileKind(f);
@@ -1393,15 +1803,17 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
       }
       if (fileSearch.trim() && !String(f.name || '').toLowerCase().includes(fileSearch.trim().toLowerCase())) return false;
       if (fileTagSearch.trim()) {
-        const tags = splitTags((fileTags && fileTags[f.id]) || '');
+        const fid = f?.id;
+        const tagStr = (fileTags && (fileTags[String(fid)] ?? fileTags[fid])) || '';
+        const tags = splitTags(tagStr);
         const q = fileTagSearch.trim().toLowerCase();
         if (!tags.some((t) => t.toLowerCase().includes(q))) return false;
       }
       if (fileTagColorFilter) {
         const want = normalizeTagColorKey(fileTagColorFilter);
-        const raw = (fileTagColors && fileTagColors[f.id]) || '';
-        const have = normalizeTagColorKey(raw);
-        if (have !== want) return false;
+        const have = resolveFileLibraryRowTagColorKey(f, fileTagColors);
+        /** Match TC-style: same normalized palette key (strict equality after normalize). */
+        if (String(have) !== String(want)) return false;
       }
       if (fileSizeSearch.trim()) {
         const q = fileSizeSearch.trim().toLowerCase();
@@ -1448,7 +1860,6 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
       return true;
     })
     .sort((a, b) => {
-      if (fileSort !== 'time') return (a.name || '').localeCompare(b.name || '');
       const ta = new Date(a.updatedAt || a.uploadDate || 0).getTime();
       const tb = new Date(b.updatedAt || b.uploadDate || 0).getTime();
       return tb - ta;
@@ -1486,6 +1897,76 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     },
     [testCaseStatusByName, testCaseStatusByFileKey]
   );
+
+  /** Matches `contentKey` used for library/set row dedupe — align set item tryCount with Saved Library. */
+  const libraryTrySignatureForSetSync = useMemo(
+    () =>
+      (savedTestCases || [])
+        .filter((t) => t?.id != null && String(t?.id ?? '').trim() !== '')
+        .map((t) => `${String(t.id)}:${typeof t.tryCount === 'number' && t.tryCount > 0 ? t.tryCount : 1}`)
+        .sort()
+        .join('|'),
+    [savedTestCases],
+  );
+
+  useEffect(() => {
+    const libs = savedTestCases || [];
+    const byId = new Map();
+    const byContentKey = new Map();
+    libs.forEach((t) => {
+      if (t?.id == null || String(t.id).trim() === '') return;
+      byId.set(String(t.id), t);
+      const ck = [t?.name ?? '', t?.vcdName ?? '', t?.binName ?? '', t?.linName ?? ''].join('\0');
+      if (!byContentKey.has(ck)) byContentKey.set(ck, t);
+    });
+
+    (savedTestCaseSets || []).forEach((set) => {
+      const setName = String(set?.name ?? '').trim() || 'Set';
+      const setSt = (setStatusByName.get(setName) || '').toLowerCase();
+      if (setSt === 'running' || setSt === 'pending') return;
+      if (savedTestCaseSetPendingById?.[String(set.id)]) return;
+      const canEditProfile =
+        set._ownerId == null || String(set._ownerId) === String(activeProfileId ?? '');
+      if (!canEditProfile) return;
+
+      const items = Array.isArray(set.items) ? set.items : [];
+      let touched = false;
+      const nextItems = items.map((item) => {
+        const rowSt = getTestCaseStatusFromJobs(item);
+        if (rowSt === 'running' || rowSt === 'pending') return item;
+
+        let libTc = null;
+        if (item?.id != null && String(item.id).trim() !== '') {
+          libTc = byId.get(String(item.id)) || null;
+        }
+        if (!libTc) {
+          const ck = [item?.name ?? '', item?.vcdName ?? '', item?.binName ?? '', item?.linName ?? ''].join('\0');
+          libTc = ck ? byContentKey.get(ck) || null : null;
+        }
+        if (!libTc) return item;
+
+        const libTry =
+          typeof libTc.tryCount === 'number' && libTc.tryCount > 0 ? libTc.tryCount : 1;
+        const curTry =
+          typeof item.tryCount === 'number' && item.tryCount > 0 ? item.tryCount : 1;
+        if (curTry === libTry) return item;
+        touched = true;
+        return { ...item, tryCount: libTry };
+      });
+
+      if (touched) {
+        updateSavedTestCaseSet(set.id, { items: nextItems });
+      }
+    });
+  }, [
+    libraryTrySignatureForSetSync,
+    savedTestCaseSets,
+    activeProfileId,
+    setStatusByName,
+    savedTestCaseSetPendingById,
+    getTestCaseStatusFromJobs,
+    updateSavedTestCaseSet,
+  ]);
 
   // Test case history: jobs/sets where this test case (vcd+erom+ulp or testCaseName) was used
   const getTestCaseHistory = useCallback((tc) => {
@@ -1709,6 +2190,56 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     aggregateSavedTestCaseSetsAcrossProfiles,
   ]);
 
+  const libraryTcToolbarNamePickOptions = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    for (const tc of libraryRawRows) {
+      const n = String(tc?.name ?? '').trim();
+      if (!n) continue;
+      const lk = n.toLowerCase();
+      if (seen.has(lk)) continue;
+      seen.add(lk);
+      out.push(n);
+    }
+    return out.sort((a, b) => a.localeCompare(b)).slice(0, 300);
+  }, [libraryRawRows]);
+
+  const libraryTcToolbarTagPickOptions = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    const pushTag = (t) => {
+      const s = String(t ?? '').trim();
+      if (!s) return;
+      const lk = s.toLowerCase();
+      if (seen.has(lk)) return;
+      seen.add(lk);
+      out.push(s);
+    };
+    for (const tc of libraryRawRows) {
+      const ov = tc.id != null && tcViewerTagOverlays ? tcViewerTagOverlays[String(tc.id)] : null;
+      const { mergedTags } = buildMergedLibraryTcTags(tc, ov);
+      if (mergedTags?.length) mergedTags.forEach(pushTag);
+      else {
+        const ex = tc.extraColumns && typeof tc.extraColumns === 'object' ? tc.extraColumns : {};
+        splitTagsComma(ex.tag || ex.Tag || '').forEach(pushTag);
+      }
+    }
+    return out.sort((a, b) => a.localeCompare(b)).slice(0, 250);
+  }, [libraryRawRows, tcViewerTagOverlays, tcViewerTagEpoch]);
+
+  /** Distinct calendar dates (modified) among TC rows — for toolbar date dropdown. */
+  const libraryTcToolbarDatePickOptions = useMemo(() => {
+    const seen = new Set();
+    for (const tc of libraryRawRows) {
+      const raw = tc.updatedAt || tc.createdAt || '';
+      const d = raw ? new Date(raw) : null;
+      if (!d || Number.isNaN(d.getTime())) continue;
+      const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      seen.add(ymd);
+    }
+    return [...seen].sort((a, b) => b.localeCompare(a)).slice(0, 120);
+  }, [libraryRawRows]);
+
   const libraryFilteredRows = useMemo(() => {
     const ownerF = libraryTestCasesFilter === 'mine' || libraryTestCasesFilter === '__active__' ? '__active__' : libraryTestCasesFilter;
     const resolvedOwner =
@@ -1746,6 +2277,15 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
         }
         if (!colorKeys.has(want)) return false;
       }
+      if (libraryTcDateFilter.trim()) {
+        const raw = tc.updatedAt || tc.createdAt || '';
+        const d = raw ? new Date(raw) : null;
+        const ymd =
+          d && !Number.isNaN(d.getTime())
+            ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+            : '';
+        if (!ymd || ymd !== libraryTcDateFilter.trim()) return false;
+      }
       return true;
     });
   }, [
@@ -1753,6 +2293,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     libraryTcNameFilter,
     libraryTcTagFilter,
     libraryTcTagColorFilter,
+    libraryTcDateFilter,
     libraryTcStatusFilter,
     libraryTestCasesFilter,
     activeProfileId,
@@ -1961,6 +2502,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
 
   const openRawTcEditor = useCallback(
     (tc) => {
+      rawTcEditorPendingInsertDiscardRef.current = null;
       if (!canEditRawTcRow(tc)) {
         addToast({
           type: 'warning',
@@ -1979,8 +2521,85 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     [activeProfileId, addToast, buildRawTcDraft, canEditRawTcRow]
   );
 
+  /** After Insert row in TC Library, open the same edit UI as the pencil (file pickers) without an extra click. */
+  const openRawTcEditorAfterInsertCurrentTc = useCallback(
+    (returnedId, savedCasesLenBeforeInsert) => {
+      queueMicrotask(() => {
+        const st = useTestStore.getState();
+        const cases = st.savedTestCases || [];
+        if (cases.length <= savedCasesLenBeforeInsert) return;
+        const t = cases.find((x) => String(x.id) === String(returnedId));
+        if (!t) return;
+        const row = {
+          ...t,
+          _key: `current-${t.id}`,
+          _source: 'current',
+          _ownerId: t._ownerId ?? activeProfileId,
+          _owner: resolveOwnerDisplayName(t._ownerId ?? activeProfileId, ownerLabelCtx),
+          _status: getTestCaseStatusFromJobs(t),
+        };
+        openRawTcEditor(row);
+        rawTcEditorPendingInsertDiscardRef.current = { key: row._key };
+        const k = row._key;
+        setSelectedLibraryTcKeys([k]);
+        setPointerLibraryTcKey(k);
+        queueMicrotask(() => {
+          try {
+            const el = document.querySelector(`[data-library-tc-row-key="${String(k)}"]`);
+            el?.scrollIntoView?.({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+          } catch {
+            // ignore
+          }
+        });
+      });
+    },
+    [
+      activeProfileId,
+      getTestCaseStatusFromJobs,
+      openRawTcEditor,
+      ownerLabelCtx,
+    ]
+  );
+
+  const openRawTcEditorAfterInsertSetItem = useCallback(
+    (setId, itemIndex) => {
+      queueMicrotask(() => {
+        const st = useTestStore.getState();
+        const set = (st.savedTestCaseSets || []).find((s) => String(s.id) === String(setId));
+        const item = set?.items?.[itemIndex];
+        if (!set || !item) return;
+        const row = {
+          ...item,
+          _key: `set-${set.id}-${itemIndex}`,
+          _source: 'set',
+          _setId: set.id,
+          _setName: set.name || `Set #${set.id}`,
+          _itemIndex: itemIndex,
+          _ownerId: set._ownerId ?? activeProfileId,
+          _owner: resolveOwnerDisplayName(set._ownerId ?? activeProfileId, ownerLabelCtx),
+          _status: getTestCaseStatusFromJobs(item),
+        };
+        openRawTcEditor(row);
+        rawTcEditorPendingInsertDiscardRef.current = { key: row._key };
+        const k = row._key;
+        setSelectedLibraryTcKeys([k]);
+        setPointerLibraryTcKey(k);
+        queueMicrotask(() => {
+          try {
+            const el = document.querySelector(`[data-library-tc-row-key="${String(k)}"]`);
+            el?.scrollIntoView?.({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+          } catch {
+            // ignore
+          }
+        });
+      });
+    },
+    [activeProfileId, getTestCaseStatusFromJobs, openRawTcEditor, ownerLabelCtx]
+  );
+
   const openRawTcDuplicateEditor = useCallback(
     (row) => {
+      rawTcEditorPendingInsertDiscardRef.current = null;
       if (!row) return;
       setRawTcEditorKey(row._key);
       setRawTcEditorDraft(buildRawTcDraft(row));
@@ -2415,13 +3034,40 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
   ]);
 
   const closeRawTcEditor = useCallback(() => {
+    const pending = rawTcEditorPendingInsertDiscardRef.current;
+    const key = rawTcEditorKey;
+    const draft = rawTcEditorDraft;
+    if (pending && key && pending.key === key && draft && isRawTcEditorDraftFileEmpty(draft)) {
+      const row = libraryRawRows.find((r) => r._key === key);
+      if (row) {
+        if (row._source === 'current' && row.id) {
+          removeSavedTestCase(row.id);
+        } else if (row._source === 'set' && row._setId != null && row._itemIndex != null) {
+          const set = (savedTestCaseSets || []).find((s) => s.id === row._setId);
+          if (set && Array.isArray(set.items)) {
+            const newItems = set.items.filter((_, i) => i !== row._itemIndex);
+            updateSavedTestCaseSet(row._setId, { items: newItems });
+          }
+        }
+      }
+      setSelectedLibraryTcKeys((prev) => prev.filter((k) => k !== key));
+      setPointerLibraryTcKey((prev) => (prev === key ? null : prev));
+    }
+    rawTcEditorPendingInsertDiscardRef.current = null;
     setRawTcEditorKey(null);
     setRawTcEditorDraft(null);
     setRawTcEditorMode('edit');
     setRawTcEditorSourceRow(null);
     setRawTcFilePicker(null);
     setRawTcEditorTagToolsOpen(false);
-  }, []);
+  }, [
+    rawTcEditorKey,
+    rawTcEditorDraft,
+    libraryRawRows,
+    savedTestCaseSets,
+    removeSavedTestCase,
+    updateSavedTestCaseSet,
+  ]);
 
   const rawTcPickerFiles = useMemo(() => {
     if (!rawTcFilePicker) return [];
@@ -3715,8 +4361,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
               {(() => {
                 const fid = showAllTagsForFileId;
                 if (!fid) return null;
-                const curRaw = fileTagColors?.[fid] || 'mint';
-                const safe = TAG_PALETTE_MAP[curRaw] ? curRaw : 'mint';
+                const fileRow =
+                  (uploadedFiles || []).find((x) => String(x?.id) === String(fid)) || { id: fid };
+                const safe = resolveFileLibraryRowTagColorKey(fileRow, fileTagColors);
                 return (
                   <>
                     <span
@@ -3753,7 +4400,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                 const fid = showAllTagsForFileId;
                 const raw = (fileTags && fileTags[fid]) || '';
                 const tags = splitTags(raw);
-                const colorKey = FILE_TAG_PALETTE_MAP[fileTagColors?.[fid]] ? fileTagColors[fid] : 'mint';
+                const fileRow =
+                  (uploadedFiles || []).find((x) => String(x?.id) === String(fid)) || { id: fid };
+                const colorKey = resolveFileLibraryRowTagColorKey(fileRow, fileTagColors);
                 const pillClass = FILE_TAG_PALETTE_MAP[colorKey] || FILE_TAG_PALETTE_MAP.mint;
                 const commitFileTagsModalEdit = () => {
                   if (fileTagsModalPendingBusy) return;
@@ -4900,9 +5549,26 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                             }
                             aria-label={`Select set ${setName} for bulk delete`}
                           />
-                          <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (typeof onNavigateToJob !== 'function') return;
+                              const jid = resolveLatestJobIdForSavedSetName(setName);
+                              if (jid == null) {
+                                addToast({
+                                  type: 'info',
+                                  message: `ยังไม่มี job ใน Job Manager ที่ตรงชื่อชุด "${setName}" (รันชุดจาก Library ก่อนเพื่อให้ปรากฏในคิว)`,
+                                });
+                                return;
+                              }
+                              onNavigateToJob(jid);
+                            }}
+                            className="group text-sm font-bold text-slate-700 dark:text-slate-200 truncate text-left max-w-[min(340px,62vw)] px-0 py-0 bg-transparent border-0 cursor-pointer hover:underline hover:text-blue-600 dark:hover:text-blue-400 outline-offset-2 rounded-sm"
+                            title={`เปิด Job Manager — job ล่าสุดที่ชื่อชุดตรงกับ "${setName}"`}
+                          >
                             {setName}
-                          </h2>
+                          </button>
 
                           {/* section divider */}
                           <span className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-1" aria-hidden />
@@ -5149,14 +5815,13 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                               {extraCols.map((col) => (<th key={col} className="px-2 py-2 border-r border-slate-200 dark:border-slate-600 min-w-[90px] whitespace-nowrap">{col}</th>))}
                               <th className="w-14 px-2 py-2 border-r border-slate-200 dark:border-slate-600 text-center">Try</th>
                               <th className="w-20 px-2 py-2 border-r border-slate-200 dark:border-slate-600 text-center">Status</th>
-                              <th className="w-20 px-2 py-2 border-r border-slate-200 dark:border-slate-600 text-center">Edit</th>
                               <th className="w-20 px-2 py-2 border-r border-slate-200 dark:border-slate-600 text-right">History</th>
                             </tr>
                           </thead>
                           <tbody>
                             {filteredItems.length === 0 ? (
                               <tr>
-                                <td colSpan={15 + extraCols.length} className="px-2 py-4 text-center text-slate-400 text-xs">No test cases in this set{items.length > 0 ? ' (or no match for filter)' : ''}</td>
+                                <td colSpan={14 + extraCols.length} className="px-2 py-4 text-center text-slate-400 text-xs">No test cases in this set{items.length > 0 ? ' (or no match for filter)' : ''}</td>
                               </tr>
                             ) : (
                               filteredItems.map((tc, idx) => {
@@ -5463,28 +6128,6 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                         return <span className="text-slate-400 dark:text-slate-500 text-[10px]">—</span>;
                                       })()}
                                     </td>
-                                    <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-center">
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          if (isClosed || isSystemLocked) return;
-                                          if (onNavigateToTestCases && setLibraryEditContext) {
-                                            setLibraryEditContext({ loadSetId: set.id, focusTcIndex: tc._origIndex });
-                                            onNavigateToTestCases();
-                                          }
-                                        }}
-                                        disabled={isClosed || isSystemLocked}
-                                        className={`inline-flex items-center justify-center p-1.5 rounded-lg transition-colors ${
-                                          isClosed || isSystemLocked
-                                            ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed'
-                                            : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
-                                        }`}
-                                        title={isClosed || isSystemLocked ? 'Locked — cannot edit' : 'Edit in Test Cases page'}
-                                      >
-                                        <Pencil size={16} />
-                                      </button>
-                                    </td>
                                     <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 align-bottom text-right w-20">
                                       <button
                                         type="button"
@@ -5729,7 +6372,8 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                 addToast({ type: 'warning', message: 'ไม่พบรายการใน Library' });
                 return;
               }
-              addSavedTestCase(
+              const prevLen = useTestStore.getState().savedTestCases?.length ?? 0;
+              const newId = addSavedTestCase(
                 {
                   name: 'New test case',
                   vcdName: '',
@@ -5742,6 +6386,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                 },
                 { insertAt: ix + 1 }
               );
+              openRawTcEditorAfterInsertCurrentTc(newId, prevLen);
               addToast({ type: 'success', message: 'เพิ่มแถวใหม่ใต้รายการนี้แล้ว' });
               return;
             }
@@ -5770,8 +6415,10 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                 { name: '', vcdName: '', binName: '', linName: '', tryCount: 1, extraColumns: {}, commands: [] },
                 finalName
               );
-              items.splice(tc._itemIndex + 1, 0, newItem);
+              const insertIdx = tc._itemIndex + 1;
+              items.splice(insertIdx, 0, newItem);
               updateSavedTestCaseSet(tc._setId, { items });
+              openRawTcEditorAfterInsertSetItem(tc._setId, insertIdx);
               addToast({ type: 'success', message: 'เพิ่มแถวใน set ใต้รายการนี้แล้ว' });
             }
           };
@@ -5789,7 +6436,8 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                 addToast({ type: 'warning', message: 'ไม่พบรายการใน Library' });
                 return;
               }
-              addSavedTestCase(
+              const prevLen = useTestStore.getState().savedTestCases?.length ?? 0;
+              const newId = addSavedTestCase(
                 {
                   name: 'New test case',
                   vcdName: '',
@@ -5802,6 +6450,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                 },
                 { insertAt: ix }
               );
+              openRawTcEditorAfterInsertCurrentTc(newId, prevLen);
               addToast({ type: 'success', message: 'เพิ่มแถวใหม่เหนือรายการนี้แล้ว' });
               return;
             }
@@ -5830,8 +6479,10 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                 { name: '', vcdName: '', binName: '', linName: '', tryCount: 1, extraColumns: {}, commands: [] },
                 finalName
               );
-              items.splice(tc._itemIndex, 0, newItem);
+              const insertIdx = tc._itemIndex;
+              items.splice(insertIdx, 0, newItem);
               updateSavedTestCaseSet(tc._setId, { items });
+              openRawTcEditorAfterInsertSetItem(tc._setId, insertIdx);
               addToast({ type: 'success', message: 'เพิ่มแถวใน set เหนือรายการนี้แล้ว' });
             }
           };
@@ -5884,6 +6535,110 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
             else handleInsertRowBelowRawTc(tc);
           };
 
+          const bulkTcInputsLocked = hasStorePendingInSelection;
+          const isRawTcSetBulkBlocked = (row) => {
+            if (!row || row._source !== 'set' || row._setId == null) return false;
+            const set = (savedTestCaseSets || []).find((s) => String(s.id) === String(row._setId));
+            const setName = (set?.name || '').trim();
+            const st = setName ? (setStatusByName.get(setName) || '').toLowerCase() : '';
+            if (st === 'running' || st === 'pending') return true;
+            return Boolean(savedTestCaseSetPendingById?.[String(row._setId)]);
+          };
+
+          const applyBulkLibraryRawTcTags = () => {
+            const raw = libraryRawTcBulkTagInput.trim();
+            if (!raw) {
+              addToast({ type: 'info', message: 'พิมพ์ tag ก่อน' });
+              return;
+            }
+            if (bulkTcInputsLocked) {
+              addToast({ type: 'info', message: 'รอให้ action กับ test case ที่เลือกจบก่อน' });
+              return;
+            }
+            if (selectedSet.size === 0) {
+              addToast({ type: 'info', message: 'เลือก test case อย่างน้อยหนึ่งแถว' });
+              return;
+            }
+            let n = 0;
+            libraryFilteredRows.forEach((row) => {
+              if (!selectedSet.has(row._key)) return;
+              if (isTcEditingLocked(row)) return;
+              if (isRawTcSetBulkBlocked(row)) return;
+              if (row._source === 'current' && row.id && testCasePendingById?.[String(row.id)]) return;
+
+              const ex = row.extraColumns || {};
+              const isOtherOwner = row._ownerId != null && String(row._ownerId) !== String(activeProfileId);
+              let currentTagRaw = '';
+              if (isOtherOwner) {
+                if (!row.id) return;
+                const o = tcViewerTagOverlays && tcViewerTagOverlays[String(row.id)];
+                currentTagRaw = (o && (o.tag || o.Tag)) || '';
+              } else {
+                currentTagRaw = (ex.tag || ex.Tag) || '';
+              }
+              const next = upsertTagsString(currentTagRaw, raw);
+              patchLibraryTcExtraColumns(row, { tag: next });
+              n += 1;
+            });
+            if (n > 0) {
+              addToast({ type: 'success', message: `เพิ่ม tag ให้ ${n} test case` });
+              setLibraryRawTcBulkTagInput('');
+            } else {
+              addToast({
+                type: 'warning',
+                message: 'ไม่มีแถวที่แก้ได้ (ล็อก, set กำลังรัน, หรือไม่ตรงกับที่เลือก)',
+              });
+            }
+          };
+
+          const applyBulkLibraryRawTcTry = () => {
+            const rawTrim = libraryRawTcBulkTryInput.trim();
+            if (rawTrim === '') {
+              addToast({ type: 'info', message: 'พิมพ์เลข Try (1–100)' });
+              return;
+            }
+            if (bulkTcInputsLocked) {
+              addToast({ type: 'info', message: 'รอให้ action กับ test case ที่เลือกจบก่อน' });
+              return;
+            }
+            if (selectedSet.size === 0) {
+              addToast({ type: 'info', message: 'เลือก test case อย่างน้อยหนึ่งแถว' });
+              return;
+            }
+            const num = Math.min(100, Math.max(1, parseInt(rawTrim, 10) || 1));
+            let n = 0;
+            libraryFilteredRows.forEach((row) => {
+              if (!selectedSet.has(row._key)) return;
+              if (!canEditRawTcRow(row)) return;
+              if (isTcEditingLocked(row)) return;
+              if (isRawTcSetBulkBlocked(row)) return;
+              if (row._source === 'current' && row.id && testCasePendingById?.[String(row.id)]) return;
+
+              if (row._source === 'current' && row.id) {
+                updateSavedTestCase(row.id, { tryCount: num });
+                n += 1;
+                return;
+              }
+              if (row._source === 'set' && row._setId != null && row._itemIndex != null) {
+                const set = (savedTestCaseSets || []).find((s) => String(s.id) === String(row._setId));
+                if (!set || !Array.isArray(set.items) || !set.items[row._itemIndex]) return;
+                const items = [...set.items];
+                items[row._itemIndex] = { ...items[row._itemIndex], tryCount: num };
+                updateSavedTestCaseSet(row._setId, { items });
+                n += 1;
+              }
+            });
+            if (n > 0) {
+              addToast({ type: 'success', message: `ตั้งค่า Try = ${num} สำหรับ ${n} test case` });
+              setLibraryRawTcBulkTryInput('');
+            } else {
+              addToast({
+                type: 'warning',
+                message: 'ไม่มีแถวที่แก้ Try ได้ (เจ้าของอื่น, ล็อก, set กำลังรัน)',
+              });
+            }
+          };
+
           return (
             <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
               <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-600">
@@ -5910,20 +6665,103 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                     ))}
                   <option value="shared">Shared with me</option>
                 </select>
-                <input
-                  type="text"
-                  value={libraryTcNameFilter}
-                  onChange={(e) => setLibraryTcNameFilter(e.target.value)}
-                  placeholder="Filter by name"
-                  className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 w-40"
-                />
-                <input
-                  type="text"
-                  value={libraryTcTagFilter}
-                  onChange={(e) => setLibraryTcTagFilter(e.target.value)}
-                  placeholder="Filter by tag"
-                  className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 w-32"
-                />
+                <div className="relative shrink-0 w-[10rem]" data-raw-tc-name-filter-root>
+                  <input
+                    type="text"
+                    value={libraryTcNameFilter}
+                    onChange={(e) => setLibraryTcNameFilter(e.target.value)}
+                    placeholder="Filter by name"
+                    className="w-full px-2.5 py-1.5 pr-8 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800"
+                  />
+                  <button
+                    type="button"
+                    aria-label="Choose name filter"
+                    title="เลือกชื่อจากรายการ (หรือพิมพ์ในช่อง)"
+                    className="absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/90 dark:hover:bg-slate-800/80"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setLibraryTcTagSuggestOpen(false);
+                      setLibraryTcNameSuggestOpen((v) => !v);
+                    }}
+                  >
+                    <ChevronDown className="w-3.5 h-3.5 pointer-events-none" strokeWidth={2} />
+                  </button>
+                  {libraryTcNameSuggestOpen && (
+                    <div className="absolute left-0 top-full mt-1 z-[60] min-w-[200px] max-w-[min(320px,calc(100vw-2rem))] max-h-[min(240px,50vh)] overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-lg py-1 [scrollbar-width:thin]">
+                      {(() => {
+                        const q = libraryTcNameFilter.trim().toLowerCase();
+                        const opts = libraryTcToolbarNamePickOptions.filter(
+                          (n) => !q || String(n).toLowerCase().includes(q)
+                        );
+                        if (opts.length === 0) {
+                          return (
+                            <div className="px-3 py-2 text-[11px] text-slate-400 dark:text-slate-500">
+                              {libraryTcToolbarNamePickOptions.length === 0 ? 'ยังไม่มีชื่อในรายการ' : 'ไม่พบชื่อที่ตรงกับคำค้น'}
+                            </div>
+                          );
+                        }
+                        return opts.map((opt) => (
+                          <button
+                            key={`tc-lib-name-opt-${opt}`}
+                            type="button"
+                            className="w-full text-left px-3 py-1.5 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 truncate"
+                            title={opt}
+                            onClick={() => {
+                              setLibraryTcNameFilter(opt);
+                              setLibraryTcNameSuggestOpen(false);
+                            }}
+                          >
+                            {opt.length > 48 ? `${opt.slice(0, 47)}…` : opt}
+                          </button>
+                        ));
+                      })()}
+                    </div>
+                  )}
+                </div>
+                <div className="relative shrink-0 w-[7.75rem]" data-raw-tc-tag-filter-root>
+                  <input
+                    type="text"
+                    value={libraryTcTagFilter}
+                    onChange={(e) => setLibraryTcTagFilter(e.target.value)}
+                    placeholder="Filter by tag"
+                    className="w-full px-2.5 py-1.5 pr-8 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800"
+                  />
+                  <button
+                    type="button"
+                    aria-label="Choose tag filter"
+                    title="เลือกแท็กจากรายการ (หรือพิมพ์ในช่อง)"
+                    className="absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/90 dark:hover:bg-slate-800/80"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setLibraryTcNameSuggestOpen(false);
+                      setLibraryTcTagSuggestOpen((v) => !v);
+                    }}
+                  >
+                    <ChevronDown className="w-3.5 h-3.5 pointer-events-none" strokeWidth={2} />
+                  </button>
+                  {libraryTcTagSuggestOpen && (
+                    <div className="absolute left-0 top-full mt-1 z-[60] min-w-[200px] max-w-[min(280px,calc(100vw-2rem))] max-h-[min(240px,50vh)] overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-lg py-1 [scrollbar-width:thin]">
+                      {libraryTcToolbarTagPickOptions.length === 0 ? (
+                        <div className="px-3 py-2 text-[11px] text-slate-400 dark:text-slate-500">ยังไม่มีแท็กในรายการ</div>
+                      ) : (
+                        libraryTcToolbarTagPickOptions.map((opt) => (
+                          <button
+                            key={`tc-lib-tag-opt-${opt}`}
+                            type="button"
+                            className="w-full text-left px-3 py-1.5 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 truncate"
+                            title={opt}
+                            onClick={() => {
+                              setLibraryTcTagFilter(opt);
+                              setLibraryTcTagSuggestOpen(false);
+                            }}
+                          >
+                            {opt.length > 40 ? `${opt.slice(0, 39)}…` : opt}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
                 {(() => {
                   const selectedKey = String(libraryTcTagColorFilter || '').trim();
                   const dotKey = TAG_PALETTE_MAP[selectedKey] ? selectedKey : 'mint';
@@ -6004,6 +6842,34 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                   <option value="error">Error</option>
                   <option value="completed">Completed</option>
                 </select>
+                <select
+                  value={libraryTcDateFilter}
+                  onChange={(e) => setLibraryTcDateFilter(e.target.value)}
+                  className="px-2 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 min-w-[7rem] max-w-[9.5rem]"
+                  title="Filter by modified date (Date column)"
+                >
+                  <option value="">All dates</option>
+                  {libraryTcToolbarDatePickOptions.map((ymd) => {
+                    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+                    const dt = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0) : null;
+                    const lbl = dt && !Number.isNaN(dt.getTime())
+                      ? dt.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+                      : ymd;
+                    return (
+                      <option key={ymd} value={ymd}>
+                        {lbl}
+                      </option>
+                    );
+                  })}
+                </select>
+                <button
+                  type="button"
+                  onClick={clearLibraryTcToolbarFilters}
+                  className="shrink-0 px-2.5 py-1.5 text-[11px] font-medium rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/80 whitespace-nowrap transition-colors"
+                  title="Reset name / tag / color / date / status filters; owners → All owners"
+                >
+                  Clear filters
+                </button>
                 <div className="relative" data-library-raw-tc-insert-menu>
                   <button
                     type="button"
@@ -6046,6 +6912,10 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                     </div>
                   )}
                 </div>
+                <div
+                  className="hidden sm:block shrink-0 w-px self-stretch min-h-[1.5rem] bg-slate-200 dark:bg-slate-600"
+                  aria-hidden
+                />
                 <button
                   type="button"
                   onClick={handleDeleteSelected}
@@ -6070,6 +6940,94 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                   <span className="text-xs text-slate-500">{selectedSet.size} selected{hasRunningOrPendingInSelection ? ' (มีรายการที่ล็อก)' : ''}</span>
                 )}
               </div>
+              {selectedSet.size > 0 && (
+              <div className="w-full px-4 py-2 border-t border-slate-200/80 dark:border-slate-700/80 flex flex-wrap items-center gap-x-3 gap-y-2">
+                <button
+                  type="button"
+                  aria-expanded={libraryRawTcBulkBarOpen}
+                  aria-controls="library-raw-tc-bulk-fields"
+                  onClick={() => setLibraryRawTcBulkBarOpen((v) => !v)}
+                  className={`inline-flex items-center justify-center h-8 w-8 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 shrink-0 transition-colors ${
+                    libraryRawTcBulkBarOpen
+                      ? 'bg-slate-100 dark:bg-slate-700 ring-2 ring-slate-300/50 dark:ring-slate-600'
+                      : 'hover:bg-slate-50 dark:hover:bg-slate-700/80'
+                  }`}
+                  title="Bulk tag / Try — แก้หลายแถวพร้อมกัน"
+                >
+                  <Pencil size={16} strokeWidth={2} />
+                </button>
+                {libraryRawTcBulkBarOpen && (
+                  <div id="library-raw-tc-bulk-fields" className="flex flex-1 flex-wrap items-center gap-x-3 gap-y-2 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap min-w-0">
+                      <input
+                        type="text"
+                        value={libraryRawTcBulkTagInput}
+                        onChange={(e) => setLibraryRawTcBulkTagInput(e.target.value)}
+                        readOnly={bulkTcInputsLocked}
+                        onKeyDown={(e) => {
+                          if (bulkTcInputsLocked) return;
+                          if (tagEnterShouldIgnoreIme(e)) return;
+                          if (e.key !== 'Enter') return;
+                          e.preventDefault();
+                          applyBulkLibraryRawTcTags();
+                        }}
+                        className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 w-[min(100%,11rem)] sm:w-44"
+                        placeholder="Bulk add tag… (Enter)"
+                        title={
+                          bulkTcInputsLocked
+                            ? 'รอให้ action กับ test case ที่เลือกจบก่อน'
+                            : 'เพิ่ม tag ให้ทุกแถวที่เลือก'
+                        }
+                        disabled={bulkTcInputsLocked}
+                      />
+                      <button
+                        type="button"
+                        disabled={bulkTcInputsLocked}
+                        onClick={applyBulkLibraryRawTcTags}
+                        className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-200 text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600 disabled:opacity-40 disabled:pointer-events-none"
+                        title="ใส่ tag ให้แถวที่เลือกทั้งหมด"
+                      >
+                        Apply
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap min-w-0">
+                      <input
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={libraryRawTcBulkTryInput}
+                        onChange={(e) => setLibraryRawTcBulkTryInput(e.target.value)}
+                        readOnly={bulkTcInputsLocked}
+                        onKeyDown={(e) => {
+                          if (bulkTcInputsLocked) return;
+                          if (tagEnterShouldIgnoreIme(e)) return;
+                          if (e.key !== 'Enter') return;
+                          e.preventDefault();
+                          applyBulkLibraryRawTcTry();
+                        }}
+                        className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 w-[6.5rem]"
+                        placeholder="Try 1–100"
+                        title={
+                          bulkTcInputsLocked
+                            ? 'รอให้ action กับ test case ที่เลือกจบก่อน'
+                            : 'ตั้ง Try ให้เคสของคุณที่เลือก (เจ้าของอื่นถูกข้าม)'
+                        }
+                        disabled={bulkTcInputsLocked}
+                      />
+                      <button
+                        type="button"
+                        disabled={bulkTcInputsLocked}
+                        onClick={applyBulkLibraryRawTcTry}
+                        className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-200 text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600 disabled:opacity-40 disabled:pointer-events-none"
+                        title="ตั้ง Try ให้แถวของคุณที่เลือก"
+                      >
+                        Apply
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+              )}
               <div className="flex flex-col xl:flex-row gap-4 px-4 pb-4 xl:items-start">
                 {libraryTestCasesFilter !== 'mine' &&
                   libraryTestCasesFilter !== '__active__' &&
@@ -6731,17 +7689,38 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                   setNamesForRow = tc._inSetNames;
                                 }
                                 if (setNamesForRow.length) {
-                                  const primary = setNamesForRow[0];
-                                  const more = setNamesForRow.length - 1;
+                                  const showSets = setNamesForRow.slice(0, 4);
+                                  const rest = setNamesForRow.length - showSets.length;
                                   return (
-                                    <span
-                                      className="inline-flex items-center max-w-[160px] px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 text-[10px] font-medium"
-                                      title={`Saved in set${setNamesForRow.length > 1 ? 's' : ''}: ${setNamesForRow.join(', ')} (not run yet)`}
-                                    >
-                                      <Layers size={10} className="shrink-0 mr-1 opacity-70" aria-hidden />
-                                      <span className="truncate">{primary}</span>
-                                      {more > 0 && <span className="ml-1 opacity-70">+{more}</span>}
-                                    </span>
+                                    <div className="inline-flex flex-wrap items-center justify-center gap-1 max-w-[220px]">
+                                      {showSets.map((sn) => (
+                                        <button
+                                          key={`${key}-setstat-${sn}`}
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (tc._source === 'set' && tc._setId != null) {
+                                              navigateLibraryToSetByIdOrName({ setId: tc._setId });
+                                            } else {
+                                              navigateLibraryToSetByIdOrName({ setName: sn });
+                                            }
+                                          }}
+                                          className="inline-flex items-center max-w-[160px] px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 text-[10px] font-medium hover:bg-slate-200/90 dark:hover:bg-slate-600 cursor-pointer"
+                                          title={`ไปที่ set “${sn}” ในแท็บ Sets${setNamesForRow.length > 1 ? ` (${setNamesForRow.length} sets)` : ''}`}
+                                        >
+                                          <Layers size={10} className="shrink-0 mr-1 opacity-70" aria-hidden />
+                                          <span className="truncate">{sn}</span>
+                                        </button>
+                                      ))}
+                                      {rest > 0 ? (
+                                        <span
+                                          className="text-[10px] text-slate-500 dark:text-slate-400 max-w-[5rem] truncate"
+                                          title={setNamesForRow.join(', ')}
+                                        >
+                                          +{rest}
+                                        </span>
+                                      ) : null}
+                                    </div>
                                   );
                                 }
                                 return <span className="text-slate-400 dark:text-slate-500 text-[10px]">—</span>;
@@ -7610,59 +8589,131 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                 {/* Import preview moved to modal */}
                 <div className="w-full mt-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900/40 p-2">
                   {/* Single row: scroll horizontally on narrow viewports */}
-                  <div className="flex w-full min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:thin]">
-                    <div className="inline-flex shrink-0 items-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden">
-                      {['all', 'vcd', 'erom', 'ulp', 'mdi'].map((k) => (
-                        <button
-                          key={k}
-                          type="button"
-                          onClick={() => setFileFilter(k)}
-                          className={`px-2 py-1 text-[11px] font-semibold border-r last:border-r-0 border-slate-200 dark:border-slate-700 ${
-                            fileFilter === k
-                              ? 'bg-blue-600 text-white'
-                              : 'bg-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70'
-                          }`}
-                        >
-                          {k === 'all' ? 'All' : k === 'mdi' ? 'MDI' : k.toUpperCase()}
-                        </button>
-                      ))}
+                  <div className="flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto pb-0.5 [scrollbar-width:thin]">
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <div className="inline-flex shrink-0 items-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden">
+                        {['all', 'vcd', 'erom', 'ulp', 'mdi'].map((k) => (
+                          <button
+                            key={k}
+                            type="button"
+                            onClick={() => setFileFilter(k)}
+                            className={`px-2 py-1 text-[11px] font-semibold border-r last:border-r-0 border-slate-200 dark:border-slate-700 ${
+                              fileFilter === k
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70'
+                            }`}
+                          >
+                            {k === 'all' ? 'All' : k === 'mdi' ? 'MDI' : k.toUpperCase()}
+                          </button>
+                        ))}
+                      </div>
+
+                      <select
+                        value={fileStatusFilter}
+                        onChange={(e) => setFileStatusFilter(e.target.value)}
+                        className="shrink-0 h-8 pl-1.5 pr-6 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 max-w-[90px]"
+                        title="Status"
+                      >
+                        <option value="all">All</option>
+                        <option value="pending">Pend</option>
+                        <option value="running">Run</option>
+                        <option value="completed">Done</option>
+                        <option value="error">Err</option>
+                      </select>
                     </div>
-
-                    <select
-                      value={fileStatusFilter}
-                      onChange={(e) => setFileStatusFilter(e.target.value)}
-                      className="shrink-0 h-8 pl-1.5 pr-6 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 max-w-[76px]"
-                      title="Status"
-                    >
-                      <option value="all">All</option>
-                      <option value="pending">Pend</option>
-                      <option value="running">Run</option>
-                      <option value="completed">Done</option>
-                    </select>
-                    <select
-                      value={fileSort}
-                      onChange={(e) => setFileSort(e.target.value)}
-                      className="shrink-0 h-8 pl-1.5 pr-6 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 w-[68px]"
-                      title="Sort"
-                    >
-                      <option value="time">Time</option>
-                      <option value="name">Name</option>
-                    </select>
-
-                    <input
-                      type="text"
-                      value={fileSearch}
-                      onChange={(e) => setFileSearch(e.target.value)}
-                      placeholder="Name"
-                      className="shrink-0 h-8 min-w-[100px] w-[120px] px-2 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                    <div
+                      className="shrink-0 w-px h-6 self-center bg-slate-200 dark:bg-slate-600"
+                      aria-hidden
                     />
-                    <input
-                      type="text"
-                      value={fileTagSearch}
-                      onChange={(e) => setFileTagSearch(e.target.value)}
-                      placeholder="Tag"
-                      className="shrink-0 h-8 w-[72px] px-2 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
-                    />
+
+                    <datalist id="lib-filter-h-name">
+                      {(fileLibraryToolbarFilterHistory.name || []).map((h) => (
+                        <option key={`n-${h}`} value={h} />
+                      ))}
+                    </datalist>
+                    <datalist id="lib-filter-h-tag">
+                      {(fileLibraryToolbarFilterHistory.tag || []).map((h) => (
+                        <option key={`g-${h}`} value={h} />
+                      ))}
+                    </datalist>
+                    <datalist id="lib-filter-h-tc">
+                      {(fileLibraryToolbarFilterHistory.tc || []).map((h) => (
+                        <option key={`t-${h}`} value={h} />
+                      ))}
+                    </datalist>
+                    <datalist id="lib-filter-h-set">
+                      {(fileLibraryToolbarFilterHistory.set || []).map((h) => (
+                        <option key={`s-${h}`} value={h} />
+                      ))}
+                    </datalist>
+                    <datalist id="lib-filter-h-date">
+                      {(fileLibraryToolbarFilterHistory.date || []).map((h) => (
+                        <option key={`d-${h}`} value={h} />
+                      ))}
+                    </datalist>
+                    <datalist id="lib-filter-h-size">
+                      {(fileLibraryToolbarFilterHistory.size || []).map((h) => (
+                        <option key={`z-${h}`} value={h} />
+                      ))}
+                    </datalist>
+                    <datalist id="lib-filter-h-owner">
+                      {(fileLibraryToolbarFilterHistory.owner || []).map((h) => (
+                        <option key={`o-${h}`} value={h} />
+                      ))}
+                    </datalist>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                    <div className="relative shrink-0 min-w-[136px] w-[154px]" data-lib-filter-pick-root>
+                      <input
+                        type="text"
+                        list="lib-filter-h-name"
+                        value={fileSearch}
+                        onChange={(e) => setFileSearch(e.target.value)}
+                        onBlur={() => recordFileLibraryToolbarFilterHistory('name', fileSearch)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') recordFileLibraryToolbarFilterHistory('name', fileSearch);
+                        }}
+                        placeholder="Name"
+                        className="w-full h-8 pl-2 pr-8 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                      />
+                      <button
+                        type="button"
+                        aria-label="Suggestions"
+                        title="Suggestions"
+                        className="absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/90 dark:hover:bg-slate-800/80"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleLibraryToolbarFilterPick('name', e.currentTarget);
+                        }}
+                      >
+                        <ChevronDown className="w-3.5 h-3.5 pointer-events-none" strokeWidth={2} />
+                      </button>
+                    </div>
+                    <div className="relative shrink-0 min-w-[96px] w-[112px]" data-lib-filter-pick-root>
+                      <input
+                        type="text"
+                        list="lib-filter-h-tag"
+                        value={fileTagSearch}
+                        onChange={(e) => setFileTagSearch(e.target.value)}
+                        onBlur={() => recordFileLibraryToolbarFilterHistory('tag', fileTagSearch)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') recordFileLibraryToolbarFilterHistory('tag', fileTagSearch);
+                        }}
+                        placeholder="Tag"
+                        className="w-full h-8 pl-2 pr-8 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                      />
+                      <button
+                        type="button"
+                        aria-label="Suggestions"
+                        title="Suggestions"
+                        className="absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/90 dark:hover:bg-slate-800/80"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleLibraryToolbarFilterPick('tag', e.currentTarget);
+                        }}
+                      >
+                        <ChevronDown className="w-3.5 h-3.5 pointer-events-none" strokeWidth={2} />
+                      </button>
+                    </div>
 
                     {(() => {
                       const selectedKey = String(fileTagColorFilter || '').trim();
@@ -7749,13 +8800,301 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                         </div>
                       );
                     })()}
+                    </div>
+                    <div
+                      className="shrink-0 w-px h-6 self-center bg-slate-200 dark:bg-slate-600"
+                      aria-hidden
+                    />
+                    <div className="flex shrink-0 items-center gap-1.5">
 
-                    <input type="text" value={fileTcSearch} onChange={(e) => setFileTcSearch(e.target.value)} placeholder="TC" className="shrink-0 h-8 w-[56px] px-2 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900" />
-                    <input type="text" value={fileSetSearch} onChange={(e) => setFileSetSearch(e.target.value)} placeholder="Set" className="shrink-0 h-8 w-[56px] px-2 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900" />
-                    <input type="text" value={fileDateSearch} onChange={(e) => setFileDateSearch(e.target.value)} placeholder="Date" className="shrink-0 h-8 w-[68px] px-2 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900" />
-                    <input type="text" value={fileSizeSearch} onChange={(e) => setFileSizeSearch(e.target.value)} placeholder="Size" className="shrink-0 h-8 w-[52px] px-2 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900" />
-                    <input type="text" value={fileOwnerSearch} onChange={(e) => setFileOwnerSearch(e.target.value)} placeholder="Owner" className="shrink-0 h-8 min-w-[56px] w-[68px] px-2 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900" />
+                    <div className="relative shrink-0 min-w-[80px] w-[92px]" data-lib-filter-pick-root>
+                      <input
+                        type="text"
+                        list="lib-filter-h-tc"
+                        value={fileTcSearch}
+                        onChange={(e) => setFileTcSearch(e.target.value)}
+                        onBlur={() => recordFileLibraryToolbarFilterHistory('tc', fileTcSearch)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') recordFileLibraryToolbarFilterHistory('tc', fileTcSearch);
+                        }}
+                        placeholder="TC"
+                        className="w-full h-8 pl-2 pr-8 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                      />
+                      <button
+                        type="button"
+                        aria-label="Suggestions"
+                        title="Suggestions"
+                        className="absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/90 dark:hover:bg-slate-800/80"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleLibraryToolbarFilterPick('tc', e.currentTarget);
+                        }}
+                      >
+                        <ChevronDown className="w-3.5 h-3.5 pointer-events-none" strokeWidth={2} />
+                      </button>
+                    </div>
+                    <div className="relative shrink-0 min-w-[80px] w-[92px]" data-lib-filter-pick-root>
+                      <input
+                        type="text"
+                        list="lib-filter-h-set"
+                        value={fileSetSearch}
+                        onChange={(e) => setFileSetSearch(e.target.value)}
+                        onBlur={() => recordFileLibraryToolbarFilterHistory('set', fileSetSearch)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') recordFileLibraryToolbarFilterHistory('set', fileSetSearch);
+                        }}
+                        placeholder="Set"
+                        className="w-full h-8 pl-2 pr-8 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                      />
+                      <button
+                        type="button"
+                        aria-label="Suggestions"
+                        title="Suggestions"
+                        className="absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/90 dark:hover:bg-slate-800/80"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleLibraryToolbarFilterPick('set', e.currentTarget);
+                        }}
+                      >
+                        <ChevronDown className="w-3.5 h-3.5 pointer-events-none" strokeWidth={2} />
+                      </button>
+                    </div>
+                    <div className="relative shrink-0 min-w-[104px] w-[118px]" data-lib-filter-pick-root>
+                      <input
+                        type="text"
+                        list="lib-filter-h-date"
+                        value={fileDateSearch}
+                        onChange={(e) => setFileDateSearch(e.target.value)}
+                        onBlur={() => recordFileLibraryToolbarFilterHistory('date', fileDateSearch)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') recordFileLibraryToolbarFilterHistory('date', fileDateSearch);
+                        }}
+                        placeholder="Date"
+                        className="w-full h-8 pl-2 pr-8 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                      />
+                      <button
+                        type="button"
+                        aria-label="Suggestions"
+                        title="Suggestions"
+                        className="absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/90 dark:hover:bg-slate-800/80"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleLibraryToolbarFilterPick('date', e.currentTarget);
+                        }}
+                      >
+                        <ChevronDown className="w-3.5 h-3.5 pointer-events-none" strokeWidth={2} />
+                      </button>
+                    </div>
+                    <div className="relative shrink-0 min-w-[92px] w-[108px]" data-lib-filter-pick-root>
+                      <input
+                        type="text"
+                        list="lib-filter-h-size"
+                        value={fileSizeSearch}
+                        onChange={(e) => setFileSizeSearch(e.target.value)}
+                        onBlur={() => recordFileLibraryToolbarFilterHistory('size', fileSizeSearch)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') recordFileLibraryToolbarFilterHistory('size', fileSizeSearch);
+                        }}
+                        placeholder="Size"
+                        className="w-full h-8 pl-2 pr-8 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                      />
+                      <button
+                        type="button"
+                        aria-label="Suggestions"
+                        title="Suggestions"
+                        className="absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/90 dark:hover:bg-slate-800/80"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleLibraryToolbarFilterPick('size', e.currentTarget);
+                        }}
+                      >
+                        <ChevronDown className="w-3.5 h-3.5 pointer-events-none" strokeWidth={2} />
+                      </button>
+                    </div>
+                    <div className="relative shrink-0 min-w-[112px] w-[132px]" data-lib-filter-pick-root>
+                      <input
+                        type="text"
+                        list="lib-filter-h-owner"
+                        value={fileOwnerSearch}
+                        onChange={(e) => setFileOwnerSearch(e.target.value)}
+                        onBlur={() => recordFileLibraryToolbarFilterHistory('owner', fileOwnerSearch)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') recordFileLibraryToolbarFilterHistory('owner', fileOwnerSearch);
+                        }}
+                        placeholder="Owner"
+                        className="w-full h-8 pl-2 pr-8 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                      />
+                      <button
+                        type="button"
+                        aria-label="Suggestions"
+                        title="Suggestions"
+                        className="absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/90 dark:hover:bg-slate-800/80"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleLibraryToolbarFilterPick('owner', e.currentTarget);
+                        }}
+                      >
+                        <ChevronDown className="w-3.5 h-3.5 pointer-events-none" strokeWidth={2} />
+                      </button>
+                    </div>
 
+                    </div>
+
+                    {libraryToolbarFilterPickField && libraryToolbarFilterPickAnchorRect && typeof document !== 'undefined' &&
+                      createPortal(
+                        <div
+                          data-lib-filter-pick-pop
+                          className="fixed z-[190] rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl w-[min(280px,calc(100vw-24px))] max-h-[min(288px,calc(100vh-120px))] flex flex-col"
+                          style={{
+                            top: Math.min(libraryToolbarFilterPickAnchorRect.bottom + 6, window.innerHeight - 304),
+                            left: Math.max(
+                              12,
+                              Math.min(libraryToolbarFilterPickAnchorRect.left, window.innerWidth - 292)
+                            ),
+                          }}
+                        >
+                          <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
+                            Suggestions
+                          </div>
+                          <div className="overflow-y-auto p-1 [scrollbar-width:thin]">
+                            {(() => {
+                              const pickList =
+                                libraryToolbarFilterPickField === 'name'
+                                  ? libraryFilterPickNameOptions
+                                  : libraryToolbarFilterPickField === 'tag'
+                                    ? libraryFilterPickTagOptions
+                                    : libraryToolbarFilterPickField === 'tc'
+                                      ? libraryFilterPickTcOptions
+                                      : libraryToolbarFilterPickField === 'set'
+                                        ? libraryFilterPickSetOptions
+                                        : libraryToolbarFilterPickField === 'date'
+                                          ? libraryFilterPickDateOptions
+                                          : libraryToolbarFilterPickField === 'size'
+                                            ? libraryFilterPickSizeOptions
+                                            : libraryToolbarFilterPickField === 'owner'
+                                              ? libraryFilterPickOwnerOptions
+                                              : [];
+                              if (pickList.length === 0) {
+                                return (
+                                  <div className="px-3 py-4 text-center text-[11px] text-slate-400">No suggestions yet</div>
+                                );
+                              }
+                              return pickList.map((opt) => (
+                                <button
+                                  key={`libpick-${libraryToolbarFilterPickField}-${opt}`}
+                                  type="button"
+                                  className="w-full text-left px-2 py-1.5 rounded-lg text-[11px] text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 truncate"
+                                  title={opt}
+                                  onClick={() => applyLibraryToolbarFilterPick(libraryToolbarFilterPickField, opt)}
+                                >
+                                  {shortenFilterOptionLabel(opt, 52)}
+                                </button>
+                              ));
+                            })()}
+                          </div>
+                        </div>,
+                        document.body
+                      )}
+                  </div>
+                </div>
+                <div className="w-full flex flex-wrap items-center gap-y-2 mt-2 pt-2 border-t border-slate-200/80 dark:border-slate-700/80">
+                  <div className="flex flex-1 flex-wrap items-center gap-x-3 gap-y-2 min-w-0">
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={clearFileLibraryToolbarFilters}
+                        className="shrink-0 h-8 px-2.5 rounded-lg text-[11px] font-medium border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/80 transition-colors whitespace-nowrap"
+                        title="ล้างตัวกรองทั้งหมดในแถบด้านบน"
+                      >
+                        Clear filters
+                      </button>
+                      {selectedFileSet.size > 0 && (
+                        <span className="text-xs text-slate-500">
+                          {selectedFileSet.size} selected{selectedInUse > 0 ? ' (มีรายการที่ล็อก)' : ''}
+                        </span>
+                      )}
+                    </div>
+                    {selectedFileSet.size > 0 && (
+                      <>
+                        <div
+                          className="shrink-0 w-px self-center min-h-[2rem] bg-slate-200 dark:bg-slate-600"
+                          aria-hidden
+                        />
+                        <div className="flex items-center gap-2 flex-wrap min-w-0">
+                          <input
+                            type="text"
+                            value={bulkTagInput}
+                            onChange={(e) => setBulkTagInput(e.target.value)}
+                            readOnly={selectedFilesPending}
+                            onKeyDown={(e) => {
+                              if (selectedFilesPending) return;
+                              if (e.key !== 'Enter') return;
+                              e.preventDefault();
+                              const raw = bulkTagInput.trim();
+                              if (!raw) return;
+                              selectedLibraryFileIds.forEach((id) => {
+                                const current = (fileTags && fileTags[id]) || '';
+                                const next = upsertTagsString(current, raw);
+                                setFileTag?.(id, next);
+                              });
+                              addToast({ type: 'success', message: `Applied tag(s) to ${selectedLibraryFileIds.length} file(s)` });
+                              setBulkTagInput('');
+                            }}
+                            className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 w-44"
+                            placeholder="Bulk add tag… (Enter)"
+                            title={selectedFilesPending ? 'รอให้ action กับไฟล์ที่เลือกจบก่อน' : 'Add tags to selected files (comma supported)'}
+                          />
+                          <button
+                            type="button"
+                            disabled={selectedFilesPending}
+                            onClick={() => {
+                              if (selectedFilesPending) return;
+                              const raw = bulkTagInput.trim();
+                              if (!raw) {
+                                addToast({ type: 'info', message: 'Type tag(s) first' });
+                                return;
+                              }
+                              selectedLibraryFileIds.forEach((id) => {
+                                const current = (fileTags && fileTags[id]) || '';
+                                const next = upsertTagsString(current, raw);
+                                setFileTag?.(id, next);
+                              });
+                              addToast({ type: 'success', message: `Applied tag(s) to ${selectedLibraryFileIds.length} file(s)` });
+                              setBulkTagInput('');
+                            }}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-200 text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600 disabled:opacity-40 disabled:pointer-events-none"
+                            title="Apply tag(s) to selected files"
+                          >
+                            Apply
+                          </button>
+                        </div>
+                      </>
+                    )}
+                    <div
+                      className="shrink-0 w-px self-center min-h-[2rem] bg-slate-200 dark:bg-slate-600"
+                      aria-hidden
+                    />
+                    <div className="flex shrink-0 items-center">
+                      <button
+                        type="button"
+                        onClick={handleDeleteSelectedFiles}
+                        disabled={selectedFileSet.size === 0 || selectedInUse > 0 || isDeleting || selectedFilesPending}
+                        className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                        title={
+                          selectedFilesPending
+                            ? 'รอให้ action กับไฟล์ที่เลือกจบก่อน'
+                            : selectedInUse > 0
+                              ? 'มีไฟล์ที่กำลังถูกใช้ (running/pending) — ไม่สามารถลบได้'
+                              : selectedFileSet.size > 0
+                                ? `Delete ${selectedFileSet.size} selected`
+                                : 'Select files to delete'
+                        }
+                      >
+                        <Trash2 size={18} strokeWidth={2} />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-3 pl-3 sm:pl-4 border-l border-slate-200 dark:border-slate-600">
                     <button
                       type="button"
                       onClick={() => {
@@ -7777,62 +9116,6 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                       Send → TC
                     </button>
                   </div>
-                </div>
-                <div className="w-full flex flex-wrap items-center gap-2 mt-1">
-                  <button type="button" onClick={handleDeleteSelectedFiles} disabled={selectedFileSet.size === 0 || selectedInUse > 0 || isDeleting || selectedFilesPending} className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-40 disabled:pointer-events-none transition-colors" title={selectedFilesPending ? 'รอให้ action กับไฟล์ที่เลือกจบก่อน' : selectedInUse > 0 ? 'มีไฟล์ที่กำลังถูกใช้ (running/pending) — ไม่สามารถลบได้' : selectedFileSet.size > 0 ? `Delete ${selectedFileSet.size} selected` : 'Select files to delete'}>
-                    <Trash2 size={18} strokeWidth={2} />
-                  </button>
-                  {selectedFileSet.size > 0 && <span className="text-xs text-slate-500">{selectedFileSet.size} selected{selectedInUse > 0 ? ' (มีรายการที่ล็อก)' : ''}</span>}
-                  {selectedFileSet.size > 0 && (
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <input
-                        type="text"
-                        value={bulkTagInput}
-                        onChange={(e) => setBulkTagInput(e.target.value)}
-                        readOnly={selectedFilesPending}
-                        onKeyDown={(e) => {
-                          if (selectedFilesPending) return;
-                          if (e.key !== 'Enter') return;
-                          e.preventDefault();
-                          const raw = bulkTagInput.trim();
-                          if (!raw) return;
-                          selectedLibraryFileIds.forEach((id) => {
-                            const current = (fileTags && fileTags[id]) || '';
-                            const next = upsertTagsString(current, raw);
-                            setFileTag?.(id, next);
-                          });
-                          addToast({ type: 'success', message: `Applied tag(s) to ${selectedLibraryFileIds.length} file(s)` });
-                          setBulkTagInput('');
-                        }}
-                        className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 w-44"
-                        placeholder="Bulk add tag… (Enter)"
-                        title={selectedFilesPending ? 'รอให้ action กับไฟล์ที่เลือกจบก่อน' : 'Add tags to selected files (comma supported)'}
-                      />
-                      <button
-                        type="button"
-                        disabled={selectedFilesPending}
-                        onClick={() => {
-                          if (selectedFilesPending) return;
-                          const raw = bulkTagInput.trim();
-                          if (!raw) {
-                            addToast({ type: 'info', message: 'Type tag(s) first' });
-                            return;
-                          }
-                          selectedLibraryFileIds.forEach((id) => {
-                            const current = (fileTags && fileTags[id]) || '';
-                            const next = upsertTagsString(current, raw);
-                            setFileTag?.(id, next);
-                          });
-                          addToast({ type: 'success', message: `Applied tag(s) to ${selectedLibraryFileIds.length} file(s)` });
-                          setBulkTagInput('');
-                        }}
-                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-200 text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600 disabled:opacity-40 disabled:pointer-events-none"
-                        title="Apply tag(s) to selected files"
-                      >
-                        Apply
-                      </button>
-                    </div>
-                  )}
                 </div>
                 {/* Removed "Delete All" action to avoid accidental destructive UX */}
               </div>
@@ -8038,9 +9321,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                     );
                                     const displayTags = orderedTags;
                                     return displayTags.slice(0, 3).map((t, ti) => {
-                                    const colorKey = FILE_TAG_PALETTE_MAP[fileTagColors?.[f.id]]
-                                      ? fileTagColors[f.id]
-                                      : 'mint';
+                                    const colorKey = resolveFileLibraryRowTagColorKey(f, fileTagColors);
                                     const palette =
                                       FILE_TAG_PALETTE_MAP[colorKey] || FILE_TAG_PALETTE_MAP.mint;
                                     return (
@@ -8052,7 +9333,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                           e.stopPropagation();
                                           if (fpBusy) return;
                                           const keys = Object.keys(FILE_TAG_PALETTE_MAP);
-                                          const cur = fileTagColors?.[f.id] || 'mint';
+                                          const cur = resolveFileLibraryRowTagColorKey(f, fileTagColors);
                                           const idx = Math.max(0, keys.indexOf(cur));
                                           setFileTagColor?.(f.id, keys[(idx + 1) % keys.length]);
                                         }}
