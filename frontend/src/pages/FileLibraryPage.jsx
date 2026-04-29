@@ -1146,6 +1146,8 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
   // kind: 'bin'(ERoM) | 'vcd' | 'lin'(ULP) | 'mdi'(text)
   // target: which field to fill when a row is clicked
   const [rawTcFilePicker, setRawTcFilePicker] = useState(null); // { kind, q, target?: { type: 'main'|'slot', field?: 'binName'|'vcdName'|'linName', slotId?: string } }
+  /** Library "Edit Test Case": ห้ามพิมพ์ชื่อไฟล์ในกล่อง — เลือกได้จากเมนู Library / browse / drop เท่านั้น */
+  const rawTcLibraryFilePathReadOnly = Boolean(rawTcEditorDraft) && rawTcEditorMode === 'edit';
   /** Edit TC panel: … opens tag color tools (same picker as TC column Tags modal). */
   const [rawTcEditorTagToolsOpen, setRawTcEditorTagToolsOpen] = useState(false);
   const rawTcEditorTagToolsRef = useRef(null);
@@ -2945,6 +2947,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     }
     updateSavedTestCaseSet(setId, patch);
     addToast({ type: 'success', message: `บันทึกการตั้งค่า set "${trimmed}" แล้ว` });
+    closeAddTcsToSetModal();
   }, [
     addTcsToSetModalSetId,
     addTcsToSetNameDraft,
@@ -2997,6 +3000,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     }
     if (newItems.length === 0) {
       addToast({ type: 'info', message: 'Test case ที่เลือกมีชุดไฟล์เดียวกับที่อยู่ใน set แล้ว — ไม่มีรายการใหม่' });
+      closeAddTcsToSetModal();
       return;
     }
     const mergedItems = [...items, ...newItems];
@@ -3146,10 +3150,10 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
       return;
     }
     const tryCount = Math.min(100, Math.max(1, parseInt(String(rawTcEditorDraft.tryCount), 10) || 1));
+    const tag = (rawTcEditorDraft.tag || '').trim();
     const vcdName = (rawTcEditorDraft.vcdName || '').trim();
     const binName = (rawTcEditorDraft.binName || '').trim();
     const linName = (rawTcEditorDraft.linName || '').trim();
-    const tag = (rawTcEditorDraft.tag || '').trim();
     if (!isTestCasePrimaryFileSetComplete({ vcdName, binName, linName })) {
       addToast({ type: 'warning', message: 'กรุณาเลือก VCD, ERoM และ ULP ให้ครบก่อนบันทึก' });
       return;
@@ -7912,15 +7916,24 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                         />
                       </label>
                     </div>
+                    {rawTcLibraryFilePathReadOnly && (
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                        ช่องชื่อไฟล์ห้ามพิมพ์เอง — เลือกจาก Library ด้านปุ่ม ▼ หรือลากวางเมื่อเป็น MDI เท่านั้น
+                      </p>
+                    )}
                     <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
                       ERoM
                       <div className="relative mt-1">
                         <input
                           type="text"
                           value={rawTcEditorDraft.binName}
-                          onChange={(e) => setRawTcEditorDraft((d) => (d ? { ...d, binName: e.target.value } : d))}
-                          className="w-full pr-10 px-2 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900"
-                          placeholder="Type to search…"
+                          onChange={(e) =>
+                            !rawTcLibraryFilePathReadOnly &&
+                            setRawTcEditorDraft((d) => (d ? { ...d, binName: e.target.value } : d))
+                          }
+                          readOnly={rawTcLibraryFilePathReadOnly}
+                          className={`w-full pr-10 px-2 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 ${rawTcLibraryFilePathReadOnly ? 'cursor-default bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100' : ''}`}
+                          placeholder={rawTcLibraryFilePathReadOnly ? '' : 'Type to search…'}
                         />
                         <button
                           type="button"
@@ -7938,9 +7951,13 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                         <input
                           type="text"
                           value={rawTcEditorDraft.linName}
-                          onChange={(e) => setRawTcEditorDraft((d) => (d ? { ...d, linName: e.target.value } : d))}
-                          className="w-full pr-10 px-2 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900"
-                          placeholder="Type to search…"
+                          onChange={(e) =>
+                            !rawTcLibraryFilePathReadOnly &&
+                            setRawTcEditorDraft((d) => (d ? { ...d, linName: e.target.value } : d))
+                          }
+                          readOnly={rawTcLibraryFilePathReadOnly}
+                          className={`w-full pr-10 px-2 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 ${rawTcLibraryFilePathReadOnly ? 'cursor-default bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100' : ''}`}
+                          placeholder={rawTcLibraryFilePathReadOnly ? '' : 'Type to search…'}
                         />
                         <button
                           type="button"
@@ -7958,9 +7975,13 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                         <input
                           type="text"
                           value={rawTcEditorDraft.vcdName}
-                          onChange={(e) => setRawTcEditorDraft((d) => (d ? { ...d, vcdName: e.target.value } : d))}
-                          className="w-full pr-10 px-2 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900"
-                          placeholder="Type to search…"
+                          onChange={(e) =>
+                            !rawTcLibraryFilePathReadOnly &&
+                            setRawTcEditorDraft((d) => (d ? { ...d, vcdName: e.target.value } : d))
+                          }
+                          readOnly={rawTcLibraryFilePathReadOnly}
+                          className={`w-full pr-10 px-2 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 ${rawTcLibraryFilePathReadOnly ? 'cursor-default bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100' : ''}`}
+                          placeholder={rawTcLibraryFilePathReadOnly ? '' : 'Type to search…'}
                         />
                         <button
                           type="button"
@@ -8247,7 +8268,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                         </button>
                       </div>
                       {(rawTcEditorDraft.extraSlots || []).length === 0 ? (
-                        <p className="text-[11px] text-slate-400 dark:text-slate-500 italic">no extra file — click + to add</p>
+                        <p className="text-[11px] text-slate-400 dark:text-slate-500 italic">
+                          no extra file — click + to add
+                        </p>
                       ) : (
                         <>
                           <div className="flex items-center gap-x-3 text-[10px] font-medium text-slate-500 dark:text-slate-400">
@@ -8333,9 +8356,11 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                               <div className="relative flex-1 min-w-0">
                                 <input
                                   type="text"
-                                  list={listId}
+                                  list={rawTcLibraryFilePathReadOnly ? undefined : listId}
                                   value={slot.file}
-                                  onChange={(e) =>
+                                  readOnly={rawTcLibraryFilePathReadOnly}
+                                  onChange={(e) => {
+                                    if (rawTcLibraryFilePathReadOnly) return;
                                     setRawTcEditorDraft((d) =>
                                       d
                                         ? {
@@ -8345,9 +8370,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                             ),
                                           }
                                         : d
-                                    )
-                                  }
-                                  className="box-border h-9 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2 pr-10 text-sm text-slate-900 placeholder:text-slate-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
+                                    );
+                                  }}
+                                  className={`box-border h-9 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2 pr-10 text-sm text-slate-900 placeholder:text-slate-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 ${rawTcLibraryFilePathReadOnly ? 'cursor-default bg-slate-50 dark:bg-slate-950' : ''}`}
                                   placeholder={slot.kind === 'mdi' ? `${columnLabel} — select or drop` : 'select file'}
                                 />
                                 <button
@@ -8375,7 +8400,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                               </div>
                               <button
                                 type="button"
-                                onClick={() =>
+                                onClick={() => {
                                   setRawTcEditorDraft((d) =>
                                     d
                                       ? {
@@ -8383,8 +8408,8 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                           extraSlots: d.extraSlots.filter((s) => s.id !== slot.id),
                                         }
                                       : d
-                                  )
-                                }
+                                  );
+                                }}
                                 className="box-border flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
                                 title="delete extra file"
                               >
