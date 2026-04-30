@@ -619,6 +619,10 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
   const clearLibraryFocusFileNameOnNavigate = useTestStore((s) => s.clearLibraryFocusFileNameOnNavigate);
   const fileLibraryViewOnNavigate = useTestStore((s) => s.fileLibraryViewOnNavigate);
   const clearFileLibraryViewOnNavigate = useTestStore((s) => s.clearFileLibraryViewOnNavigate);
+  const libraryRawTcPointerOnNavigate = useTestStore((s) => s.libraryRawTcPointerOnNavigate);
+  const clearLibraryRawTcPointerOnNavigate = useTestStore((s) => s.clearLibraryRawTcPointerOnNavigate);
+  const librarySetPointerOnNavigate = useTestStore((s) => s.librarySetPointerOnNavigate);
+  const clearLibrarySetPointerOnNavigate = useTestStore((s) => s.clearLibrarySetPointerOnNavigate);
 
   // Status helpers for mapping jobs → sets / test cases / files
   // `error` sits above `completed` so that any past failure surfaces even when
@@ -1063,6 +1067,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
   const [showAllSetsForFileName, setShowAllSetsForFileName] = useState(null);
   const [pointerLibraryTcKey, setPointerLibraryTcKey] = useState(null); // rawTestCases table row _key
   const [pointerLibrarySetId, setPointerLibrarySetId] = useState(null); // sets tab set.id
+  const jobsLibraryTcFocusPendingRef = useRef(null); // Jobs Manager → TC Library pending focus payload
   const [bulkTagInput, setBulkTagInput] = useState('');
   /** TC Library — second row bulk edit (toggle + tag + try) */
   const [libraryRawTcBulkBarOpen, setLibraryRawTcBulkBarOpen] = useState(false);
@@ -1230,7 +1235,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
             null;
         }
       }
-      if (!setObj?.id) return;
+      if (!setObj?.id) return false;
       setLibraryView('testCases');
       setPointerLibrarySetId(setObj.id);
       try {
@@ -1251,9 +1256,25 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
           /* ignore */
         }
       });
+      return true;
     },
     [savedTestCaseSets, fileReferenceTestCaseSets]
   );
+
+  useEffect(() => {
+    if (!librarySetPointerOnNavigate) return;
+    const payload = librarySetPointerOnNavigate;
+    clearLibrarySetPointerOnNavigate();
+    const ok = navigateLibraryToSetByIdOrName(payload);
+    if (!ok) {
+      const sn = String(payload?.setName || '').trim();
+      addToast({
+        type: 'info',
+        message: sn ? `Set "${sn}" was not found in Library.` : 'Set was not found in Library.',
+      });
+    }
+  }, [librarySetPointerOnNavigate, clearLibrarySetPointerOnNavigate, navigateLibraryToSetByIdOrName, addToast]);
+
   /** Set Library — multi-select whole saved sets (headers) for bulk delete */
   const [selectedLibrarySetHeaderIds, setSelectedLibrarySetHeaderIds] = useState([]);
   const lastClickedLibrarySetTcRef = useRef({ setId: null, index: null });
@@ -2302,6 +2323,78 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     tcViewerTagOverlays,
     tcViewerTagEpoch,
   ]);
+
+  const findLibraryRawRowForJobsFocus = useCallback(
+    (focus) => {
+      const nm = String(focus?.name || '').trim();
+      const fv = String(focus?.vcdName || '').trim();
+      const fb = String(focus?.binName || '').trim();
+      const fl = String(focus?.linName || '').trim();
+      const fileCompatible = (want, actual) => {
+        const W = String(want || '').trim();
+        if (!W) return true;
+        const A = String(actual || '').trim();
+        const baseW = W.split('/').pop().trim().toLowerCase();
+        const baseA = A.split('/').pop().trim().toLowerCase();
+        return W === A || baseW === baseA;
+      };
+      const matchDetailed = (r) => {
+        if (nm && String(r?.name || '').trim() !== nm) return false;
+        if (!fileCompatible(fv, r?.vcdName)) return false;
+        if (!fileCompatible(fb, r?.binName)) return false;
+        if (!fileCompatible(fl, r?.linName)) return false;
+        return !!(nm || fv || fb || fl);
+      };
+      const pools = [libraryFilteredRows, libraryRawRows];
+      for (const rows of pools) {
+        const hit = (rows || []).find(matchDetailed);
+        if (hit?._key) return hit;
+      }
+      if (nm) {
+        for (const rows of pools) {
+          const hit = (rows || []).find((r) => String(r?.name || '').trim() === nm);
+          if (hit?._key) return hit;
+        }
+      }
+      return null;
+    },
+    [libraryRawRows, libraryFilteredRows]
+  );
+
+  useEffect(() => {
+    if (!libraryRawTcPointerOnNavigate) return;
+    jobsLibraryTcFocusPendingRef.current = libraryRawTcPointerOnNavigate;
+    clearLibraryRawTcPointerOnNavigate();
+    setLibraryView('rawTestCases');
+    clearLibraryTcToolbarFilters();
+  }, [libraryRawTcPointerOnNavigate, clearLibraryRawTcPointerOnNavigate, clearLibraryTcToolbarFilters]);
+
+  useEffect(() => {
+    const focus = jobsLibraryTcFocusPendingRef.current;
+    if (!focus) return;
+    if (libraryView !== 'rawTestCases') return;
+    const row = findLibraryRawRowForJobsFocus(focus);
+    if (!row?._key) {
+      jobsLibraryTcFocusPendingRef.current = null;
+      const nm = String(focus?.name || '').trim();
+      addToast({
+        type: 'info',
+        message: nm ? `Test case "${nm}" was not found in TC Library.` : 'Test case was not found in TC Library.',
+      });
+      return;
+    }
+    jobsLibraryTcFocusPendingRef.current = null;
+    setSelectedLibraryTcKeys([row._key]);
+    setPointerLibraryTcKey(row._key);
+    queueMicrotask(() => {
+      try {
+        const el = document.querySelector(`[data-library-tc-row-key="${String(row._key)}"]`);
+        el?.scrollIntoView?.({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+      } catch {
+        /* ignore */
+      }
+    });
+  }, [libraryView, libraryRawRows, libraryFilteredRows, findLibraryRawRowForJobsFocus, addToast]);
 
   const fileOptionsByKind = useMemo(() => {
     const list = uploadedFiles || [];

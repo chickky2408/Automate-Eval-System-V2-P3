@@ -8,8 +8,10 @@ import {
   Clock,
   Copy,
   Filter,
+  Globe,
   GripVertical,
   Layers,
+  Lock,
   Pencil,
   Play,
   Plus,
@@ -25,7 +27,18 @@ import { useTestStore } from '../store/useTestStore';
 import api from '../services/api';
 import { getClientId } from '../utils/sessionStorage';
 import { resolveOwnerDisplayName } from '../utils/profileOwnerLabel';
-import { getFirstTagPillClass, TAG_PALETTE_MAP, jobTagPillClasses, splitTagsComma } from '../utils/tagPalette';
+import {
+  getFirstTagPillClass,
+  TAG_PALETTE_MAP,
+  TAG_PALETTE_KEYS,
+  TAG_SWATCH_DOT_CLASS,
+  jobTagPillClasses,
+  splitTagsComma,
+  normalizeTagColorKey,
+  normalizeTagColorList,
+  formatPaletteOptionLabel,
+  isExtraColumnHiddenFromLibraryTable,
+} from '../utils/tagPalette';
 import TagColorSwatchPicker from '../components/TagColorSwatchPicker';
 
 /** Match dropdown owner filter to row: same id, or same resolved display (e.g. default vs server UUID both "Default"). */
@@ -42,6 +55,192 @@ function rowMatchesOwnerFilter(rowOid, filterProfileId, ownerLabelCtx, activePro
   return false;
 }
 
+/** Limit Run Set library list by tag palette color on the row (multi-tag aware). */
+function tcMatchesRunLibraryTagColor(tc, filterColorRaw) {
+  const wantTrim = String(filterColorRaw ?? '').trim();
+  if (!wantTrim) return true;
+  const want = normalizeTagColorKey(wantTrim);
+  const ex = tc?.extraColumns && typeof tc.extraColumns === 'object' ? tc.extraColumns : {};
+  const parts = splitTagsComma(ex.tag || ex.Tag || '');
+  const colorKeys = new Set();
+  if (parts.length > 0) {
+    normalizeTagColorList(ex, parts.length).forEach((k) => colorKeys.add(normalizeTagColorKey(k)));
+  } else {
+    colorKeys.add(normalizeTagColorKey(ex.tagColor ?? ex.tag_color ?? 'mint'));
+  }
+  return colorKeys.has(want);
+}
+
+/** Manual Vis=close: row is excluded from “Select all (visible)” (same as TC Library). Not the same as running/pending (system lock). */
+function isTcManuallyClosedForPicker(tc) {
+  const vis = String(tc?.extraColumns?.vis || '').trim().toLowerCase();
+  return vis === 'close' || vis === 'closed' || vis === 'lock' || vis === 'locked' || vis === 'private';
+}
+
+function isTcSystemLockedForRunPicker(tc) {
+  return tc?._status === 'running' || tc?._status === 'pending';
+}
+
+/** Calendar day YYYY-MM-DD from modified time — matches TC Library date filter. */
+function tcModifiedYmd(tc) {
+  const raw = tc?.updatedAt || tc?.createdAt || '';
+  const d = raw ? new Date(raw) : null;
+  if (!d || Number.isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function formatRunPickerLibDate(raw) {
+  if (!raw) return '—';
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return '—';
+  const now = new Date();
+  return d.toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    ...(d.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}),
+  });
+}
+
+/** One MDI summary cell like TC Library “MDI (text)”. */
+function getTcMdiSummaryForPicker(tc) {
+  if (!tc) return '—';
+  const names = [];
+  (Array.isArray(tc.commands) ? tc.commands : [])
+    .filter((c) => c && c.type === 'mdi' && String(c.file || '').trim())
+    .forEach((c) => names.push(String(c.file).trim()));
+  const ex = tc.extraColumns && typeof tc.extraColumns === 'object' ? tc.extraColumns : {};
+  Object.keys(ex)
+    .filter((k) => /^mdi\d+$/i.test(String(k)))
+    .sort((a, b) => {
+      const na = parseInt(String(a).match(/\d+/)?.[0] || '0', 10);
+      const nb = parseInt(String(b).match(/\d+/)?.[0] || '0', 10);
+      return na - nb;
+    })
+    .forEach((k) => {
+      const v = String(ex[k] || '').trim();
+      if (v && !names.includes(v)) names.push(v);
+    });
+  return names.length ? names.join(', ') : '—';
+}
+
+function RunTagColorFilterDropdown({
+  value,
+  onChange,
+  placeholder = 'All tag colors',
+  size = 'sm',
+  className = '',
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const rootRef = useRef(null);
+  const inputRef = useRef(null);
+  const options = useMemo(() => {
+    const query = String(q || '').trim().toLowerCase();
+    if (!query) return TAG_PALETTE_KEYS;
+    return TAG_PALETTE_KEYS.filter((k) => String(k).toLowerCase().includes(query));
+  }, [q]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => {
+      if (rootRef.current?.contains(e.target)) return;
+      setOpen(false);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }, [open]);
+
+  const btnCls =
+    size === 'xs'
+      ? 'h-8 px-2 py-1.5 pr-8 text-xs rounded-lg'
+      : 'h-9 px-2.5 py-1.5 pr-9 text-sm rounded-lg';
+  const iconSize = size === 'xs' ? 'h-3.5 w-3.5 right-2' : 'h-4 w-4 right-2.5';
+  const popCls =
+    size === 'xs'
+      ? 'top-[calc(100%+4px)] p-2 text-xs max-h-72'
+      : 'top-[calc(100%+6px)] p-3 text-sm max-h-80';
+
+  return (
+    <div ref={rootRef} className={`relative ${className}`}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`w-full appearance-none border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 text-left ${btnCls} focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500`}
+        title="Filter by tag color"
+      >
+        <span className="truncate inline-flex items-center gap-2">
+          {value ? (
+            <>
+              <span className={`inline-block h-2.5 w-2.5 rounded-full ${TAG_SWATCH_DOT_CLASS[value] || 'bg-slate-400'}`} />
+              <span>{formatPaletteOptionLabel(value)}</span>
+            </>
+          ) : (
+            placeholder
+          )}
+        </span>
+      </button>
+      <ChevronDown
+        aria-hidden
+        className={`pointer-events-none absolute top-1/2 -translate-y-1/2 text-slate-500 dark:text-slate-400 ${iconSize}`}
+      />
+      {open && (
+        <div className={`absolute left-0 right-0 z-[160] overflow-hidden rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 shadow-2xl ${popCls}`}>
+          <div className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">Tag color</div>
+          <input
+            ref={inputRef}
+            type="text"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search color..."
+            className="w-full mb-2 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+          />
+          <div className="max-h-48 overflow-y-auto space-y-1">
+            <button
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onChange('');
+                setOpen(false);
+              }}
+              className={`w-full px-2.5 py-1.5 rounded-lg text-left inline-flex items-center gap-2 hover:bg-slate-200/70 dark:hover:bg-slate-700 ${!value ? 'bg-slate-200/80 dark:bg-slate-700/80' : ''}`}
+            >
+              <span className="inline-block h-2.5 w-2.5 rounded-full bg-slate-400" />
+              <span>All</span>
+            </button>
+            {options.map((k) => (
+              <button
+                key={`run-tag-color-${k}`}
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onChange(k);
+                  setOpen(false);
+                }}
+                className={`w-full px-2.5 py-1.5 rounded-lg text-left inline-flex items-center gap-2 hover:bg-slate-200/70 dark:hover:bg-slate-700 ${value === k ? 'bg-slate-200/80 dark:bg-slate-700/80' : ''}`}
+              >
+                <span className={`inline-block h-2.5 w-2.5 rounded-full ${TAG_SWATCH_DOT_CLASS[k] || 'bg-slate-400'}`} />
+                <span>{k}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const RunSetPage = ({ onNavigateJobs }) => {
   const savedTestCaseSets = useTestStore((s) => s.savedTestCaseSets);
   const savedTestCases = useTestStore((s) => s.savedTestCases);
@@ -55,6 +254,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
   const runBoardSelection = useTestStore((s) => s.runBoardSelection);
   const setRunBoardSelection = useTestStore((s) => s.setRunBoardSelection);
   const updateSavedTestCaseSet = useTestStore((s) => s.updateSavedTestCaseSet);
+  const updateSavedTestCase = useTestStore((s) => s.updateSavedTestCase);
   const createJob = useTestStore((s) => s.createJob);
   const refreshJobs = useTestStore((s) => s.refreshJobs);
   const addSavedTestCaseSet = useTestStore((s) => s.addSavedTestCaseSet);
@@ -222,10 +422,22 @@ const RunSetPage = ({ onNavigateJobs }) => {
   const [runPreview, setRunPreview] = useState([]);
   const [runListNameFilter, setRunListNameFilter] = useState('');
   const [runListTagFilter, setRunListTagFilter] = useState('');
+  /** Tag filter: combobox popover — chevron picks from tags present in browsed TC list */
+  const [runTagSuggestOpenLibrary, setRunTagSuggestOpenLibrary] = useState(false);
+  const [runTagSuggestOpenPicker, setRunTagSuggestOpenPicker] = useState(false);
+  const runTagSuggestLibraryRef = useRef(null);
+  const runTagSuggestPickerRef = useRef(null);
+  const browsePickerSelectAllRef = useRef(null);
   /** __active__ = โปรไฟล์ปัจจุบัน (savedTestCases + sets ในเครื่อง); all / profile id / shared = ใช้ snapshot รวมเหมือน Library */
   const [runLibraryOwnerFilter, setRunLibraryOwnerFilter] = useState('__active__');
+  /** Empty = any tag pill color — uses same palette keys as TC Library */
+  const [runLibraryTagColorFilter, setRunLibraryTagColorFilter] = useState('');
+  /** '' = all dates; YYYY-MM-DD — same semantics as Library → TC Library */
+  const [runLibraryDateFilter, setRunLibraryDateFilter] = useState('');
   const [tcClipboard, setTcClipboard] = useState([]);
-  const [selectedLeftKey, setSelectedLeftKey] = useState(null);
+  /** Multi-select in section 1 (library list) — order for drag/copy follows visible list order */
+  const [selectedLeftKeys, setSelectedLeftKeys] = useState(() => new Set());
+  const leftListShiftAnchorIdxRef = useRef(null);
   const [selectedRunIndex, setSelectedRunIndex] = useState(null);
   const [selectedBrowsedKeys, setSelectedBrowsedKeys] = useState(new Set());
   const [editingSetId, setEditingSetId] = useState(null);
@@ -501,6 +713,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
         setId: set.id,
         set,
         tc,
+        _itemIndex: tcIdx,
         key: `${set.id}-${tcIdx}-${tc.id || tc.name || tc.vcdName || ''}-${set._ownerId ?? ''}`,
       }))
     );
@@ -555,9 +768,10 @@ const RunSetPage = ({ onNavigateJobs }) => {
   };
   const clearAllBrowsed = () => setSelectedBrowsedKeys(new Set());
 
-  const handleBrowseRowMouseDown = useCallback((e, rowKey) => {
+  const handleBrowseRowMouseDown = useCallback((e, rowKey, tc) => {
     if (e.button !== 0) return;
     if (e.target.closest('input, button, a, textarea, select, label')) return;
+    if (tc && isTcManuallyClosedForPicker(tc)) return;
     e.preventDefault();
     browseDragSelectingRef.current = true;
     setSelectedBrowsedKeys((prev) => {
@@ -567,8 +781,9 @@ const RunSetPage = ({ onNavigateJobs }) => {
     });
   }, []);
 
-  const handleBrowseRowMouseEnter = useCallback((rowKey) => {
+  const handleBrowseRowMouseEnter = useCallback((rowKey, tc) => {
     if (!browseDragSelectingRef.current) return;
+    if (tc && isTcManuallyClosedForPicker(tc)) return;
     setSelectedBrowsedKeys((prev) => {
       if (prev.has(rowKey)) return prev;
       const next = new Set(prev);
@@ -577,9 +792,65 @@ const RunSetPage = ({ onNavigateJobs }) => {
     });
   }, []);
 
+  const updateRunPickerTcVisibility = useCallback(
+    (row) => {
+      const tc = row.tc;
+      if (isTcSystemLockedForRunPicker(tc)) {
+        addToast({ type: 'warning', message: 'Test case is locked (running/pending) — cannot change Vis' });
+        return;
+      }
+      const wantClosed = !isTcManuallyClosedForPicker(tc);
+      const visVal = wantClosed ? 'close' : 'open';
+      const nextExtra = { ...(tc.extraColumns || {}), vis: visVal };
+
+      const clearRowPick = () =>
+        setSelectedBrowsedKeys((prev) => {
+          const next = new Set(prev);
+          next.delete(row.key);
+          return next;
+        });
+
+      if (row.setId === '__current__') {
+        const id = tc?.id;
+        if (id == null) {
+          addToast({ type: 'warning', message: 'Cannot change Vis — this test case has no id.' });
+          return;
+        }
+        if (!safeCases.some((t) => String(t.id) === String(id))) {
+          addToast({
+            type: 'warning',
+            message:
+              'Vis can only be changed for library data on this device. Switch the owner filter to your profile or “This device”.',
+          });
+          return;
+        }
+        updateSavedTestCase(id, { extraColumns: nextExtra });
+        clearRowPick();
+        return;
+      }
+
+      const setEntity = safeSets.find((s) => s.id === row.setId);
+      const idx = row._itemIndex;
+      if (!setEntity || !Array.isArray(setEntity.items) || idx == null || idx < 0 || !setEntity.items[idx]) {
+        addToast({
+          type: 'warning',
+          message:
+            'Cannot change Vis — this set is not editable here. Switch the owner filter to your local profile / sets.',
+        });
+        return;
+      }
+      const items = [...setEntity.items];
+      items[idx] = { ...items[idx], extraColumns: { ...(items[idx].extraColumns || {}), vis: visVal } };
+      updateSavedTestCaseSet(row.setId, { items });
+      clearRowPick();
+    },
+    [addToast, safeCases, safeSets, updateSavedTestCase, updateSavedTestCaseSet]
+  );
+
   const nameFilter = (runListNameFilter || '').trim().toLowerCase();
   const tagFilter = (runListTagFilter || '').trim().toLowerCase();
   const filteredLibraryRows = useMemo(() => {
+    const dateWant = (runLibraryDateFilter || '').trim();
     return browsedRows.filter((row) => {
       const name = (row.tc.name || row.tc.vcdName || '').toLowerCase();
       const tagVal = (row.tc.extraColumns?.tag || '').toString().toLowerCase();
@@ -594,11 +865,127 @@ const RunSetPage = ({ onNavigateJobs }) => {
       const searchBlob = [name, ownerDisp, ownerRaw, bin, lin, vcd].join('\n');
       if (nameFilter && !searchBlob.includes(nameFilter)) return false;
       if (tagFilter && !tagVal.includes(tagFilter)) return false;
+      if (!tcMatchesRunLibraryTagColor(row.tc, runLibraryTagColorFilter)) return false;
+      if (dateWant) {
+        const ymd = tcModifiedYmd(row.tc);
+        if (!ymd || ymd !== dateWant) return false;
+      }
       return true;
     });
-  }, [browsedRows, nameFilter, tagFilter, activeProfileId, ownerLabelCtx]);
+  }, [browsedRows, nameFilter, tagFilter, runLibraryTagColorFilter, runLibraryDateFilter, activeProfileId, ownerLabelCtx]);
 
-  const selectAllBrowsed = () => setSelectedBrowsedKeys(new Set(filteredLibraryRows.map((r) => r.key)));
+  useEffect(() => {
+    setSelectedLeftKeys((prev) => {
+      const allowed = new Set(filteredLibraryRows.map((r) => r.key));
+      return new Set([...prev].filter((k) => allowed.has(k)));
+    });
+  }, [filteredLibraryRows]);
+
+  const runLibraryDatePickOptions = useMemo(() => {
+    const seen = new Set();
+    (browsedRows || []).forEach((row) => {
+      const ymd = tcModifiedYmd(row.tc);
+      if (ymd) seen.add(ymd);
+    });
+    return [...seen].sort((a, b) => b.localeCompare(a)).slice(0, 120);
+  }, [browsedRows]);
+
+  const runLibraryUniqueTags = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    (browsedRows || []).forEach((row) => {
+      const ex = row.tc.extraColumns && typeof row.tc.extraColumns === 'object' ? row.tc.extraColumns : {};
+      const raw = ex.tag ?? ex.Tag ?? '';
+      splitTagsComma(String(raw)).forEach((part) => {
+        const v = String(part || '').trim();
+        if (!v) return;
+        const k = v.toLowerCase();
+        if (seen.has(k)) return;
+        seen.add(k);
+        out.push(v);
+      });
+    });
+    return out.sort((a, b) => a.localeCompare(b));
+  }, [browsedRows]);
+
+  const runLibraryTagPickerOptions = useMemo(() => {
+    const q = (runListTagFilter || '').trim().toLowerCase();
+    if (!q) return runLibraryUniqueTags;
+    return runLibraryUniqueTags.filter((t) => t.toLowerCase().includes(q));
+  }, [runLibraryUniqueTags, runListTagFilter]);
+
+  /** Library list (section 1): selected rows in visible order — used for multi-drag payload */
+  const leftPanelOrderedSelectedRows = useMemo(
+    () =>
+      filteredLibraryRows.filter(
+        (r) => selectedLeftKeys.has(r.key) && !isTcManuallyClosedForPicker(r.tc)
+      ),
+    [filteredLibraryRows, selectedLeftKeys]
+  );
+
+  /** Extra CSV-style columns for browse modal — same hide rules as TC Library table */
+  const runPickerModalExtraCols = useMemo(() => {
+    const cols = new Set();
+    (filteredLibraryRows || []).forEach((r) => {
+      Object.keys(r?.tc?.extraColumns || {}).forEach((k) => {
+        if (!isExtraColumnHiddenFromLibraryTable(k)) cols.add(k);
+      });
+    });
+    return [...cols].sort((a, b) => a.localeCompare(b));
+  }, [filteredLibraryRows]);
+
+  /** Same as TC Library: Vis=closed (manual) rows are never bulk-selected. */
+  const browsePickerSelectableKeys = useMemo(
+    () => filteredLibraryRows.filter((r) => !isTcManuallyClosedForPicker(r.tc)).map((r) => r.key),
+    [filteredLibraryRows]
+  );
+  const browsePickerAllVisibleSelected = useMemo(
+    () =>
+      browsePickerSelectableKeys.length > 0 &&
+      browsePickerSelectableKeys.every((k) => selectedBrowsedKeys.has(k)),
+    [browsePickerSelectableKeys, selectedBrowsedKeys]
+  );
+  const browsePickerSomeVisibleSelected = useMemo(
+    () => browsePickerSelectableKeys.some((k) => selectedBrowsedKeys.has(k)),
+    [browsePickerSelectableKeys, selectedBrowsedKeys]
+  );
+
+  useEffect(() => {
+    const el = browsePickerSelectAllRef.current;
+    if (!el || typeof el.indeterminate !== 'boolean') return;
+    el.indeterminate = browsePickerSomeVisibleSelected && !browsePickerAllVisibleSelected;
+  }, [browsePickerSomeVisibleSelected, browsePickerAllVisibleSelected]);
+
+  useEffect(() => {
+    if (!runTagSuggestOpenLibrary && !runTagSuggestOpenPicker) return;
+    const onDoc = (e) => {
+      if (runTagSuggestLibraryRef.current?.contains(e.target)) return;
+      if (runTagSuggestPickerRef.current?.contains(e.target)) return;
+      setRunTagSuggestOpenLibrary(false);
+      setRunTagSuggestOpenPicker(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [runTagSuggestOpenLibrary, runTagSuggestOpenPicker]);
+
+  useEffect(() => {
+    if (!runTagSuggestOpenLibrary && !runTagSuggestOpenPicker) return;
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        setRunTagSuggestOpenLibrary(false);
+        setRunTagSuggestOpenPicker(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [runTagSuggestOpenLibrary, runTagSuggestOpenPicker]);
+
+  const selectAllBrowsed = () =>
+    setSelectedBrowsedKeys(
+      new Set(
+        filteredLibraryRows.filter((r) => !isTcManuallyClosedForPicker(r.tc)).map((r) => r.key)
+      )
+    );
 
   const addToRunPreview = useCallback((row, atIndex = null) => {
     const item = {
@@ -615,6 +1002,54 @@ const RunSetPage = ({ onNavigateJobs }) => {
       return next.map((it, idx) => ({ ...it, order: idx + 1 }));
     });
   }, []);
+
+  const addLibraryRowsToRunPreview = useCallback((rows, atIndex = null) => {
+    if (!Array.isArray(rows) || rows.length === 0) return;
+    const t0 = Date.now();
+    setRunPreview((prev) => {
+      const newItems = rows.map((row, i) => ({
+        key: `${row.key}-${t0}-${i}-${Math.random().toString(36).slice(2, 8)}`,
+        setId: row.setId,
+        set: row.set,
+        tc: row.tc,
+        order: 0,
+      }));
+      const next =
+        atIndex != null && atIndex >= 0 && atIndex <= prev.length
+          ? [...prev.slice(0, atIndex), ...newItems, ...prev.slice(atIndex)]
+          : [...prev, ...newItems];
+      return next.map((it, idx) => ({ ...it, order: idx + 1 }));
+    });
+  }, []);
+
+  /**
+   * Build run-preview items from a set while skipping duplicate test cases.
+   * Duplicate key uses same rule as left-library dedupe (name + file tuple).
+   */
+  const buildDedupedRunItemsFromSet = useCallback(
+    (set, existingTcs = []) => {
+      const seen = new Set((Array.isArray(existingTcs) ? existingTcs : []).map((tc) => contentKeyTc(tc)));
+      let skipped = 0;
+      const out = [];
+      (Array.isArray(set?.items) ? set.items : []).forEach((tc, idx) => {
+        const k = contentKeyTc(tc);
+        if (seen.has(k)) {
+          skipped += 1;
+          return;
+        }
+        seen.add(k);
+        out.push({
+          key: `${set.id}-${idx}-${Date.now()}-${tc.id || tc.name || tc.vcdName || ''}`,
+          setId: set.id,
+          set,
+          tc,
+          order: out.length + 1,
+        });
+      });
+      return { items: out, skipped };
+    },
+    [contentKeyTc]
+  );
 
   const removeFromRunPreview = useCallback((index) => {
     setRunPreview((prev) => prev.filter((_, i) => i !== index).map((it, idx) => ({ ...it, order: idx + 1 })));
@@ -646,11 +1081,11 @@ const RunSetPage = ({ onNavigateJobs }) => {
         if (selectedRunIndex !== null && runPreview[selectedRunIndex]) {
           setTcClipboard([{ row: { key: runPreview[selectedRunIndex].key, setId: runPreview[selectedRunIndex].setId, set: runPreview[selectedRunIndex].set, tc: runPreview[selectedRunIndex].tc } }]);
           addToast({ type: 'info', message: 'Copied test case' });
-        } else if (selectedLeftKey) {
-          const row = filteredLibraryRows.find((r) => r.key === selectedLeftKey);
-          if (row) {
-            setTcClipboard([{ row }]);
-            addToast({ type: 'info', message: 'Copied test case' });
+        } else if (selectedLeftKeys.size > 0) {
+          const rows = filteredLibraryRows.filter((r) => selectedLeftKeys.has(r.key));
+          if (rows.length > 0) {
+            setTcClipboard(rows.map((row) => ({ row })));
+            addToast({ type: 'info', message: rows.length > 1 ? `Copied ${rows.length} test cases` : 'Copied test case' });
           }
         }
       } else if (isPaste) {
@@ -672,7 +1107,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedRunIndex, selectedLeftKey, runPreview, filteredLibraryRows, tcClipboard, addToast]);
+  }, [selectedRunIndex, selectedLeftKeys, runPreview, filteredLibraryRows, tcClipboard, addToast]);
 
   const buildJobFromSet = (set, testCasesOverride = null) => {
     const items = testCasesOverride != null ? testCasesOverride : (set.items || []);
@@ -976,25 +1411,31 @@ const RunSetPage = ({ onNavigateJobs }) => {
           <div className="flex min-h-[420px] flex-col rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-600 dark:bg-slate-800/50 lg:min-h-0 lg:h-full">
             <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">1. Test cases in library</h3>
             <div className="flex flex-col gap-2 mb-2 shrink-0">
-              <select
-                value={runLibraryOwnerFilter === 'mine' ? '__active__' : runLibraryOwnerFilter}
-                onChange={(e) => setRunLibraryOwnerFilter(e.target.value)}
-                className="w-full px-2.5 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
-                title="Filter by owner. “All owners” loads merged library from the server (like TC Library)."
-              >
-                <option value="__active__">
-                  {resolveOwnerDisplayName(activeProfileId, ownerLabelCtx) || activeProfile?.name || 'My profile'} (this device)
-                </option>
-                <option value="all">All owners</option>
-                {allOwnerProfiles
-                  .filter((p) => String(p?.id) !== String(activeProfileId))
-                  .map((p) => (
-                    <option key={`runset-owner-${p.id}`} value={String(p.id)}>
-                      {p.name || p.id}
-                    </option>
-                  ))}
-                <option value="shared">Shared with me (other owners)</option>
-              </select>
+              <div className="relative w-full">
+                <select
+                  value={runLibraryOwnerFilter === 'mine' ? '__active__' : runLibraryOwnerFilter}
+                  onChange={(e) => setRunLibraryOwnerFilter(e.target.value)}
+                  className="w-full appearance-none cursor-pointer px-2.5 py-1.5 pr-9 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
+                  title="Filter by owner. “All owners” loads merged library from the server (like TC Library)."
+                >
+                  <option value="__active__">
+                    {resolveOwnerDisplayName(activeProfileId, ownerLabelCtx) || activeProfile?.name || 'My profile'} (this device)
+                  </option>
+                  <option value="all">All owners</option>
+                  {allOwnerProfiles
+                    .filter((p) => String(p?.id) !== String(activeProfileId))
+                    .map((p) => (
+                      <option key={`runset-owner-${p.id}`} value={String(p.id)}>
+                        {p.name || p.id}
+                      </option>
+                    ))}
+                  <option value="shared">Shared with me (other owners)</option>
+                </select>
+                <ChevronDown
+                  aria-hidden
+                  className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500 dark:text-slate-400"
+                />
+              </div>
               <div className="flex flex-col sm:flex-row gap-2">
                 <input
                   type="text"
@@ -1006,19 +1447,153 @@ const RunSetPage = ({ onNavigateJobs }) => {
                   onChange={(e) => setRunListNameFilter(e.target.value)}
                   className="flex-1 min-w-0 px-2.5 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
                 />
-                <input
-                  type="text"
-                  name="runset-lib-filter-tag"
-                  autoComplete="off"
-                  spellCheck={false}
-                  placeholder="Filter by tag"
-                  value={runListTagFilter}
-                  onChange={(e) => setRunListTagFilter(e.target.value)}
-                  className="flex-1 min-w-0 px-2.5 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
+                <div ref={runTagSuggestLibraryRef} className="relative z-20 flex-1 min-w-0">
+                  <input
+                    type="text"
+                    name="runset-lib-filter-tag"
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder="Filter by tag"
+                    value={runListTagFilter}
+                    onChange={(e) => setRunListTagFilter(e.target.value)}
+                    onFocus={() => {
+                      setRunTagSuggestOpenPicker(false);
+                    }}
+                    title="Type to filter by tag — use ▼ for common tags"
+                    className="w-full min-w-0 px-2.5 py-1.5 pr-9 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
+                  />
+                  <button
+                    type="button"
+                    aria-expanded={runTagSuggestOpenLibrary}
+                    aria-haspopup="listbox"
+                    aria-label="Show tag suggestions"
+                    className="absolute right-0.5 top-1/2 z-[2] inline-flex -translate-y-1/2 items-center justify-center rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-100"
+                    title="Browse tags used in this list"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onClick={() => {
+                      setRunTagSuggestOpenPicker(false);
+                      setRunTagSuggestOpenLibrary((v) => !v);
+                    }}
+                  >
+                    <ChevronDown
+                      size={16}
+                      className={`transition-transform ${runTagSuggestOpenLibrary ? 'rotate-180' : ''}`}
+                      aria-hidden
+                    />
+                  </button>
+                  {runTagSuggestOpenLibrary && (
+                    <div
+                      role="listbox"
+                      aria-label="Tag suggestions"
+                      className="absolute left-0 right-0 top-[calc(100%+4px)] z-[100] max-h-52 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 text-sm shadow-xl dark:border-slate-600 dark:bg-slate-900"
+                    >
+                      <button
+                        type="button"
+                        role="option"
+                        className="w-full px-2.5 py-1.5 text-left text-xs font-medium text-slate-500 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setRunListTagFilter('');
+                          setRunTagSuggestOpenLibrary(false);
+                        }}
+                      >
+                        Clear tag filter…
+                      </button>
+                      {runLibraryTagPickerOptions.length === 0 ? (
+                        <div className="px-2.5 py-2 text-xs text-slate-500 dark:text-slate-400">
+                          {runLibraryUniqueTags.length === 0
+                            ? 'No tags on test cases in this list — type any text to filter.'
+                            : 'No tag matches — type to narrow (substring).'}
+                        </div>
+                      ) : (
+                        runLibraryTagPickerOptions.slice(0, 80).map((t) => (
+                          <button
+                            key={`run-lib-tag-opt-${t}`}
+                            type="button"
+                            role="option"
+                            className="w-full truncate px-2.5 py-1.5 text-left text-slate-800 hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-slate-800"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              setRunListTagFilter(t);
+                              setRunTagSuggestOpenLibrary(false);
+                            }}
+                          >
+                            {t}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+                <RunTagColorFilterDropdown
+                  value={runLibraryTagColorFilter}
+                  onChange={setRunLibraryTagColorFilter}
+                  placeholder="All tag colors"
+                  size="sm"
+                  className="shrink-0 w-full sm:w-[11rem] lg:w-[11.5rem]"
                 />
+                <div className="relative shrink-0 w-full sm:w-[10.75rem] min-w-[8rem]">
+                  <select
+                    value={runLibraryDateFilter}
+                    onChange={(e) => setRunLibraryDateFilter(e.target.value)}
+                    className="w-full appearance-none cursor-pointer px-2.5 py-1.5 pr-9 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
+                    title="Filter by modified date (Date column)"
+                  >
+                    <option value="">All dates</option>
+                    {runLibraryDatePickOptions.map((ymd) => {
+                      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+                      const dt = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0) : null;
+                      const lbl =
+                        dt && !Number.isNaN(dt.getTime())
+                          ? dt.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+                          : ymd;
+                      return (
+                        <option key={`run-lib-date-${ymd}`} value={ymd}>
+                          {lbl}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  <ChevronDown
+                    aria-hidden
+                    className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500 dark:text-slate-400"
+                  />
+                </div>
               </div>
               {runLibraryOwnerFilter !== '__active__' && runLibraryOwnerFilter !== 'mine' && !globalTestCaseDataLoaded ? (
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">Loading merged library from server…</p>
+              ) : null}
+              {filteredLibraryRows.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-600 dark:text-slate-400">
+                  <button
+                    type="button"
+                    className="inline-flex items-center rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700 transition-colors hover:bg-blue-100 dark:border-blue-700/60 dark:bg-blue-900/25 dark:text-blue-300 dark:hover:bg-blue-900/40"
+                    title="Select every visible row except Vis=closed (same as TC Library picker)"
+                    onClick={() =>
+                      setSelectedLeftKeys(
+                        new Set(
+                          filteredLibraryRows.filter((r) => !isTcManuallyClosedForPicker(r.tc)).map((r) => r.key)
+                        )
+                      )
+                    }
+                  >
+                    Select all 
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700/80"
+                    onClick={() => setSelectedLeftKeys(new Set())}
+                  >
+                    Clear
+                  </button>
+                  <span className="text-slate-500 dark:text-slate-500">{selectedLeftKeys.size} selected</span>
+                  <span className="hidden sm:inline text-slate-400 dark:text-slate-500">
+                    · Click row: select one · ⌘/Ctrl+click toggle · Shift+click range
+                  </span>
+                </div>
               ) : null}
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 shadow-inner scroll-smooth" style={{ scrollBehavior: 'smooth' }}>
@@ -1028,30 +1603,95 @@ const RunSetPage = ({ onNavigateJobs }) => {
                     ? runLibraryOwnerFilter === '__active__' || runLibraryOwnerFilter === 'mine'
                       ? 'No test cases yet — create on Test Cases page or choose “All owners” to pick others’ cases.'
                       : 'No test cases for this owner filter — try “All owners” or check the server connection.'
-                    : 'No test cases match name/tag filters'}
+                    : 'No test cases match name / tag / tag color / date filters'}
                 </div>
               ) : (
                 <ul className="divide-y divide-slate-200 dark:divide-slate-600">
-                  {filteredLibraryRows.map((row) => {
+                  {filteredLibraryRows.map((row, rowIdx) => {
                     const tagVal = row.tc.extraColumns?.tag ?? '';
-                    const isSelected = selectedLeftKey === row.key;
+                    const isSelected = selectedLeftKeys.has(row.key);
+                    const visBulkOff = isTcManuallyClosedForPicker(row.tc);
                     const isFromCurrent = row.setId === '__current__';
                     const ownerHint =
                       runLibraryOwnerFilter === '__active__' || runLibraryOwnerFilter === 'mine'
                         ? ''
                         : resolveOwnerDisplayName(row.tc._ownerId ?? row.set?._ownerId ?? activeProfileId, ownerLabelCtx);
+                    const dragPayloadRows =
+                      isSelected && leftPanelOrderedSelectedRows.length > 1
+                        ? leftPanelOrderedSelectedRows
+                        : [row];
                     return (
                       <li
                         key={row.key}
-                        draggable
+                        draggable={!visBulkOff}
                         onDragStart={(e) => {
-                          e.dataTransfer.setData('application/json', JSON.stringify({ type: 'library', row }));
+                          if (visBulkOff) return;
+                          const rows = dragPayloadRows.filter((r) => !isTcManuallyClosedForPicker(r.tc));
+                          const payload =
+                            rows.length > 1
+                              ? { type: 'library', rows }
+                              : { type: 'library', row: rows[0] || row };
+                          e.dataTransfer.setData('application/json', JSON.stringify(payload));
                           e.dataTransfer.effectAllowed = 'copy';
                         }}
-                        onClick={() => setSelectedLeftKey(row.key)}
-                        className={`flex items-center gap-3 px-3 min-h-[56px] cursor-grab active:cursor-grabbing hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors ${isSelected ? 'bg-blue-50 dark:bg-blue-900/20 ring-inset ring-1 ring-blue-300 dark:ring-blue-600' : ''}`}
+                        onClick={(e) => {
+                          if (e.target.closest('input, button')) return;
+                          if (visBulkOff) return;
+                          if (e.shiftKey && leftListShiftAnchorIdxRef.current != null) {
+                            const anchor = leftListShiftAnchorIdxRef.current;
+                            const a = Math.min(anchor, rowIdx);
+                            const b = Math.max(anchor, rowIdx);
+                            const rangeKeys = filteredLibraryRows
+                              .slice(a, b + 1)
+                              .filter((r) => !isTcManuallyClosedForPicker(r.tc))
+                              .map((r) => r.key);
+                            setSelectedLeftKeys(new Set(rangeKeys));
+                            return;
+                          }
+                          if (e.metaKey || e.ctrlKey) {
+                            setSelectedLeftKeys((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(row.key)) next.delete(row.key);
+                              else next.add(row.key);
+                              return next;
+                            });
+                            leftListShiftAnchorIdxRef.current = rowIdx;
+                            return;
+                          }
+                          setSelectedLeftKeys(new Set([row.key]));
+                          leftListShiftAnchorIdxRef.current = rowIdx;
+                        }}
+                        className={`flex items-center gap-2 px-2 sm:px-3 min-h-[56px] transition-colors ${
+                          visBulkOff
+                            ? 'cursor-not-allowed opacity-80 bg-slate-50/80 dark:bg-slate-800/40'
+                            : 'cursor-grab active:cursor-grabbing hover:bg-slate-100 dark:hover:bg-slate-800/50'
+                        } ${isSelected ? 'bg-blue-50 dark:bg-blue-900/20 ring-inset ring-1 ring-blue-300 dark:ring-blue-600' : ''}`}
                       >
-                        <GripVertical size={16} className="text-slate-400 shrink-0 flex-shrink-0" />
+                        <input
+                          type="checkbox"
+                          className={`w-4 h-4 shrink-0 rounded border-slate-400 text-blue-600 ${
+                            visBulkOff ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+                          }`}
+                          checked={isSelected}
+                          disabled={visBulkOff}
+                          title={
+                            visBulkOff
+                              ? 'Vis closed — cannot select (excluded from Select all)'
+                              : 'Include in multi-drag / ⌘C copy'
+                          }
+                          onChange={() => {
+                            if (visBulkOff) return;
+                            setSelectedLeftKeys((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(row.key)) next.delete(row.key);
+                              else next.add(row.key);
+                              return next;
+                            });
+                            leftListShiftAnchorIdxRef.current = rowIdx;
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <GripVertical size={16} className="text-slate-400 shrink-0 flex-shrink-0 pointer-events-none" aria-hidden />
                         <div className="flex-1 min-w-0 flex flex-col justify-center gap-0.5 py-1.5">
                           <div className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{row.tc.name || row.tc.vcdName || '—'}</div>
                           <div className="flex items-center gap-1 flex-wrap">
@@ -1076,7 +1716,16 @@ const RunSetPage = ({ onNavigateJobs }) => {
                 </ul>
               )}
             </div>
-            <p className="text-xs text-slate-500 mt-2 shrink-0">Drag to the right, or Copy (⌘/Ctrl+C) and Paste (⌘/Ctrl+V). <button type="button" onClick={() => setShowBrowseModal(true)} className="text-blue-600 hover:underline">Open picker</button></p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 shrink-0 leading-relaxed">
+              Drag one or <span className="font-medium text-slate-600 dark:text-slate-300">all selected</span> to the right; or Copy (⌘/Ctrl+C) then focus the right panel and Paste (⌘/Ctrl+V).{' '}
+              <button
+                type="button"
+                onClick={() => setShowBrowseModal(true)}
+                className="inline-flex items-center rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700 transition-colors hover:bg-blue-100 dark:border-blue-700/60 dark:bg-blue-900/25 dark:text-blue-300 dark:hover:bg-blue-900/40"
+              >
+                Open picker (TC Library table)
+              </button>
+            </p>
           </div>
 
           {/* Right — 2. Set for run (drop zone + list, reorder) — ใหญ่ขึ้นเพื่อให้จัดการ test cases ได้ง่าย */}
@@ -1093,11 +1742,13 @@ const RunSetPage = ({ onNavigateJobs }) => {
                 const raw = e.dataTransfer.getData('application/json');
                 if (!raw) return;
                 const data = JSON.parse(raw);
-                if (data.type === 'library' && data.row) {
+                if (data.type === 'library') {
+                  const rows = Array.isArray(data.rows) && data.rows.length ? data.rows : data.row ? [data.row] : [];
+                  if (rows.length === 0) return;
                   const dropEl = e.target.closest('[data-drop-index]');
                   const atIndex = dropEl ? parseInt(dropEl.getAttribute('data-drop-index'), 10) : null;
-                  if (!Number.isNaN(atIndex) && atIndex >= 0) addToRunPreview(data.row, atIndex);
-                  else addToRunPreview(data.row);
+                  const insertAt = !Number.isNaN(atIndex) && atIndex >= 0 ? atIndex : null;
+                  addLibraryRowsToRunPreview(rows, insertAt);
                 } else if (data.type === 'run' && typeof data.fromIndex === 'number') {
                   const dropEl = e.target.closest('[data-drop-index]');
                   const toIndex = dropEl ? parseInt(dropEl.getAttribute('data-drop-index'), 10) : null;
@@ -1318,16 +1969,20 @@ const RunSetPage = ({ onNavigateJobs }) => {
                         disabled={setBusy}
                         onClick={() => {
                           if (setBusy) return;
-                          const items = (set.items || []).map((tc, idx) => ({
-                            key: `${set.id}-${idx}-${tc.id || tc.name || tc.vcdName || ''}`,
-                            setId: set.id,
-                            set,
-                            tc,
-                            order: idx + 1,
-                          }));
+                          const { items, skipped } = buildDedupedRunItemsFromSet(set, []);
                           setRunPreview(items);
                           setRunSetName(set.name || '');
-                          addToast({ type: 'success', message: `Loaded set "${set.name}" for run` });
+                          if (items.length === 0) {
+                            addToast({ type: 'warning', message: `Set "${set.name}" has no unique test cases to load` });
+                            return;
+                          }
+                          addToast({
+                            type: skipped > 0 ? 'info' : 'success',
+                            message:
+                              skipped > 0
+                                ? `Loaded "${set.name}" (${items.length} unique, skipped ${skipped} duplicate TC)`
+                                : `Loaded set "${set.name}" for run`,
+                          });
                         }}
                         className="px-2 py-1 rounded font-semibold bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-40 disabled:pointer-events-none"
                       >
@@ -1338,17 +1993,24 @@ const RunSetPage = ({ onNavigateJobs }) => {
                         disabled={setBusy}
                         onClick={() => {
                           if (setBusy) return;
-                          const start = runPreview.length;
-                          const items = (set.items || []).map((tc, idx) => ({
-                            key: `${set.id}-${idx}-${Date.now()}-${tc.id || tc.name || tc.vcdName || ''}`,
-                            setId: set.id,
-                            set,
-                            tc,
-                            order: start + idx + 1,
-                          }));
+                          const existingTcs = runPreview.map((it) => it.tc);
+                          const { items, skipped } = buildDedupedRunItemsFromSet(set, existingTcs);
+                          if (items.length === 0) {
+                            addToast({
+                              type: 'info',
+                              message: `No new TC to append from "${set.name}" (all duplicates in run list)`,
+                            });
+                            return;
+                          }
                           setRunPreview((prev) => prev.concat(items).map((it, i) => ({ ...it, order: i + 1 })));
                           setRunSetName((prev) => (prev ? `${prev}, ${set.name || ''}` : (set.name || '')));
-                          addToast({ type: 'success', message: `Appended set "${set.name}" to run list` });
+                          addToast({
+                            type: skipped > 0 ? 'info' : 'success',
+                            message:
+                              skipped > 0
+                                ? `Appended "${set.name}" (${items.length} added, skipped ${skipped} duplicate TC)`
+                                : `Appended set "${set.name}" to run list`,
+                          });
                         }}
                         className="px-2 py-1 rounded font-semibold bg-slate-600 hover:bg-slate-700 text-white disabled:opacity-40 disabled:pointer-events-none"
                         title="Append this set to run list (without replacing)"
@@ -1707,34 +2369,51 @@ const RunSetPage = ({ onNavigateJobs }) => {
       {/* Browse modal (Finder-like picker) */}
       {showBrowseModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setShowBrowseModal(false)}>
-          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 w-full max-w-4xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-600">
-              <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200">Select test cases to run</h3>
-              <button type="button" onClick={() => setShowBrowseModal(false)} className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300">
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 w-full max-w-[min(1200px,calc(100vw-1.5rem))] max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-slate-200 dark:border-slate-600">
+              <div className="min-w-0 pr-2">
+                <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200">Select test cases to run</h3>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
+                  Same table layout as <span className="font-semibold text-slate-600 dark:text-slate-300">Library → TC Library</span>
+                  . <span className="font-medium text-slate-600 dark:text-slate-400">Vis</span> (click globe/lock): closing it yourself excludes that row from &quot;Select all (visible)&quot; — same as TC Library. Running/pending rows show a blue lock. Use checkboxes or drag to multi-select, then Done.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowBrowseModal(false)}
+                className="p-1 rounded shrink-0 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300"
+                aria-label="Close"
+              >
                 <X size={20} />
               </button>
             </div>
             <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-700 space-y-2">
               <div className="flex flex-col sm:flex-row flex-wrap gap-2">
-                <select
-                  value={runLibraryOwnerFilter === 'mine' ? '__active__' : runLibraryOwnerFilter}
-                  onChange={(e) => setRunLibraryOwnerFilter(e.target.value)}
-                  className="flex-1 min-w-[140px] px-2 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800"
-                  title="Owner filter (same as column on the left)"
-                >
-                  <option value="__active__">
-                    {resolveOwnerDisplayName(activeProfileId, ownerLabelCtx) || activeProfile?.name || 'My profile'} (this device)
-                  </option>
-                  <option value="all">All owners</option>
-                  {allOwnerProfiles
-                    .filter((p) => String(p?.id) !== String(activeProfileId))
-                    .map((p) => (
-                      <option key={`picker-owner-${p.id}`} value={String(p.id)}>
-                        {p.name || p.id}
-                      </option>
-                    ))}
-                  <option value="shared">Shared with me</option>
-                </select>
+                <div className="relative flex-1 min-w-[140px]">
+                  <select
+                    value={runLibraryOwnerFilter === 'mine' ? '__active__' : runLibraryOwnerFilter}
+                    onChange={(e) => setRunLibraryOwnerFilter(e.target.value)}
+                    className="w-full appearance-none cursor-pointer flex-1 min-w-0 px-2 py-1.5 pr-8 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200"
+                    title="Owner filter (same as column on the left)"
+                  >
+                    <option value="__active__">
+                      {resolveOwnerDisplayName(activeProfileId, ownerLabelCtx) || activeProfile?.name || 'My profile'} (this device)
+                    </option>
+                    <option value="all">All owners</option>
+                    {allOwnerProfiles
+                      .filter((p) => String(p?.id) !== String(activeProfileId))
+                      .map((p) => (
+                        <option key={`picker-owner-${p.id}`} value={String(p.id)}>
+                          {p.name || p.id}
+                        </option>
+                      ))}
+                    <option value="shared">Shared with me</option>
+                  </select>
+                  <ChevronDown
+                    aria-hidden
+                    className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500 dark:text-slate-400"
+                  />
+                </div>
                 <input
                   type="text"
                   name="runset-picker-filter-name"
@@ -1745,22 +2424,136 @@ const RunSetPage = ({ onNavigateJobs }) => {
                   onChange={(e) => setRunListNameFilter(e.target.value)}
                   className="flex-1 min-w-[100px] px-2 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800"
                 />
-                <input
-                  type="text"
-                  name="runset-picker-filter-tag"
-                  autoComplete="off"
-                  spellCheck={false}
-                  placeholder="Filter by tag"
-                  value={runListTagFilter}
-                  onChange={(e) => setRunListTagFilter(e.target.value)}
-                  className="flex-1 min-w-[100px] px-2 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800"
+                <div ref={runTagSuggestPickerRef} className="relative z-20 flex-1 min-w-[100px]">
+                  <input
+                    type="text"
+                    name="runset-picker-filter-tag"
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder="Filter by tag"
+                    value={runListTagFilter}
+                    onChange={(e) => setRunListTagFilter(e.target.value)}
+                    onFocus={() => {
+                      setRunTagSuggestOpenLibrary(false);
+                    }}
+                    title="Type to filter by tag — use ▼ for common tags"
+                    className="w-full min-w-0 px-2 py-1.5 pr-8 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200"
+                  />
+                  <button
+                    type="button"
+                    aria-expanded={runTagSuggestOpenPicker}
+                    aria-haspopup="listbox"
+                    aria-label="Show tag suggestions"
+                    className="absolute right-px top-1/2 z-[2] inline-flex -translate-y-1/2 items-center justify-center rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-100"
+                    title="Browse tags used in this list"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onClick={() => {
+                      setRunTagSuggestOpenLibrary(false);
+                      setRunTagSuggestOpenPicker((v) => !v);
+                    }}
+                  >
+                    <ChevronDown
+                      size={14}
+                      className={`transition-transform ${runTagSuggestOpenPicker ? 'rotate-180' : ''}`}
+                      aria-hidden
+                    />
+                  </button>
+                  {runTagSuggestOpenPicker && (
+                    <div
+                      role="listbox"
+                      aria-label="Tag suggestions"
+                      className="absolute left-0 right-0 top-[calc(100%+4px)] z-[120] max-h-52 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 text-xs shadow-xl dark:border-slate-600 dark:bg-slate-900"
+                    >
+                      <button
+                        type="button"
+                        role="option"
+                        className="w-full px-2 py-1.5 text-left font-medium text-slate-500 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setRunListTagFilter('');
+                          setRunTagSuggestOpenPicker(false);
+                        }}
+                      >
+                        Clear tag filter…
+                      </button>
+                      {runLibraryTagPickerOptions.length === 0 ? (
+                        <div className="px-2 py-2 text-[11px] text-slate-500 dark:text-slate-400">
+                          {runLibraryUniqueTags.length === 0
+                            ? 'No tags on test cases — type text to filter.'
+                            : 'No tag matches — type to narrow.'}
+                        </div>
+                      ) : (
+                        runLibraryTagPickerOptions.slice(0, 80).map((t) => (
+                          <button
+                            key={`run-pick-tag-opt-${t}`}
+                            type="button"
+                            role="option"
+                            className="w-full truncate px-2 py-1.5 text-left text-slate-800 hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-slate-800"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              setRunListTagFilter(t);
+                              setRunTagSuggestOpenPicker(false);
+                            }}
+                          >
+                            {t}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+                <RunTagColorFilterDropdown
+                  value={runLibraryTagColorFilter}
+                  onChange={setRunLibraryTagColorFilter}
+                  placeholder="All colors"
+                  size="xs"
+                  className="shrink-0 w-full sm:w-[10.75rem] min-w-[8rem]"
                 />
+                <div className="relative shrink-0 w-full sm:w-[10.25rem] min-w-[7.5rem]">
+                  <select
+                    value={runLibraryDateFilter}
+                    onChange={(e) => setRunLibraryDateFilter(e.target.value)}
+                    className="w-full appearance-none cursor-pointer px-2 py-1.5 pr-8 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200"
+                    title="Filter by modified date (Date column)"
+                  >
+                    <option value="">All dates</option>
+                    {runLibraryDatePickOptions.map((ymd) => {
+                      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+                      const dt = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0) : null;
+                      const lbl =
+                        dt && !Number.isNaN(dt.getTime())
+                          ? dt.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+                          : ymd;
+                      return (
+                        <option key={`run-pick-date-${ymd}`} value={ymd}>
+                          {lbl}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  <ChevronDown
+                    aria-hidden
+                    className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500 dark:text-slate-400"
+                  />
+                </div>
               </div>
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <button type="button" onClick={selectAllBrowsed} className="text-xs font-bold text-blue-600 hover:text-blue-800 dark:text-blue-400">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <button
+                  type="button"
+                  onClick={selectAllBrowsed}
+                  className="inline-flex items-center rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700 transition-colors hover:bg-blue-100 dark:border-blue-700/60 dark:bg-blue-900/25 dark:text-blue-300 dark:hover:bg-blue-900/40"
+                  title="Selects every visible row except those you closed with Vis (amber lock). Running/pending (blue lock) can still be toggled individually."
+                >
                   Select all (visible)
                 </button>
-                <button type="button" onClick={clearAllBrowsed} className="text-xs font-bold text-slate-600 hover:text-slate-800 dark:text-slate-300">
+                <button
+                  type="button"
+                  onClick={clearAllBrowsed}
+                  className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700/80"
+                >
                   Clear
                 </button>
                 <span className="text-xs text-slate-500">{selectedBrowsedKeys.size} selected</span>
@@ -1769,66 +2562,196 @@ const RunSetPage = ({ onNavigateJobs }) => {
                 </span>
               </div>
             </div>
-            <div className="flex-1 overflow-auto p-4">
+            <div className="flex-1 min-h-0 flex flex-col px-2 pb-2">
               {filteredLibraryRows.length === 0 ? (
                 <div className="p-8 text-center text-slate-400 text-sm">
                   {browsedRows.length === 0
                     ? runLibraryOwnerFilter === '__active__' || runLibraryOwnerFilter === 'mine'
                       ? 'No test cases — create on Test Cases page or switch to “All owners” to use others’ cases.'
                       : 'No test cases for this owner filter.'
-                    : 'No test cases match name/tag filters'}
+                    : 'No test cases match name / tag / color / date filters'}
                 </div>
               ) : (
-                <table className="w-full text-xs">
-                  <caption className="sr-only">
-                    Test cases. Use checkboxes, drag across rows with the mouse button held, or Select all.
-                  </caption>
-                  <thead className="bg-slate-100 dark:bg-slate-800 sticky top-0">
-                    <tr className="text-left font-bold text-slate-600 dark:text-slate-400">
-                      <th className="w-8 px-2 py-1.5 border-r border-slate-200 dark:border-slate-600"></th>
-                      <th className="w-8 px-2 py-1.5 border-r border-slate-200 dark:border-slate-600">#</th>
-                      <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600">Owner</th>
-                      <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600">Source</th>
-                      <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600">Name</th>
-                      <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600">ERoM</th>
-                      <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600">ULP</th>
-                      <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600">VCD</th>
-                      {[...new Set(filteredLibraryRows.flatMap((row) => Object.keys(row.tc.extraColumns || {})))].sort().map((col) => (
-                        <th key={col} className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[80px]">{col}</th>
-                      ))}
-                      <th className="w-10 px-2 py-1.5 text-center">Try</th>
-                    </tr>
-                  </thead>
-                  <tbody className="select-none">
-                    {filteredLibraryRows.map((row, idx) => {
-                      const extraCols = [...new Set(filteredLibraryRows.flatMap((r) => Object.keys(r.tc.extraColumns || {})))].sort();
-                      return (
-                      <tr
-                        key={row.key}
-                        className={`border-b border-slate-100 dark:border-slate-700 ${selectedBrowsedKeys.has(row.key) ? 'bg-blue-50 dark:bg-blue-900/20' : ''} hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer`}
-                        onMouseDown={(e) => handleBrowseRowMouseDown(e, row.key)}
-                        onMouseEnter={() => handleBrowseRowMouseEnter(row.key)}
-                      >
-                        <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700" onClick={(e) => e.stopPropagation()}>
-                          <input type="checkbox" checked={selectedBrowsedKeys.has(row.key)} onChange={() => toggleBrowsed(row.key)} className="w-3.5 h-3.5 rounded border-slate-400 text-blue-600" />
-                        </td>
-                        <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-500">{idx + 1}</td>
-                        <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[72px]" title={resolveOwnerDisplayName(row.tc._ownerId ?? row.set?._ownerId ?? activeProfileId, ownerLabelCtx)}>
-                          {resolveOwnerDisplayName(row.tc._ownerId ?? row.set?._ownerId ?? activeProfileId, ownerLabelCtx)}
-                        </td>
-                        <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[120px]" title={row.set.name}>{row.set.name || row.setId}</td>
-                        <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 font-medium text-slate-800 dark:text-slate-200 truncate max-w-[140px]">{row.tc.name || '—'}</td>
-                        <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[100px]">{row.tc.binName || '—'}</td>
-                        <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[80px]">{row.tc.linName || '—'}</td>
-                        <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[100px]">{row.tc.vcdName || '—'}</td>
-                        {extraCols.map((col) => (
-                          <td key={col} className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[100px]">{row.tc.extraColumns?.[col] ?? '—'}</td>
+                <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900/40 shadow-inner table-scroll-smooth" style={{ scrollBehavior: 'smooth', WebkitOverflowScrolling: 'touch' }}>
+                  <table className="w-full text-sm min-w-max border-collapse select-none">
+                    <caption className="sr-only">
+                      TC Library style list. Rows with Vis closed (amber lock) are skipped by Select all (visible). Use the header checkbox or row checkboxes; drag with mouse held to multi-select.
+                    </caption>
+                    <thead className="sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-600">
+                      <tr className="text-left text-xs font-bold text-slate-600 dark:text-slate-400">
+                        <th className="w-9 px-2 py-2 border-r border-slate-200 dark:border-slate-600 sticky left-0 bg-slate-100 dark:bg-slate-800 z-10">
+                          <input
+                            ref={browsePickerSelectAllRef}
+                            type="checkbox"
+                            checked={browsePickerAllVisibleSelected}
+                            onChange={(e) => {
+                              if (e.target.checked) selectAllBrowsed();
+                              else clearAllBrowsed();
+                            }}
+                            className="w-4 h-4 rounded cursor-pointer border-slate-400 text-blue-600"
+                            title="Select all visible rows except Vis=closed (amber lock). Clears other picks and selects only those rows."
+                          />
+                        </th>
+                        <th className="w-8 px-2 py-2 border-r border-slate-200 dark:border-slate-600">#</th>
+                        <th className="min-w-[120px] px-2 py-2 border-r border-slate-200 dark:border-slate-600">Name</th>
+                        <th className="w-24 px-2 py-2 border-r border-slate-200 dark:border-slate-600" title="Owner">
+                          Owner
+                        </th>
+                        <th className="min-w-[120px] px-2 py-2 border-r border-slate-200 dark:border-slate-600">Source</th>
+                        <th className="w-10 px-2 py-2 border-r border-slate-200 dark:border-slate-600 text-center" title="Visibility">
+                          Vis
+                        </th>
+                        <th className="min-w-[168px] px-2 py-2 border-r border-slate-200 dark:border-slate-600">Tag</th>
+                        <th className="w-24 px-2 py-2 border-r border-slate-200 dark:border-slate-600 text-center">Date</th>
+                        <th className="min-w-[100px] px-2 py-2 border-r border-slate-200 dark:border-slate-600">ERoM</th>
+                        <th className="min-w-[100px] px-2 py-2 border-r border-slate-200 dark:border-slate-600">ULP</th>
+                        <th className="min-w-[100px] px-2 py-2 border-r border-slate-200 dark:border-slate-600">VCD</th>
+                        <th className="min-w-[140px] px-2 py-2 border-r border-slate-200 dark:border-slate-600">MDI (text)</th>
+                        {runPickerModalExtraCols.map((col) => (
+                          <th key={col} className="px-2 py-2 border-r border-slate-200 dark:border-slate-600 min-w-[90px] whitespace-nowrap">
+                            {col}
+                          </th>
                         ))}
-                        <td className="px-2 py-1.5 text-center text-slate-500">{typeof row.tc.tryCount === 'number' && row.tc.tryCount > 0 ? row.tc.tryCount : 1}</td>
+                        <th className="w-14 px-2 py-2 border-r border-slate-200 dark:border-slate-600 text-center">Try</th>
                       </tr>
-                    ); })}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {filteredLibraryRows.map((row, idx) => {
+                        const tc = row.tc;
+                        const isSel = selectedBrowsedKeys.has(row.key);
+                        const ownerDisp = resolveOwnerDisplayName(tc._ownerId ?? row.set?._ownerId ?? activeProfileId, ownerLabelCtx);
+                        const sourceLabel =
+                          row.setId === '__current__' ? 'Current (from table)' : String(row.set?.name || row.setId || '—');
+                        const tagRaw = (tc.extraColumns?.tag ?? tc.extraColumns?.Tag ?? '').toString().trim();
+                        const dateRaw = tc.updatedAt || tc.createdAt;
+                        const visClosed = isTcManuallyClosedForPicker(tc);
+                        const systemLocked = isTcSystemLockedForRunPicker(tc);
+                        const bulkSelDisabled = visClosed;
+                        const stickyBg = isSel
+                          ? 'bg-blue-50 dark:bg-blue-900/20'
+                          : bulkSelDisabled
+                            ? 'bg-slate-50/90 dark:bg-slate-800/40'
+                            : 'bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/50';
+                        return (
+                          <tr
+                            key={row.key}
+                            className={`group border-b border-slate-100 dark:border-slate-700 ${
+                              isSel ? 'bg-blue-50 dark:bg-blue-900/20' : bulkSelDisabled ? 'opacity-80' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                            } ${bulkSelDisabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                            onMouseDown={(e) => handleBrowseRowMouseDown(e, row.key, tc)}
+                            onMouseEnter={() => handleBrowseRowMouseEnter(row.key, tc)}
+                          >
+                            <td
+                              className={`px-2 py-2 border-r border-slate-100 dark:border-slate-700 sticky left-0 z-[1] ${stickyBg}`}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isSel}
+                                disabled={bulkSelDisabled}
+                                onChange={() => {
+                                  if (!bulkSelDisabled) toggleBrowsed(row.key);
+                                }}
+                                className={`w-4 h-4 rounded border-slate-400 text-blue-600 ${
+                                  bulkSelDisabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+                                }`}
+                                title={
+                                  bulkSelDisabled
+                                    ? 'Cannot select — Vis is closed (excluded from Select all). Open Vis to include this row.'
+                                    : undefined
+                                }
+                              />
+                            </td>
+                            <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-slate-500">{idx + 1}</td>
+                            <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 font-medium text-slate-800 dark:text-slate-200 min-w-[120px] truncate" title={tc.name || ''}>
+                              {tc.name || '—'}
+                            </td>
+                            <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400 truncate max-w-[96px]" title={ownerDisp}>
+                              {ownerDisp}
+                            </td>
+                            <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400 truncate max-w-[140px]" title={sourceLabel}>
+                              {sourceLabel}
+                            </td>
+                            <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-center">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  updateRunPickerTcVisibility(row);
+                                }}
+                                className={`inline-flex items-center justify-center p-1 rounded ${
+                                  systemLocked
+                                    ? 'text-blue-600 dark:text-blue-400 hover:bg-blue-500/10 cursor-not-allowed'
+                                    : visClosed
+                                      ? 'text-amber-500 hover:bg-amber-500/10'
+                                      : 'text-slate-400 hover:bg-slate-500/10'
+                                }`}
+                                title={
+                                  systemLocked
+                                    ? 'Locked — running/pending (not the same as closing Vis yourself)'
+                                    : visClosed
+                                      ? 'Vis closed — excluded from Select all (visible). Click to open.'
+                                      : 'Vis open — click to close and exclude from Select all (visible)'
+                                }
+                              >
+                                {systemLocked ? (
+                                  <Lock size={14} className="text-blue-600 dark:text-blue-400" strokeWidth={2.25} />
+                                ) : visClosed ? (
+                                  <Lock size={14} className="text-amber-500" strokeWidth={2.25} />
+                                ) : (
+                                  <Globe size={14} />
+                                )}
+                              </button>
+                            </td>
+                            <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 min-w-[160px]">
+                              {tagRaw ? (
+                                <span
+                                  className={`inline-block max-w-full truncate px-1.5 py-0.5 rounded text-[10px] font-medium border ${getFirstTagPillClass(tc.extraColumns, tagRaw)}`}
+                                >
+                                  {tagRaw}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400">—</span>
+                              )}
+                            </td>
+                            <td
+                              className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-center text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap"
+                              title={dateRaw ? String(dateRaw) : undefined}
+                            >
+                              {formatRunPickerLibDate(dateRaw)}
+                            </td>
+                            <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[120px]" title={tc.binName || ''}>
+                              {tc.binName || '—'}
+                            </td>
+                            <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[100px]" title={tc.linName || ''}>
+                              {tc.linName || '—'}
+                            </td>
+                            <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[120px]" title={tc.vcdName || ''}>
+                              {tc.vcdName || '—'}
+                            </td>
+                            <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[180px]" title={getTcMdiSummaryForPicker(tc)}>
+                              {getTcMdiSummaryForPicker(tc)}
+                            </td>
+                            {runPickerModalExtraCols.map((col) => (
+                              <td
+                                key={col}
+                                className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[120px]"
+                                title={String(tc.extraColumns?.[col] ?? '')}
+                              >
+                                {tc.extraColumns?.[col] != null && String(tc.extraColumns[col]).trim() !== ''
+                                  ? String(tc.extraColumns[col])
+                                  : '—'}
+                              </td>
+                            ))}
+                            <td className="px-2 py-2 text-center text-slate-500">
+                              {typeof tc.tryCount === 'number' && tc.tryCount > 0 ? tc.tryCount : 1}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
             <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-600 flex justify-end">

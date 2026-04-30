@@ -1064,7 +1064,17 @@ export const useTestStore = create((set, get) => {
   setFileLibraryViewOnNavigate: (view) => set({ fileLibraryViewOnNavigate: view }),
   clearFileLibraryViewOnNavigate: () => set({ fileLibraryViewOnNavigate: null }),
 
-  // When JobsPage wants to navigate to Test Cases tab and auto-select a test case row (by name/vcd/bin/lin)
+  /** Jobs Manager → TC Library tab: locate row by name / attachment names and pulse + scroll */
+  libraryRawTcPointerOnNavigate: null,
+  setLibraryRawTcPointerOnNavigate: (payload) => set({ libraryRawTcPointerOnNavigate: payload }),
+  clearLibraryRawTcPointerOnNavigate: () => set({ libraryRawTcPointerOnNavigate: null }),
+
+  /** Jobs Manager → Sets tab: locate saved set card by id and/or exact name */
+  librarySetPointerOnNavigate: null,
+  setLibrarySetPointerOnNavigate: (payload) => set({ librarySetPointerOnNavigate: payload }),
+  clearLibrarySetPointerOnNavigate: () => set({ librarySetPointerOnNavigate: null }),
+
+  // When navigating to Create/Test Cases page — auto-focus a draft row by name/files (still used within Test Cases page)
   testCaseLibraryFocusOnNavigate: null,
   setTestCaseLibraryFocusOnNavigate: (payload) => set({ testCaseLibraryFocusOnNavigate: payload }),
   clearTestCaseLibraryFocusOnNavigate: () => set({ testCaseLibraryFocusOnNavigate: null }),

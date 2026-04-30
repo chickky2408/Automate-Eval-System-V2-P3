@@ -22,7 +22,7 @@ import {
 } from '../utils/tagPalette';
 
 // 3. JOBS PAGE (Enhanced)
-const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNavigateToFileLibrary, onNavigateToTestCases }) => {
+const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNavigateToFileLibrary, onNavigateToTestCases, onNavigateToLibrarySet }) => {
   const { 
     jobs, 
     startPendingJobs,
@@ -871,9 +871,23 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
                     <span className="px-2 py-0.5 bg-slate-200 text-slate-500 rounded text-xs font-semibold">Demo</span>
                   )}
                   <span className="min-w-0 flex-1 flex items-center gap-1.5 flex-wrap">
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate" title={(job.name || job.configName || '').trim() || `Set #${job.id}`}>
-                      {(job.name || job.configName || '').trim() || `Set #${job.id}`}
-                    </h3>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (typeof onNavigateToLibrarySet !== 'function') return;
+                        onNavigateToLibrarySet({
+                          setName: (job.name || job.configName || '').trim() || null,
+                          setId: job.savedTestCaseSetId ?? job.saved_test_case_set_id ?? job.savedSetId ?? job.setId ?? job.set_id ?? null,
+                        });
+                      }}
+                      className="min-w-0 text-left hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+                      title="Open this set in Library → Sets"
+                    >
+                      <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
+                        {(job.name || job.configName || '').trim() || `Set #${job.id}`}
+                      </h3>
+                    </button>
                     <span className={`px-2 py-0.5 rounded-full text-xs font-bold uppercase shrink-0 ${
                     job.status === 'running' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' :
                     job.status === 'pending' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' :

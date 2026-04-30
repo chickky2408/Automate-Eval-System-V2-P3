@@ -20,7 +20,7 @@ const TestCasesProgressView = ({
   onRerunFailedFile,
   onReorderFile, // optional: (fromFileId, toFileId). Parent should omit while job.status !== 'pending' (no queue reorder during run).
   onOpenInLibrary, // open in File Library (legacy)
-  onOpenInTestCasesLibrary, // navigate to Test Cases tab and auto-select this test case row
+  onOpenInTestCasesLibrary, // Jobs → TC Library tab: pulse + scroll to matching saved test case row
   onDeleteFile, // remove a pending test case from this batch only
   // Report: Download report in list header (per-row report checkboxes still drive "selected" count)
   onReportDownload,

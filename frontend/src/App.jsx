@@ -346,8 +346,14 @@ const App = () => {
                 setActivePage('fileLibrary');
               }}
               onNavigateToTestCases={(focus) => {
-                useTestStore.getState().setTestCaseLibraryFocusOnNavigate(focus);
-                setActivePage('testCases');
+                useTestStore.getState().setFileLibraryViewOnNavigate('rawTestCases');
+                useTestStore.getState().setLibraryRawTcPointerOnNavigate(focus);
+                setActivePage('fileLibrary');
+              }}
+              onNavigateToLibrarySet={(payload) => {
+                useTestStore.getState().setFileLibraryViewOnNavigate('testCases');
+                useTestStore.getState().setLibrarySetPointerOnNavigate(payload);
+                setActivePage('fileLibrary');
               }}
             />
           )}
