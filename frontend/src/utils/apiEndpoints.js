@@ -47,6 +47,12 @@ export function formatClientNetworkError(error) {
     low.includes('network request failed');
   if (!looksNetwork) return raw;
 
+  // Browser-specific strings (e.g. Safari "Load failed") are confusing for users.
+  // Normalize into a consistent user-facing lead message.
+  let lead = 'Network request failed';
+  if (low.includes('failed to fetch')) lead = 'Failed to connect to API';
+  else if (low.includes('network request failed') || low.includes('networkerror')) lead = 'Network request failed';
+
   const host = typeof window !== 'undefined' ? window.location.hostname : '';
   const onLan = host && !['localhost', '127.0.0.1', '::1'].includes(host);
   const baseStr = String(API_BASE_URL || '');
@@ -64,7 +70,7 @@ export function formatClientNetworkError(error) {
     onLan && apiToLocalhost
       ? ` ตั้ง VITE_API_BASE_URL=http://${host}:8000/api ใน env ของ frontend แล้วรีสตาร์ต npm run dev (ตอนนี้ API=${baseStr || '—'})`
       : ` ตรวจ backend รันที่พอร์ตเดียวกับ API (${baseStr || '—'}) แล้วรีเฟรช${uvicornHostHint}`;
-  return `${raw} —${hint}`;
+  return `${lead} —${hint}`;
 }
 
 export const API_ENDPOINTS = {

@@ -327,9 +327,12 @@ async def _sync_normalized_test_tables(session: AsyncSession, all_profiles: List
                 if not tc_id:
                     continue
                 item_seed = str(tc.get("id") or tc.get("name") or f"{i_idx}")
+                # Include set context in the raw seed so same TC appearing in multiple sets
+                # won't collide on test_set_items primary key.
+                item_raw_id = f"{set_id}:{item_seed}:{i_idx}"
                 set_item_rows.append(
                     TestSetItemORM(
-                        id=_stable_id("set_item", p.id, item_seed, f"{set_id}:{tc_id}:{i_idx}"),
+                        id=_stable_id("set_item", p.id, item_raw_id, f"{set_id}:{tc_id}:{i_idx}"),
                         test_set_id=set_id,
                         test_case_id=tc_id,
                         execution_order=int(i_idx + 1),

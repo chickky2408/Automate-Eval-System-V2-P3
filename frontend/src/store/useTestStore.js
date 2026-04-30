@@ -2370,6 +2370,7 @@ export const useTestStore = create((set, get) => {
       createdAt: now,
       updatedAt: now,
     };
+    const before = [...(get().savedTestCaseSets || [])];
     const next = [...(get().savedTestCaseSets || []), copy];
     set({ savedTestCaseSets: next });
     try {
@@ -2381,9 +2382,21 @@ export const useTestStore = create((set, get) => {
       });
       return { ok: true, newId };
     } catch (err) {
+      // Keep backend-profile behavior consistent with server DB:
+      // if sync fails, rollback local duplicate so UI won't show unsaved set.
+      const activeIdNow = getActiveProfileId();
+      if (isBackendProfileId(activeIdNow)) {
+        set({ savedTestCaseSets: before });
+        try {
+          const p = loadProfile(activeIdNow);
+          if (p) saveProfile(activeIdNow, { ...p, savedTestCaseSets: before });
+        } catch {
+          /* ignore rollback persistence error */
+        }
+      }
       get().addToast({
-        type: 'warning',
-        message: `สำเนาไว้ในเครื่องแล้ว ("${newName}") แต่ซิงค์ server ไม่สำเร็จ — ${err?.message || err}`,
+        type: 'error',
+        message: `Duplicate set ไม่สำเร็จ — บันทึกไป server ไม่ได้ (${err?.message || err})`,
         duration: 7000,
       });
       return { ok: false, newId, error: err };
