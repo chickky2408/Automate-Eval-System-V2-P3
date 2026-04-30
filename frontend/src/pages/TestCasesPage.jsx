@@ -1021,11 +1021,10 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
       setSetupClearedPersisted(activeProfileId, true);
       setSelectedTestCaseIds([]);
       if (refreshFiles) await refreshFiles();
-      const total = useTestStore.getState().savedTestCases?.length || 0;
       if (created.length > 0) {
         addToast({
           type: 'success',
-          message: `Test cases saved to library (${total} case(s))`,
+          message: `Test cases saved to library (${created.length} case(s))`,
         });
         if (skipped.length > 0) {
           addToast({
@@ -1041,8 +1040,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
       }
     } else {
       if (refreshFiles) await refreshFiles();
-      const total = useTestStore.getState().savedTestCases?.length || 0;
-      addToast({ type: 'success', message: `Test cases saved to library (${total} case(s))` });
+      addToast({ type: 'success', message: 'Library sync completed' });
     }
     setSaveLibraryUploadModal(null);
 
@@ -1504,7 +1502,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
     }
   };
 
-  /** จากรายการ file id ใน Library: จัดกลุ่มตาม TCxxxx ในชื่อไฟล์ แล้วสร้างแถว test case (ต้องมี VCD+ERoM+ULP ใน Library, MDI ถ้ามี) */
+  /** จากรายการ file id ใน Library: จัดกลุ่มตาม TCxxxx ในชื่อไฟล์ แล้วสร้างแถว test case (ใช้เฉพาะไฟล์ที่ผู้ใช้เลือก) */
   const runLibraryGroupingFromFileIds = (fileIds) => {
     const ids = [...new Set((fileIds || []).filter(Boolean))];
     const files = ids.map((id) => uploadedFiles.find((f) => f.id === id)).filter(Boolean);
@@ -1523,20 +1521,6 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
       groups.get(key).push(f);
     }
     const sortPick = (arr) => [...arr].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-    /** รวมไฟล์ที่เลือกกับทุกไฟล์ใน Library ที่ extractTcGroupKey ตรงกัน — เติม VCD/ERoM/ULP/MDI ที่ user ยังไม่ติ๊ก */
-    const mergeSelectedWithLibraryByKey = (gKey, groupFiles) => {
-      const byId = new Map();
-      for (const f of groupFiles) {
-        if (f?.id) byId.set(f.id, f);
-      }
-      for (const f of uploadedFiles || []) {
-        if (!f?.id || byId.has(f.id)) continue;
-        if (extractTcGroupKeyFromFileName(f.name) === gKey) {
-          byId.set(f.id, f);
-        }
-      }
-      return sortPick([...byId.values()]);
-    };
     const buildMdiColumnsAndCommands = (mdis) => {
       const list = [...(mdis || [])].sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
       if (list.length === 0) return { extraColumns: undefined, mdiCmd: [] };
@@ -1595,11 +1579,9 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
       );
 
       let added = 0;
-      let totalPulledFromLib = 0;
       const skipped = [];
       for (const [gKey, groupFiles] of groups) {
-        const gf = mergeSelectedWithLibraryByKey(gKey, groupFiles);
-        totalPulledFromLib += Math.max(0, gf.length - groupFiles.length);
+        const gf = sortPick(groupFiles);
         const vcd = gf.find((f) => getFileKind(f) === 'vcd');
         const bin = gf.find((f) => getFileKind(f) === 'bin');
         const lin = gf.find((f) => getFileKind(f) === 'lin');
@@ -1629,13 +1611,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
       if (skipped.length) {
         addToast({
           type: 'warning',
-          message: `skipped ${skipped.length} groups that need VCD, ERoM, and ULP in your Library: ${skipped.slice(0, 6).join(', ')}${skipped.length > 6 ? '…' : ''}`,
-        });
-      }
-      if (totalPulledFromLib > 0) {
-        addToast({
-          type: 'info',
-          message: `รวม ${totalPulledFromLib} ไฟล์เพิ่มจาก Library (ชื่อ TC เดียวกัน) เพื่อจับคู่ VCD/ERoM/ULP/MDI ให้ครบ`,
+          message: `skipped ${skipped.length} groups that need selected VCD, ERoM, and ULP files: ${skipped.slice(0, 6).join(', ')}${skipped.length > 6 ? '…' : ''}`,
         });
       }
       if (added > 0) {
@@ -1650,20 +1626,18 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
       const existingKeys = new Set();
       (savedTestCases || []).forEach((t) => existingKeys.add(normalizeTCTestCaseKeyFull(t)));
       (globalSavedTestCases || []).forEach((t) => existingKeys.add(normalizeTCTestCaseKeyFull(t)));
-      prev.forEach((t) => existingKeys.add(normalizeTCTestCaseKeyFull(t)));
+      // Replace mode: build only from current selection + library, not previous draft rows.
 
       const namesUsed = new Set(
         useTestStore.getState().getAllGlobalTestCaseNames(null, {
-          extraTestCaseLists: [prev],
+          extraTestCaseLists: [],
         })
       );
 
       const newRows = [];
       const skipped = [];
-      let totalPulledFromLib = 0;
       for (const [gKey, groupFiles] of groups) {
-        const gf = mergeSelectedWithLibraryByKey(gKey, groupFiles);
-        totalPulledFromLib += Math.max(0, gf.length - groupFiles.length);
+        const gf = sortPick(groupFiles);
         const vcd = gf.find((f) => getFileKind(f) === 'vcd');
         const bin = gf.find((f) => getFileKind(f) === 'bin');
         const lin = gf.find((f) => getFileKind(f) === 'lin');
@@ -1695,13 +1669,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
         if (skipped.length) {
           addToast({
             type: 'warning',
-            message: `skipped ${skipped.length} groups that need VCD, ERoM, and ULP in your Library: ${skipped.slice(0, 6).join(', ')}${skipped.length > 6 ? '…' : ''}`,
-          });
-        }
-        if (totalPulledFromLib > 0) {
-          addToast({
-            type: 'info',
-            message: `รวม ${totalPulledFromLib} ไฟล์เพิ่มจาก Library (ชื่อ TC เดียวกัน) เพื่อจับคู่ VCD/ERoM/ULP/MDI ให้ครบ`,
+            message: `skipped ${skipped.length} groups that need selected VCD, ERoM, and ULP files: ${skipped.slice(0, 6).join(', ')}${skipped.length > 6 ? '…' : ''}`,
           });
         }
         if (newRows.length) {
@@ -1714,7 +1682,8 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
           });
         }
       });
-      return [...prev, ...newRows];
+      // Replace draft rows with grouped results from this action.
+      return [...newRows];
     });
   };
 
@@ -2209,9 +2178,8 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
         setSelectedTestCaseIds([]);
       }
       if (refreshFiles) await refreshFiles();
-      const total = useTestStore.getState().savedTestCases?.length || 0;
       if (created.length > 0) {
-        addToast({ type: 'success', message: `Test cases saved to library (${total} case(s))` });
+        addToast({ type: 'success', message: `Test cases saved to library (${created.length} case(s))` });
         const skippedFiles = skipped.filter((s) => s.reason === 'files');
         const skippedNames = skipped.filter((s) => s.reason === 'name');
         if (skippedFiles.length > 0) {

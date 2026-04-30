@@ -560,15 +560,195 @@ let scheduleGlobalTestCaseDataRefresh = () => {};
 const putActiveProfileDataWithRecovery = async (getPayload, opts = {}) => {
   const { suppressSyncErrorToast = false, rethrow = false, failMessage = 'Save to server failed' } = opts;
   const st = () => useTestStore.getState();
-  const doPut = async () => {
+  const makeUniqueSetNames = (list) => {
+    const used = new Set();
+    let changed = false;
+    const out = (Array.isArray(list) ? list : []).map((s, idx) => {
+      if (!s || typeof s !== 'object') return s;
+      const base = String(s.name || '').trim() || `Unnamed Set ${idx + 1}`;
+      let candidate = base;
+      let n = 2;
+      while (used.has(candidate.toLowerCase())) {
+        candidate = `${base} (${n})`;
+        n += 1;
+      }
+      used.add(candidate.toLowerCase());
+      if (candidate !== base || String(s.name || '').trim() !== base) changed = true;
+      return { ...s, name: candidate };
+    });
+    return { changed, sets: out };
+  };
+  const makeUniqueTcNamesInPayload = (payload, profileId) => {
+    const src = payload && typeof payload === 'object' ? payload : {};
+    const out = { ...src };
+    const short = String(profileId || '').slice(0, 8) || 'local';
+    const used = new Set();
+    let changed = false;
+    const fixName = (raw, fallback) => {
+      const base = String(raw || '').trim() || fallback;
+      let candidate = base;
+      let n = 2;
+      while (used.has(candidate.toLowerCase())) {
+        candidate = `${base} (${short}-${n})`;
+        n += 1;
+      }
+      used.add(candidate.toLowerCase());
+      return candidate;
+    };
+    const patchTcList = (rows, prefix) =>
+      (Array.isArray(rows) ? rows : []).map((tc, idx) => {
+        if (!tc || typeof tc !== 'object') return tc;
+        const nextName = fixName(tc.name, `${prefix} ${idx + 1}`);
+        if (nextName !== String(tc.name || '').trim()) changed = true;
+        return { ...tc, name: nextName };
+      });
+
+    out.savedTestCases = patchTcList(src.savedTestCases, 'Test case');
+    out.savedTestCaseSets = (Array.isArray(src.savedTestCaseSets) ? src.savedTestCaseSets : []).map((set, sIdx) => {
+      if (!set || typeof set !== 'object') return set;
+      const nextItems = patchTcList(set.items, `Set ${sIdx + 1} item`);
+      return { ...set, items: nextItems };
+    });
+    return { changed, payload: out };
+  };
+  const renameConflictingSetName = (list, badName, profileId) => {
+    const tgt = String(badName || '').trim().toLowerCase();
+    if (!tgt) return { changed: false, sets: Array.isArray(list) ? list : [] };
+    const suffix = String(profileId || '').slice(0, 8) || 'local';
+    let changed = false;
+    const patched = (Array.isArray(list) ? list : []).map((s) => {
+      if (!s || typeof s !== 'object') return s;
+      const cur = String(s.name || '').trim();
+      if (!cur || cur.toLowerCase() !== tgt) return s;
+      changed = true;
+      return { ...s, name: `${cur} (${suffix})` };
+    });
+    const normalized = makeUniqueSetNames(patched);
+    return { changed: changed || normalized.changed, sets: normalized.sets };
+  };
+  const doPut = async (payloadOverride = null) => {
     const id = getActiveProfileId();
     if (!isBackendProfileId(id)) return;
-    await api.putProfileData(id, getPayload());
+    const payload = payloadOverride || getPayload();
+    await api.putProfileData(id, payload);
   };
   try {
     await doPut();
     scheduleGlobalTestCaseDataRefresh();
   } catch (err) {
+    const activeIdNow = getActiveProfileId();
+    const detailRaw = String(err?.detail || err?.message || '').toLowerCase();
+    const looksDuplicateSetName409 =
+      err?.status === 409 &&
+      detailRaw.includes('duplicate set name');
+    const looksDuplicateTcName409 =
+      err?.status === 409 &&
+      detailRaw.includes('duplicate test case name');
+    if (looksDuplicateSetName409 && isBackendProfileId(activeIdNow)) {
+      try {
+        const payloadNow = getPayload() || {};
+        if (Array.isArray(payloadNow.savedTestCaseSets)) {
+          const m = String(err?.detail || err?.message || '').match(/Duplicate set name\s+"([^"]+)"/i);
+          const badSetName = m?.[1] || '';
+          if (badSetName) {
+            const renamed = renameConflictingSetName(payloadNow.savedTestCaseSets, badSetName, activeIdNow);
+            if (renamed.changed) {
+              const payloadRetryByName = {
+                ...payloadNow,
+                savedTestCaseSets: renamed.sets,
+              };
+              await doPut(payloadRetryByName);
+              const curP = loadProfile(activeIdNow) || {};
+              saveProfile(activeIdNow, { ...curP, savedTestCaseSets: renamed.sets });
+              useTestStore.setState({ savedTestCaseSets: renamed.sets });
+              scheduleGlobalTestCaseDataRefresh();
+              return;
+            }
+          }
+          const normalized = makeUniqueSetNames(payloadNow.savedTestCaseSets);
+          if (normalized.changed) {
+            const payloadRetry = {
+              ...payloadNow,
+              savedTestCaseSets: normalized.sets,
+            };
+            await doPut(payloadRetry);
+            const curP = loadProfile(activeIdNow) || {};
+            saveProfile(activeIdNow, { ...curP, savedTestCaseSets: normalized.sets });
+            useTestStore.setState({ savedTestCaseSets: normalized.sets });
+            scheduleGlobalTestCaseDataRefresh();
+            return;
+          }
+        }
+        // Local browser cache may still hold stale duplicated set rows after maintenance.
+        // Pull latest profile data from server, replace local cached profile payload, then retry PUT once.
+        const latest = await api.getProfileData(activeIdNow);
+        const localProfile = loadProfile(activeIdNow) || {};
+        const latestCases = Array.isArray(latest?.savedTestCases) ? latest.savedTestCases : [];
+        const latestSets = Array.isArray(latest?.savedTestCaseSets) ? latest.savedTestCaseSets : [];
+        const mergedLocal = {
+          ...localProfile,
+          savedTestCases: latestCases,
+          savedTestCaseSets: latestSets,
+        };
+        saveProfile(activeIdNow, mergedLocal);
+        // Keep in-memory Zustand state aligned with local profile cache before retry.
+        useTestStore.setState({
+          savedTestCases: latestCases,
+          savedTestCaseSets: latestSets,
+        });
+        await doPut();
+        scheduleGlobalTestCaseDataRefresh();
+        return;
+      } catch (err409) {
+        // If caller is saving TC/file-related data (not explicitly saving sets),
+        // salvage sync by pinning sets to server-latest to avoid stale set-name collisions.
+        const stillDupSet =
+          err409?.status === 409 &&
+          String(err409?.detail || err409?.message || '').toLowerCase().includes('duplicate set name');
+        if (stillDupSet && failMessage === 'Save to server failed' && isBackendProfileId(activeIdNow)) {
+          try {
+            const latest2 = await api.getProfileData(activeIdNow);
+            const latestSets2 = Array.isArray(latest2?.savedTestCaseSets) ? latest2.savedTestCaseSets : [];
+            const basePayload = getPayload() || {};
+            await doPut({
+              ...basePayload,
+              savedTestCaseSets: latestSets2,
+            });
+            scheduleGlobalTestCaseDataRefresh();
+            return;
+          } catch (err409b) {
+            err = err409b;
+          }
+        } else {
+          err = err409;
+        }
+      }
+    }
+    if (looksDuplicateTcName409 && isBackendProfileId(activeIdNow)) {
+      try {
+        const payloadNow = getPayload() || {};
+        const fixed = makeUniqueTcNamesInPayload(payloadNow, activeIdNow);
+        if (fixed.changed) {
+          await doPut(fixed.payload);
+          const curP = loadProfile(activeIdNow) || {};
+          const nextCases = Array.isArray(fixed.payload.savedTestCases) ? fixed.payload.savedTestCases : (curP.savedTestCases || []);
+          const nextSets = Array.isArray(fixed.payload.savedTestCaseSets) ? fixed.payload.savedTestCaseSets : (curP.savedTestCaseSets || []);
+          saveProfile(activeIdNow, {
+            ...curP,
+            savedTestCases: nextCases,
+            savedTestCaseSets: nextSets,
+          });
+          useTestStore.setState({
+            savedTestCases: nextCases,
+            savedTestCaseSets: nextSets,
+          });
+          scheduleGlobalTestCaseDataRefresh();
+          return;
+        }
+      } catch (errTc409) {
+        err = errTc409;
+      }
+    }
     if (err?.status === 404) {
       try {
         await st().ensureLocalProfilesSyncedToServer();
@@ -618,12 +798,8 @@ const saveSavedTestCases = (list) => {
   if (isBackendProfileId(activeId)) {
     return putActiveProfileDataWithRecovery(
       () => {
-        const id = getActiveProfileId();
-        const p = loadProfile(id);
-        const s = useTestStore.getState();
         return {
           savedTestCases: list,
-          savedTestCaseSets: p?.savedTestCaseSets ?? s.savedTestCaseSets ?? [],
           preferences: mergePreferencesForActiveProfilePut(),
         };
       },
@@ -708,6 +884,8 @@ const inferFileType = (name, typeHint) => {
 
 /** Trimmed display name — global uniqueness uses this string (all profiles + shared cache). */
 const normalizeTestCaseName = (name) => (name || '').trim();
+const normalizeSetName = (name) => (name || '').trim();
+const normalizeProfileName = (name) => (name || '').trim();
 
 /** Last-modified timestamp for saved test cases (ISO string). */
 const testCaseNowIso = () => new Date().toISOString();
@@ -850,6 +1028,45 @@ const buildGlobalTestCaseNameSet = (state, excludeId, extraTestCaseLists = []) =
   for (const list of extraTestCaseLists) {
     (list || []).forEach(addTc);
   }
+  return names;
+};
+
+const buildGlobalSetNameSet = (state, excludeSetId = null) => {
+  const ex = excludeSetId == null ? null : String(excludeSetId);
+  const names = new Set();
+  const addSet = (set) => {
+    if (!set) return;
+    if (ex && String(set.id) === ex) return;
+    const n = normalizeSetName(set.name).toLowerCase();
+    if (n) names.add(n);
+  };
+  (state.savedTestCaseSets || []).forEach(addSet);
+  const cache = state.sharedProfileDataCache || {};
+  Object.values(cache).forEach((data) => {
+    if (!data) return;
+    (data.savedTestCaseSets || []).forEach(addSet);
+  });
+  const activeId = state.activeProfileId;
+  for (const p of loadProfilesList()) {
+    const prof =
+      p.id === activeId
+        ? { savedTestCaseSets: state.savedTestCaseSets }
+        : loadProfile(p.id);
+    if (!prof) continue;
+    (prof.savedTestCaseSets || []).forEach(addSet);
+  }
+  return names;
+};
+
+const buildGlobalProfileNameSet = (state, excludeProfileId = null) => {
+  const ex = excludeProfileId == null ? null : String(excludeProfileId);
+  const names = new Set();
+  (state.profiles || []).forEach((p) => {
+    if (!p) return;
+    if (ex && String(p.id) === ex) return;
+    const n = normalizeProfileName(p.name).toLowerCase();
+    if (n) names.add(n);
+  });
   return names;
 };
 
@@ -2116,9 +2333,19 @@ export const useTestStore = create((set, get) => {
     if (!beginSavedTestCaseSetPending(id, 'add')) return;
     try {
       set((state) => {
+        const setName = normalizeSetName(name || 'Unnamed Set') || 'Unnamed Set';
+        const usedSetNames = buildGlobalSetNameSet(state, null);
+        if (usedSetNames.has(setName.toLowerCase())) {
+          get().addToast({
+            type: 'warning',
+            message: `Set name "${setName}" already exists in the system. Please use a different name.`,
+          });
+          return state;
+        }
         const now = new Date().toISOString();
         const usedInSet = new Set();
         let renamedInSet = false;
+        const usedGlobalTcNames = buildGlobalTestCaseNameSet(state, null, []);
         const normalizedItems = (items || []).map((t, idx) => {
           const itemId = t.id || `tc-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 9)}`;
           const base = normalizeTestCaseName(t.name) || `Test case ${idx + 1}`;
@@ -2137,11 +2364,22 @@ export const useTestStore = create((set, get) => {
             createdAt: t.createdAt || now,
           };
         });
+        const globalDup = normalizedItems.find((t) => {
+          const n = normalizeTestCaseName(t.name);
+          return n && usedGlobalTcNames.has(n);
+        });
+        if (globalDup) {
+          get().addToast({
+            type: 'warning',
+            message: `Test case name "${globalDup.name}" already exists in the system. Please rename before saving set.`,
+          });
+          return state;
+        }
         if (renamedInSet) {
           get().addToast({ type: 'info', message: 'พบชื่อซ้ำใน set เดียวกัน — ปรับชื่ออัตโนมัติใน set นี้เท่านั้น' });
         }
         const fileLibrarySnapshot = options.fileLibrarySnapshot || [];
-        const entry = { id, name: name || 'Unnamed Set', createdAt: now, updatedAt: now, items: normalizedItems, fileLibrarySnapshot };
+        const entry = { id, name: setName, createdAt: now, updatedAt: now, items: normalizedItems, fileLibrarySnapshot };
         const tagTrim = typeof options.tag === 'string' ? options.tag.trim() : '';
         if (tagTrim) {
           const colorKey = options.tagColor && TAG_PALETTE_MAP[options.tagColor] ? options.tagColor : 'mint';
@@ -2167,6 +2405,18 @@ export const useTestStore = create((set, get) => {
     }
   },
   updateSavedTestCaseSet: (id, updates) => set((state) => {
+    if (updates.name !== undefined) {
+      const setName = normalizeSetName(updates.name);
+      if (!setName) {
+        get().addToast({ type: 'warning', message: 'Set name cannot be empty.' });
+        return state;
+      }
+      const usedSetNames = buildGlobalSetNameSet(state, id);
+      if (usedSetNames.has(setName.toLowerCase())) {
+        get().addToast({ type: 'warning', message: `Set name "${setName}" already exists in the system.` });
+        return state;
+      }
+    }
     if (updates.items) {
       const items = updates.items;
       const namesSeen = new Set();
@@ -2632,15 +2882,21 @@ export const useTestStore = create((set, get) => {
 
   // Profile Management (no login/logout)
   createProfile: async (name) => {
-    const displayName = (name || 'New Profile').trim();
+    const displayName = normalizeProfileName(name || 'New Profile');
+    const profileName = displayName || 'New Profile';
+    const usedProfileNames = buildGlobalProfileNameSet(get(), null);
+    if (usedProfileNames.has(profileName.toLowerCase())) {
+      get().addToast({ type: 'warning', message: `Profile name "${profileName}" already exists.` });
+      return null;
+    }
     let id;
     try {
-      const res = await api.createProfileApi(displayName);
+      const res = await api.createProfileApi(profileName);
       id = res.id;
-      name = res.name || displayName;
+      name = res.name || profileName;
     } catch (e) {
       id = `profile-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-      name = displayName;
+      name = profileName;
     }
     const newProfile = {
       id,
@@ -2725,14 +2981,24 @@ export const useTestStore = create((set, get) => {
   updateProfileName: (profileId, newName) => {
     const profile = loadProfile(profileId);
     if (!profile) return false;
-    const updated = { ...profile, name: newName };
+    const normalized = normalizeProfileName(newName);
+    if (!normalized) {
+      get().addToast({ type: 'warning', message: 'Profile name cannot be empty.' });
+      return false;
+    }
+    const usedProfileNames = buildGlobalProfileNameSet(get(), profileId);
+    if (usedProfileNames.has(normalized.toLowerCase())) {
+      get().addToast({ type: 'warning', message: `Profile name "${normalized}" already exists.` });
+      return false;
+    }
+    const updated = { ...profile, name: normalized };
     saveProfile(profileId, updated);
     const profiles = loadProfilesList();
-    const updatedProfiles = profiles.map((p) => (p.id === profileId ? { ...p, name: newName } : p));
+    const updatedProfiles = profiles.map((p) => (p.id === profileId ? { ...p, name: normalized } : p));
     saveProfilesList(updatedProfiles);
     set({ profiles: updatedProfiles });
     if (isBackendProfileId(profileId)) {
-      void api.updateProfileNameApi(profileId, newName).catch(() => {});
+      void api.updateProfileNameApi(profileId, normalized).catch(() => {});
     }
     return true;
   },
@@ -3468,7 +3734,13 @@ export const useTestStore = create((set, get) => {
     } catch (e) {
       return;
     }
-    const serverIds = new Set((Array.isArray(serverList) ? serverList : []).map((p) => p.id));
+    const serverRows = Array.isArray(serverList) ? serverList : [];
+    const serverIds = new Set(serverRows.map((p) => p.id));
+    const byServerName = new Map(
+      serverRows
+        .map((p) => [String(p?.name || '').trim().toLowerCase(), p])
+        .filter(([k]) => k)
+    );
 
     let needsWork = false;
     for (const p of localProfiles) {
@@ -3487,13 +3759,53 @@ export const useTestStore = create((set, get) => {
     const prevActive = get().activeProfileId;
     let nextActive = prevActive;
 
+    const relinkOldIdToExistingServerProfile = (oldId, existingId, existingName) => {
+      const localData = loadProfile(oldId) || {
+        savedTestCases: [],
+        savedTestCaseSets: [],
+        preferences: {},
+      };
+      const existingLocal = loadProfile(existingId) || {};
+      const merged = {
+        ...existingLocal,
+        ...localData,
+        id: existingId,
+        name: existingName || existingLocal.name || localData.name || 'Profile',
+        savedTestCases:
+          (Array.isArray(localData.savedTestCases) && localData.savedTestCases.length > 0)
+            ? localData.savedTestCases
+            : (existingLocal.savedTestCases || []),
+        savedTestCaseSets:
+          (Array.isArray(localData.savedTestCaseSets) && localData.savedTestCaseSets.length > 0)
+            ? localData.savedTestCaseSets
+            : (existingLocal.savedTestCaseSets || []),
+      };
+      saveProfile(existingId, merged);
+      localStorage.removeItem(`${PROFILE_DATA_PREFIX}${oldId}`);
+      return { newId: existingId, name: merged.name };
+    };
+
     const migrateToNewServerProfile = async (oldId, displayName) => {
       const data = loadProfile(oldId) || {
         savedTestCases: [],
         savedTestCaseSets: [],
         preferences: {},
       };
-      const res = await api.createProfileApi(displayName);
+      let res;
+      try {
+        res = await api.createProfileApi(displayName);
+      } catch (e) {
+        // Global-unique profile name policy may reject create if that name already exists.
+        // In that case, relink local profile id to the existing server profile by name.
+        if (e?.status === 409) {
+          const key = String(displayName || '').trim().toLowerCase();
+          const matched = key ? byServerName.get(key) : null;
+          if (matched?.id) {
+            return relinkOldIdToExistingServerProfile(oldId, matched.id, matched.name || displayName);
+          }
+        }
+        throw e;
+      }
       const newId = res.id;
       const merged = {
         ...data,
@@ -3530,6 +3842,16 @@ export const useTestStore = create((set, get) => {
         } catch (e) {
           if (e.status !== 404) {
             console.warn('ensureLocalProfilesSyncedToServer: PUT failed', oldId, e);
+            continue;
+          }
+          const key = String(displayName || '').trim().toLowerCase();
+          const matched = key ? byServerName.get(key) : null;
+          if (matched?.id) {
+            const { newId, name } = relinkOldIdToExistingServerProfile(oldId, matched.id, matched.name || displayName);
+            localProfiles[i] = { id: newId, name };
+            serverIds.add(newId);
+            changed = true;
+            if (nextActive === oldId) nextActive = newId;
             continue;
           }
         }

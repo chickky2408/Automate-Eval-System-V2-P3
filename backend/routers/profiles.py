@@ -9,7 +9,7 @@ import uuid
 import hashlib
 import re
 
-from sqlalchemy import select, update, delete
+from sqlalchemy import select, update, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.database import async_session
@@ -121,6 +121,10 @@ def _resolve_vcd_file_id(tc: Dict[str, Any], file_by_lower: Dict[str, str], vali
 def _normalize_tc_name(name: Any) -> str:
     return (name or "").strip() if isinstance(name, str) else ""
 
+
+def _normalize_set_name(name: Any) -> str:
+    return (name or "").strip() if isinstance(name, str) else ""
+
 def _norm_file(v: Any) -> str:
     if isinstance(v, str):
         return v.strip().lower()
@@ -154,30 +158,58 @@ def _validate_global_unique_test_case_names(
     new_full_data_for_profile: Dict[str, Any],
 ) -> Optional[str]:
     """
-    Validate test case uniqueness **within the updating profile only**.
-
-    Rationale: each profile owns its own test cases (stored in profiles.data).
-    Stable IDs in the normalized `test_cases` table include profile_id, so the
-    same TC name in two different profiles does not collide on FK. Enforcing
-    a global unique-across-profiles constraint caused legitimate saves to fail
-    with 409 whenever any other profile happened to have the same TC name.
-
-    We still enforce:
-      - No conflicting duplicate names: same name must map to the same *files* (VCD/ERoM/ULP/MDI) once.
-      - No conflicting duplicate file-sets: same file-set must not refer to a different *name* (clone).
-
-    The frontend may store the *same* logical test case twice with **different** ids (e.g. one in
-    ``savedTestCases`` and a copy in a set's ``items``) while keeping the same display name and files.
-    That previously failed with 409; we now allow name + file-set pairs that match the first
-    occurrence (same name + same non-empty ``_tc_files_key``), so Save Set can sync to the server.
+    Validate test case + set-name uniqueness **globally across all profiles**.
+    Strict policy:
+      - TC display name must be unique across system.
+      - TC file-set signature (VCD/ERoM/ULP/MDI*) must be unique across system.
+      - Saved set name must be unique across system.
     """
-    del all_profiles  # kept for signature compatibility; no longer used for cross-profile checks
-
     data = new_full_data_for_profile if isinstance(new_full_data_for_profile, dict) else {}
     name_to_id: Dict[str, str] = {}
     name_to_fk: Dict[str, str] = {}
     files_key_to_id: Dict[str, str] = {}
     files_key_to_name: Dict[str, str] = {}
+    set_names_seen: set[str] = set()
+
+    # Seed uniqueness maps from every other profile first.
+    for p in all_profiles:
+        if str(getattr(p, "id", "")) == str(updating_profile_id):
+            continue
+        pdata = p.data if isinstance(p.data, dict) else {}
+        for tc in pdata.get("savedTestCases") or []:
+            if not isinstance(tc, dict):
+                continue
+            n = _normalize_tc_name(tc.get("name"))
+            tid = str(tc.get("id") or f"{p.id}:saved").strip()
+            fk = _tc_files_key(tc)
+            if n:
+                name_to_id[n] = tid
+                if fk:
+                    name_to_fk[n] = fk
+            if fk:
+                files_key_to_id[fk] = tid
+                if n:
+                    files_key_to_name[fk] = n
+        for si, s in enumerate(pdata.get("savedTestCaseSets") or []):
+            if not isinstance(s, dict):
+                continue
+            sn = _normalize_set_name(s.get("name"))
+            if sn:
+                set_names_seen.add(sn.lower())
+            for ii, tc in enumerate(s.get("items") or []):
+                if not isinstance(tc, dict):
+                    continue
+                n = _normalize_tc_name(tc.get("name"))
+                tid = str(tc.get("id") or f"{p.id}:setitem:{si}_{ii}").strip()
+                fk = _tc_files_key(tc)
+                if n:
+                    name_to_id[n] = tid
+                    if fk:
+                        name_to_fk[n] = fk
+                if fk:
+                    files_key_to_id[fk] = tid
+                    if n:
+                        files_key_to_name[fk] = n
 
     def walk_tc(tc: Any, idx: Any, kind: str) -> Optional[str]:
         if not isinstance(tc, dict):
@@ -191,9 +223,11 @@ def _validate_global_unique_test_case_names(
         if n:
             if n in name_to_id:
                 if name_to_id[n] != tid:
-                    # Same name, different fe id: OK only if same file-set (library vs set copy).
+                    # Same display name in different rows is acceptable only when
+                    # they point to the same exact file-set signature.
+                    # (e.g. savedTestCases row + set item copy of the same TC)
                     if not (fk and name_to_fk.get(n) and fk == name_to_fk.get(n)):
-                        return f'Duplicate test case name "{n}" in this profile — please rename'
+                        return f'Duplicate test case name "{n}" in system — please rename'
             else:
                 name_to_id[n] = tid
                 if fk:
@@ -201,9 +235,9 @@ def _validate_global_unique_test_case_names(
 
         if fk:
             if fk in files_key_to_id and files_key_to_id[fk] != tid:
-                # Same file-set, different fe id: OK only if same display name (paired with rule above).
+                # Same file-set in different rows is acceptable only when display name matches.
                 if not (n and files_key_to_name.get(fk) == n):
-                    return "Duplicate test case files in this profile — another TC already uses the same VCD/ERoM/ULP/MDI set"
+                    return "Duplicate test case files in system — another TC already uses the same VCD/ERoM/ULP/MDI set"
             if fk not in files_key_to_id:
                 files_key_to_id[fk] = tid
             if n and fk not in files_key_to_name:
@@ -217,6 +251,12 @@ def _validate_global_unique_test_case_names(
     for si, s in enumerate(data.get("savedTestCaseSets") or []):
         if not isinstance(s, dict):
             continue
+        sn = _normalize_set_name(s.get("name"))
+        if sn:
+            key = sn.lower()
+            if key in set_names_seen:
+                return f'Duplicate set name "{sn}" in system — please rename'
+            set_names_seen.add(key)
         for ii, tc in enumerate(s.get("items") or []):
             err = walk_tc(tc, f"{si}_{ii}", "setitem")
             if err:
@@ -424,11 +464,19 @@ async def get_all_test_cases():
 @router.post("")
 async def create_profile(payload: ProfileCreate):
     """Create a new profile."""
+    profile_name = (payload.name or "").strip()
+    if not profile_name:
+        raise HTTPException(status_code=400, detail="Profile name cannot be empty")
     profile_id = str(uuid.uuid4())
     async with async_session() as session:
+        exists = await session.execute(
+            select(ProfileORM.id).where(func.lower(ProfileORM.name) == profile_name.lower())
+        )
+        if exists.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail=f'Profile name "{profile_name}" already exists')
         orm = ProfileORM(
             id=profile_id,
-            name=payload.name,
+            name=profile_name,
             data=payload.data,
             updated_at=datetime.utcnow(),
         )
@@ -512,7 +560,18 @@ async def update_profile(profile_id: str, payload: ProfileUpdate):
 
         values = {}
         if payload.name is not None:
-            values["name"] = payload.name
+            new_name = (payload.name or "").strip()
+            if not new_name:
+                raise HTTPException(status_code=400, detail="Profile name cannot be empty")
+            exists = await session.execute(
+                select(ProfileORM.id).where(
+                    func.lower(ProfileORM.name) == new_name.lower(),
+                    ProfileORM.id != profile_id,
+                )
+            )
+            if exists.scalar_one_or_none():
+                raise HTTPException(status_code=409, detail=f'Profile name "{new_name}" already exists')
+            values["name"] = new_name
         if payload.data is not None:
             all_profiles = (await session.execute(select(ProfileORM))).scalars().all()
             new_data = {**(row.data or {}), **payload.data}
