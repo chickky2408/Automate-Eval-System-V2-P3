@@ -30,6 +30,15 @@ function extractTcGroupKeyFromFileName(filename) {
   return base;
 }
 
+const pushLibraryPickerSuggestOpt = (out, seen, raw) => {
+  const x = String(raw ?? '').trim();
+  if (!x) return;
+  const k = x.toLowerCase();
+  if (seen.has(k)) return;
+  seen.add(k);
+  out.push(x);
+};
+
 const splitTags = (raw) =>
   String(raw || '')
     .split(',')
@@ -518,7 +527,9 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
   const [libraryPickerTagQ, setLibraryPickerTagQ] = useState('');
   const [libraryPickerSizeQ, setLibraryPickerSizeQ] = useState('');
   const [libraryPickerOwnerQ, setLibraryPickerOwnerQ] = useState('');
-  const [libraryPickerTimeQ, setLibraryPickerTimeQ] = useState('');
+  const [libraryPickerDateQ, setLibraryPickerDateQ] = useState('');
+  /** From Library modal — filter suggestion popover (same chevron UX as File in Library). */
+  const [libraryPickerSuggest, setLibraryPickerSuggest] = useState(null); // { field: 'name'|'tag'|..., rect: DOMRect }
   const [libraryPickerSelectedIds, setLibraryPickerSelectedIds] = useState([]);
   /** Browse modal: show all tags for a file (ellipsis) */
   const [libraryPickerTagOverflowFileId, setLibraryPickerTagOverflowFileId] = useState(null);
@@ -810,7 +821,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
   };
   const [testCaseTableLayout, setTestCaseTableLayout] = useState('table'); // 'table' | 'step' — ตารางแนวนอน หรือ layout แนวตั้งตามขั้นตอน (ตามภาพ)
   const [localDroppedFiles, setLocalDroppedFiles] = useState([]);
-  const [commandMenuTcId, setCommandMenuTcId] = useState(null); // which test case's "Add command" dropdown is open
+  const [commandMenuPopover, setCommandMenuPopover] = useState(null); // { tcId, anchor } | null — portal menu (outside scroll areas)
   const tcBuilderPanelRef = useRef(null);
   const [tcBuilderPanelHeight, setTcBuilderPanelHeight] = useState(() => {
     try {
@@ -828,6 +839,32 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
       // ignore
     }
   }, [tcBuilderPanelHeight]);
+
+  useEffect(() => {
+    if (!commandMenuPopover) return;
+    const close = () => setCommandMenuPopover(null);
+    const onKey = (e) => {
+      if (e.key === 'Escape') close();
+    };
+    const onCapMouseDown = (e) => {
+      const el = e.target;
+      if (el?.closest?.('[data-command-menu-portal]')) return;
+      if (el?.closest?.('[data-testcase-command-menu-trigger]')) return;
+      close();
+    };
+    document.addEventListener('keydown', onKey, true);
+    document.addEventListener('mousedown', onCapMouseDown, true);
+    const end = () => close();
+    window.addEventListener('scroll', end, true);
+    window.addEventListener('resize', end);
+    return () => {
+      document.removeEventListener('keydown', onKey, true);
+      document.removeEventListener('mousedown', onCapMouseDown, true);
+      window.removeEventListener('scroll', end, true);
+      window.removeEventListener('resize', end);
+    };
+  }, [commandMenuPopover]);
+
   const [saveLibraryUploadModal, setSaveLibraryUploadModal] = useState(null); // { prepared, toSave } when showing per-file Reuse/Upload before Save to library
   const justDidSaveSetRef = useRef(false);
   const sendToRunSetAfterSaveRef = useRef(false);
@@ -2273,13 +2310,110 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
     [fileVisById]
   );
 
+  const libraryPickerPickNameOptions = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    (uploadedFiles || []).forEach((f) => pushLibraryPickerSuggestOpt(out, seen, f?.name));
+    return out.sort((a, b) => a.localeCompare(b)).slice(0, 120);
+  }, [uploadedFiles]);
+
+  const libraryPickerPickTagOptions = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    const fm = fileTags || {};
+    Object.keys(fm).forEach((kid) =>
+      splitTags(String(fm[kid] || '')).forEach((t) => pushLibraryPickerSuggestOpt(out, seen, t))
+    );
+    return out.sort((a, b) => a.localeCompare(b)).slice(0, 150);
+  }, [fileTags]);
+
+  const libraryPickerPickSizeOptions = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    (uploadedFiles || []).forEach((f) =>
+      pushLibraryPickerSuggestOpt(out, seen, f.sizeFormatted ?? f.size ?? '')
+    );
+    return out.sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true })).slice(0, 80);
+  }, [uploadedFiles]);
+
+  const libraryPickerPickOwnerOptions = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    (uploadedFiles || []).forEach((f) => {
+      pushLibraryPickerSuggestOpt(out, seen, resolveFileOwnerDisplay(f, ownerLabelCtx));
+      pushLibraryPickerSuggestOpt(out, seen, f?.ownerId);
+    });
+    return out.sort((a, b) => a.localeCompare(b)).slice(0, 80);
+  }, [uploadedFiles, ownerLabelCtx]);
+
+  const libraryPickerPickDateOptions = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    (uploadedFiles || []).forEach((f) => {
+      const raw = f.updatedAt || f.uploadDate || f.createdAt || '';
+      const d = raw ? new Date(raw) : null;
+      if (d && !Number.isNaN(d.getTime())) {
+        pushLibraryPickerSuggestOpt(
+          out,
+          seen,
+          `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+        );
+      }
+    });
+    return out.sort((a, b) => b.localeCompare(a)).slice(0, 100);
+  }, [uploadedFiles]);
+
+  const toggleLibraryPickerSuggest = useCallback((field, rootEl) => {
+    const rect = rootEl?.getBoundingClientRect?.();
+    setLibraryPickerSuggest((prev) => {
+      if (prev?.field === field) return null;
+      if (!rect) return null;
+      return { field, rect };
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!libraryPickerOpen) setLibraryPickerSuggest(null);
+  }, [libraryPickerOpen]);
+
+  useEffect(() => {
+    if (!libraryPickerSuggest) return;
+    const onDown = (e) => {
+      if (e.target?.closest?.('[data-lib-picker-suggest-pop]')) return;
+      if (e.target?.closest?.('[data-library-picker-filter-root]')) return;
+      setLibraryPickerSuggest(null);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') setLibraryPickerSuggest(null);
+    };
+    document.addEventListener('mousedown', onDown, true);
+    document.addEventListener('keydown', onKey, true);
+    return () => {
+      document.removeEventListener('mousedown', onDown, true);
+      document.removeEventListener('keydown', onKey, true);
+    };
+  }, [libraryPickerSuggest]);
+
+  const libraryPickerSuggestOptions =
+    libraryPickerSuggest?.field === 'name'
+      ? libraryPickerPickNameOptions
+      : libraryPickerSuggest?.field === 'tag'
+        ? libraryPickerPickTagOptions
+        : libraryPickerSuggest?.field === 'size'
+          ? libraryPickerPickSizeOptions
+          : libraryPickerSuggest?.field === 'owner'
+            ? libraryPickerPickOwnerOptions
+            : libraryPickerSuggest?.field === 'date'
+              ? libraryPickerPickDateOptions
+              : [];
+
   const libraryPickerFiles = useMemo(() => {
     const list = uploadedFiles || [];
     const nameQ = libraryPickerNameQ.trim().toLowerCase();
     const tagQ = libraryPickerTagQ.trim().toLowerCase();
     const sizeQ = libraryPickerSizeQ.trim().toLowerCase();
     const ownerQ = libraryPickerOwnerQ.trim().toLowerCase();
-    const timeQ = libraryPickerTimeQ.trim().toLowerCase();
+    const dateQ = libraryPickerDateQ.trim().toLowerCase();
 
     return list.filter((f) => {
       if (nameQ && !String(f.name || '').toLowerCase().includes(nameQ)) return false;
@@ -2297,10 +2431,10 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
         const ownerId = String(f.ownerId || '').toLowerCase();
         if (!ownerDisplay.includes(ownerQ) && !ownerId.includes(ownerQ)) return false;
       }
-      if (timeQ) {
+      if (dateQ) {
         const lastModified = f.updatedAt || f.uploadDate || f.createdAt || null;
         const timeStr = lastModified ? String(lastModified).replace('T', ' ').toLowerCase() : '';
-        if (!timeStr.includes(timeQ)) return false;
+        if (!timeStr.includes(dateQ)) return false;
       }
       return true;
     });
@@ -2311,7 +2445,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
     libraryPickerTagQ,
     libraryPickerSizeQ,
     libraryPickerOwnerQ,
-    libraryPickerTimeQ,
+    libraryPickerDateQ,
     ownerLabelCtx,
   ]);
 
@@ -2332,6 +2466,68 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
         onConfirm={handleSaveLibraryUploadChoiceConfirm}
         onCancel={() => setSaveLibraryUploadModal(null)}
       />
+      {commandMenuPopover &&
+        typeof window !== 'undefined' &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          (() => {
+            const MENU_W = 192;
+            const MENU_H_ALLOW = 160;
+            const { anchor, tcId } = commandMenuPopover;
+            let top = anchor.bottom + 6;
+            let left = anchor.right - MENU_W;
+            left = Math.max(8, Math.min(left, window.innerWidth - MENU_W - 8));
+            if (top + MENU_H_ALLOW > window.innerHeight - 8) {
+              top = Math.max(8, anchor.top - MENU_H_ALLOW - 8);
+            }
+            const itemCls =
+              'w-full text-left px-3 py-2 text-xs font-medium text-slate-900 dark:text-slate-50 hover:bg-slate-100 dark:hover:bg-slate-700';
+            return (
+              <div
+                data-command-menu-portal
+                role="menu"
+                className="fixed z-[250] py-1 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 shadow-xl min-w-[180px]"
+                style={{ top, left, width: MENU_W }}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    addDisplayedTestCaseCommand(tcId, { type: 'mdi', file: '' });
+                    setCommandMenuPopover(null);
+                  }}
+                  className={itemCls}
+                >
+                  Add MDI (text file)
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    addDisplayedTestCaseCommand(tcId, { type: 'erom', file: '' });
+                    setCommandMenuPopover(null);
+                  }}
+                  className={itemCls}
+                >
+                  Add EROM
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    addDisplayedTestCaseCommand(tcId, { type: 'ulp', file: '' });
+                    setCommandMenuPopover(null);
+                  }}
+                  className={itemCls}
+                >
+                  Add ULP
+                </button>
+              </div>
+            );
+          })(),
+          document.body
+        )}
       {libraryPickerOpen && (
         <>
         <div
@@ -2346,6 +2542,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
             setTcTagModalEditIndex(null);
             setTcTagModalEditDraft('');
             setTcTagPlusInputTcId(null);
+            setLibraryPickerSuggest(null);
           }}
           role="presentation"
         >
@@ -2360,58 +2557,126 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
               <h3 id="library-picker-title" className="text-lg font-bold text-slate-800 dark:text-slate-100">
                 Select File from Library
               </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 mt-3">
                 <label className="flex flex-col gap-0.5 min-w-0">
                   <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Name</span>
-                  <input
-                    type="text"
-                    value={libraryPickerNameQ}
-                    onChange={(e) => setLibraryPickerNameQ(e.target.value)}
-                    placeholder="Search name…"
-                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
-                  />
+                  <div className="relative" data-library-picker-filter-root>
+                    <input
+                      type="text"
+                      value={libraryPickerNameQ}
+                      onChange={(e) => setLibraryPickerNameQ(e.target.value)}
+                      placeholder="Search name…"
+                      className="w-full px-2.5 py-1.5 pr-8 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                    />
+                    <button
+                      type="button"
+                      aria-label="Suggestions"
+                      title="Suggestions"
+                      className="absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/90 dark:hover:bg-slate-800/80"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleLibraryPickerSuggest('name', e.currentTarget.parentElement);
+                      }}
+                    >
+                      <ChevronDown className="w-3.5 h-3.5 pointer-events-none" strokeWidth={2} />
+                    </button>
+                  </div>
                 </label>
                 <label className="flex flex-col gap-0.5 min-w-0">
                   <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Tag</span>
-                  <input
-                    type="text"
-                    value={libraryPickerTagQ}
-                    onChange={(e) => setLibraryPickerTagQ(e.target.value)}
-                    placeholder="Search tag…"
-                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
-                  />
+                  <div className="relative" data-library-picker-filter-root>
+                    <input
+                      type="text"
+                      value={libraryPickerTagQ}
+                      onChange={(e) => setLibraryPickerTagQ(e.target.value)}
+                      placeholder="Search tag…"
+                      className="w-full px-2.5 py-1.5 pr-8 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                    />
+                    <button
+                      type="button"
+                      aria-label="Suggestions"
+                      title="Suggestions"
+                      className="absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/90 dark:hover:bg-slate-800/80"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleLibraryPickerSuggest('tag', e.currentTarget.parentElement);
+                      }}
+                    >
+                      <ChevronDown className="w-3.5 h-3.5 pointer-events-none" strokeWidth={2} />
+                    </button>
+                  </div>
                 </label>
                 <label className="flex flex-col gap-0.5 min-w-0">
                   <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Size</span>
-                  <input
-                    type="text"
-                    value={libraryPickerSizeQ}
-                    onChange={(e) => setLibraryPickerSizeQ(e.target.value)}
-                    placeholder="e.g. 154, kb…"
-                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
-                  />
+                  <div className="relative" data-library-picker-filter-root>
+                    <input
+                      type="text"
+                      value={libraryPickerSizeQ}
+                      onChange={(e) => setLibraryPickerSizeQ(e.target.value)}
+                      placeholder="e.g. 154, kb…"
+                      className="w-full px-2.5 py-1.5 pr-8 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                    />
+                    <button
+                      type="button"
+                      aria-label="Suggestions"
+                      title="Suggestions"
+                      className="absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/90 dark:hover:bg-slate-800/80"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleLibraryPickerSuggest('size', e.currentTarget.parentElement);
+                      }}
+                    >
+                      <ChevronDown className="w-3.5 h-3.5 pointer-events-none" strokeWidth={2} />
+                    </button>
+                  </div>
                 </label>
                 <label className="flex flex-col gap-0.5 min-w-0">
                   <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Owner</span>
-                  <input
-                    type="text"
-                    value={libraryPickerOwnerQ}
-                    onChange={(e) => setLibraryPickerOwnerQ(e.target.value)}
-                    placeholder="profile name…"
-                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
-                  />
+                  <div className="relative" data-library-picker-filter-root>
+                    <input
+                      type="text"
+                      value={libraryPickerOwnerQ}
+                      onChange={(e) => setLibraryPickerOwnerQ(e.target.value)}
+                      placeholder="profile name…"
+                      className="w-full px-2.5 py-1.5 pr-8 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                    />
+                    <button
+                      type="button"
+                      aria-label="Suggestions"
+                      title="Suggestions"
+                      className="absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/90 dark:hover:bg-slate-800/80"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleLibraryPickerSuggest('owner', e.currentTarget.parentElement);
+                      }}
+                    >
+                      <ChevronDown className="w-3.5 h-3.5 pointer-events-none" strokeWidth={2} />
+                    </button>
+                  </div>
                 </label>
                 <label className="flex flex-col gap-0.5 min-w-0">
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Time</span>
-                  <input
-                    type="text"
-                    value={libraryPickerTimeQ}
-                    onChange={(e) => setLibraryPickerTimeQ(e.target.value)}
-                    placeholder="2026-03-19…"
-                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
-                  />
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Date</span>
+                  <div className="relative" data-library-picker-filter-root>
+                    <input
+                      type="text"
+                      value={libraryPickerDateQ}
+                      onChange={(e) => setLibraryPickerDateQ(e.target.value)}
+                      placeholder="2026-03-19…"
+                      className="w-full px-2.5 py-1.5 pr-8 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                    />
+                    <button
+                      type="button"
+                      aria-label="Suggestions"
+                      title="Suggestions"
+                      className="absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/90 dark:hover:bg-slate-800/80"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleLibraryPickerSuggest('date', e.currentTarget.parentElement);
+                      }}
+                    >
+                      <ChevronDown className="w-3.5 h-3.5 pointer-events-none" strokeWidth={2} />
+                    </button>
+                  </div>
                 </label>
               </div>
               <div className="flex flex-wrap items-center gap-3 mt-3">
@@ -2437,7 +2702,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                     setLibraryPickerTagQ('');
                     setLibraryPickerSizeQ('');
                     setLibraryPickerOwnerQ('');
-                    setLibraryPickerTimeQ('');
+                    setLibraryPickerDateQ('');
                   }}
                   className="text-xs font-semibold text-slate-500 hover:underline"
                 >
@@ -2471,7 +2736,12 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                       <th className="px-2 py-2 font-semibold w-10 text-center" title="Visibility">
                         Vis
                       </th>
-                      <th className="px-2 py-2 font-semibold min-w-[120px]">Modified</th>
+                      <th
+                        className="px-2 py-2 font-semibold min-w-[120px]"
+                        title="Calendar date modified; hover a cell for full timestamp"
+                      >
+                        Date
+                      </th>
                       <th className="px-2 py-2 font-semibold w-20 text-right">Size</th>
                     </tr>
                   </thead>
@@ -2677,7 +2947,12 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                             </button>
                           </td>
                           <td className="px-2 py-1.5 align-top whitespace-nowrap text-slate-500 dark:text-slate-400" title={lastModified ? String(lastModified) : ''}>
-                            {lastModified ? String(lastModified).replace('T', ' ').slice(0, 16) : '—'}
+                            {(() => {
+                              if (!lastModified) return '—';
+                              const d = new Date(lastModified);
+                              if (Number.isNaN(d.getTime())) return '—';
+                              return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+                            })()}
                           </td>
                           <td className="px-2 py-1.5 align-top text-right text-slate-600 dark:text-slate-300 whitespace-nowrap">
                             {f.sizeFormatted ?? f.size ?? '—'}
@@ -2701,6 +2976,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                   setTcTagModalEditIndex(null);
                   setTcTagModalEditDraft('');
                   setTcTagPlusInputTcId(null);
+                  setLibraryPickerSuggest(null);
                 }}
                 className="px-4 py-2 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600"
               >
@@ -2726,7 +3002,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                   setLibraryPickerTagQ('');
                   setLibraryPickerSizeQ('');
                   setLibraryPickerOwnerQ('');
-                  setLibraryPickerTimeQ('');
+                  setLibraryPickerDateQ('');
                 }}
                 className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700"
               >
@@ -3099,6 +3375,63 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
           </div>
         </div>
       )}
+      {libraryPickerSuggest?.rect &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            data-lib-picker-suggest-pop
+            className="fixed z-[120] rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl w-[min(280px,calc(100vw-24px))] max-h-[min(288px,calc(100vh-120px))] flex flex-col"
+            style={{
+              top: Math.min(
+                libraryPickerSuggest.rect.bottom + 6,
+                (typeof window !== 'undefined' ? window.innerHeight : 800) - 120
+              ),
+              left: Math.max(
+                12,
+                Math.min(
+                  libraryPickerSuggest.rect.left,
+                  (typeof window !== 'undefined' ? window.innerWidth : 400) - 292
+                )
+              ),
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
+              Suggestions
+            </div>
+            <div className="overflow-y-auto p-1 [scrollbar-width:thin]">
+              {libraryPickerSuggestOptions.length === 0 ? (
+                <div className="px-3 py-2 text-[11px] text-slate-400">No suggestions</div>
+              ) : (
+                libraryPickerSuggestOptions.map((opt) => {
+                  const selField = libraryPickerSuggest.field;
+                  return (
+                    <button
+                      key={`lp-pick-${selField}-${String(opt)}`}
+                      type="button"
+                      className="w-full text-left px-2 py-1.5 text-xs rounded-md text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 truncate"
+                      title={String(opt)}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const v = String(opt);
+                        if (selField === 'name') setLibraryPickerNameQ(v);
+                        else if (selField === 'tag') setLibraryPickerTagQ(v);
+                        else if (selField === 'size') setLibraryPickerSizeQ(v);
+                        else if (selField === 'owner') setLibraryPickerOwnerQ(v);
+                        else if (selField === 'date') setLibraryPickerDateQ(v);
+                        setLibraryPickerSuggest(null);
+                      }}
+                    >
+                      {String(opt).length > 56 ? `${String(opt).slice(0, 55)}…` : String(opt)}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>,
+          document.body
+        )}
       </>
       )}
       <div>
@@ -3159,7 +3492,8 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                 setLibraryPickerTagQ('');
                 setLibraryPickerSizeQ('');
                 setLibraryPickerOwnerQ('');
-                setLibraryPickerTimeQ('');
+                setLibraryPickerDateQ('');
+                setLibraryPickerSuggest(null);
                 setLibraryPickerSelectedIds([]);
                 setLibraryPickerTagOverflowFileId(null);
                 setLibraryPickerTcOverflowFileName(null);
@@ -3359,12 +3693,6 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
               </>
             )}
           </div>
-        )}
-        {!loadedSetId && !isViewingShared && displayedSavedTestCases.length > 0 && (
-          <p className="mb-2 text-[11px] text-slate-500 dark:text-slate-400">
-            Tick rows, then use <span className="font-semibold text-slate-600 dark:text-slate-300">Remove selected</span> to drop only those lines from this page (Library on the server is unchanged).{' '}
-            <span className="font-semibold text-slate-600 dark:text-slate-300">Clear</span> resets the whole table and file selection.
-          </p>
         )}
         <div className="flex min-h-0 flex-1 flex-col">
         {/* Tab switcher: Table (horizontal) | Step (vertical layout per image) + Select all when Step */}
@@ -3701,63 +4029,27 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                       >
                         <Copy size={14} />
                       </button>
-                      {/* Add extra file/command (MDI / VCD / ERoM / ULP) — same behavior as Vertical tab */}
+                      {/* Add extra file/command — menu rendered via portal (avoids overflow clip in Vertical / table panels) */}
                       <div className="relative">
                         <button
                           type="button"
-                          onClick={() => setCommandMenuTcId(commandMenuTcId === tc.id ? null : tc.id)}
+                          data-testcase-command-menu-trigger
+                          onClick={(e) => {
+                            const el = e.currentTarget;
+                            setCommandMenuPopover((prev) => {
+                              if (prev?.tcId === tc.id) return null;
+                              const r = el.getBoundingClientRect();
+                              return {
+                                tcId: tc.id,
+                                anchor: { top: r.top, left: r.left, right: r.right, bottom: r.bottom },
+                              };
+                            });
+                          }}
                           className="p-1 rounded border border-slate-200 dark:border-slate-600 text-blue-600 hover:text-blue-800 hover:bg-slate-100 dark:hover:bg-slate-700"
                           title="Add extra file (MDI / VCD / ERoM / ULP)"
                         >
                           <Plus size={14} />
                         </button>
-                        {commandMenuTcId === tc.id && (
-                          <>
-                            <div className="absolute right-0 top-full mt-1 z-50 py-1 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-lg min-w-[180px]">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  addDisplayedTestCaseCommand(tc.id, { type: 'mdi', file: '' });
-                                  setCommandMenuTcId(null);
-                                }}
-                                className="w-full text-left px-3 py-2 text-xs hover:bg-slate-100 dark:hover:bg-slate-700"
-                              >
-                                Add MDI (text file)
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  addDisplayedTestCaseCommand(tc.id, { type: 'vcd', file: '' });
-                                  setCommandMenuTcId(null);
-                                }}
-                                className="w-full text-left px-3 py-2 text-xs hover:bg-slate-100 dark:hover:bg-slate-700"
-                              >
-                                Add VCD
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  addDisplayedTestCaseCommand(tc.id, { type: 'erom', file: '' });
-                                  setCommandMenuTcId(null);
-                                }}
-                                className="w-full text-left px-3 py-2 text-xs hover:bg-slate-100 dark:hover:bg-slate-700"
-                              >
-                                Add EROM
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  addDisplayedTestCaseCommand(tc.id, { type: 'ulp', file: '' });
-                                  setCommandMenuTcId(null);
-                                }}
-                                className="w-full text-left px-3 py-2 text-xs hover:bg-slate-100 dark:hover:bg-slate-700"
-                              >
-                                Add ULP
-                              </button>
-                            </div>
-                            <div className="fixed inset-0 z-40" aria-hidden onClick={() => setCommandMenuTcId(null)} />
-                          </>
-                        )}
                       </div>
                       <button
                         type="button"
@@ -4114,59 +4406,23 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                       <div className="relative">
                         <button
                           type="button"
-                          onClick={() => setCommandMenuTcId(commandMenuTcId === tc.id ? null : tc.id)}
+                          data-testcase-command-menu-trigger
+                          onClick={(e) => {
+                            const el = e.currentTarget;
+                            setCommandMenuPopover((prev) => {
+                              if (prev?.tcId === tc.id) return null;
+                              const r = el.getBoundingClientRect();
+                              return {
+                                tcId: tc.id,
+                                anchor: { top: r.top, left: r.left, right: r.right, bottom: r.bottom },
+                              };
+                            });
+                          }}
                           className="p-1 rounded border border-slate-200 dark:border-slate-600 text-blue-600 hover:text-blue-800 hover:bg-slate-100 dark:hover:bg-slate-700"
                           title="Add command"
                         >
                           <Plus size={14} />
                         </button>
-                        {commandMenuTcId === tc.id && (
-                          <>
-                            <div className="absolute right-0 top-full mt-1 z-10 py-1 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-lg min-w-[180px]">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  addDisplayedTestCaseCommand(tc.id, { type: 'mdi', file: '' });
-                                  setCommandMenuTcId(null);
-                                }}
-                                className="w-full text-left px-3 py-2 text-xs hover:bg-slate-100 dark:hover:bg-slate-700"
-                              >
-                                Add MDI (text file)
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  addDisplayedTestCaseCommand(tc.id, { type: 'vcd', file: '' });
-                                  setCommandMenuTcId(null);
-                                }}
-                                className="w-full text-left px-3 py-2 text-xs hover:bg-slate-100 dark:hover:bg-slate-700"
-                              >
-                                Add VCD
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  addDisplayedTestCaseCommand(tc.id, { type: 'erom', file: '' });
-                                  setCommandMenuTcId(null);
-                                }}
-                                className="w-full text-left px-3 py-2 text-xs hover:bg-slate-100 dark:hover:bg-slate-700"
-                              >
-                                Add EROM
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  addDisplayedTestCaseCommand(tc.id, { type: 'ulp', file: '' });
-                                  setCommandMenuTcId(null);
-                                }}
-                                className="w-full text-left px-3 py-2 text-xs hover:bg-slate-100 dark:hover:bg-slate-700"
-                              >
-                                Add ULP
-                              </button>
-                            </div>
-                            <div className="fixed inset-0 z-[5]" aria-hidden onClick={() => setCommandMenuTcId(null)} />
-                          </>
-                        )}
                       </div>
                     </div>
                     {(tc.commands && tc.commands.length > 0) ? (
