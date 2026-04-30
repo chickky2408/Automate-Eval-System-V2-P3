@@ -2152,6 +2152,12 @@ export const useTestStore = create((set, get) => {
             entry.tagColorList = parts.map(() => colorKey);
           }
         }
+        const runMode = options.runBoardMode === 'manual' ? 'manual' : 'auto';
+        entry.runBoardMode = runMode;
+        entry.runBoardIds = runMode === 'manual' && Array.isArray(options.runBoardIds)
+          ? options.runBoardIds.filter(Boolean)
+          : [];
+        entry.runPrioritize = Boolean(options.runPrioritize);
         const next = [...state.savedTestCaseSets, entry];
         saveSavedTestCaseSets(next);
         return { savedTestCaseSets: next };

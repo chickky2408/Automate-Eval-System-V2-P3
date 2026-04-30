@@ -511,6 +511,12 @@ const RunSetPage = ({ onNavigateJobs }) => {
     () => selectedRunnableSets.reduce((sum, set) => sum + ((Array.isArray(set.items) ? set.items.length : 0) || 0), 0),
     [selectedRunnableSets]
   );
+  const nonRunnableSelectedBoards = useMemo(() => {
+    const byId = new Map((safeBoards || []).map((b) => [String(b.id), b]));
+    return (selectedBoardIds || [])
+      .map((id) => byId.get(String(id)))
+      .filter((b) => b && !['online', 'busy'].includes(String(b.status || '').toLowerCase()));
+  }, [safeBoards, selectedBoardIds]);
 
   const singleSelectedSetForSave = useMemo(() => {
     if (selectedSetIds.length !== 1) return null;
@@ -525,8 +531,15 @@ const RunSetPage = ({ onNavigateJobs }) => {
     const colA = TAG_PALETTE_MAP[runSetTagColor] ? runSetTagColor : 'mint';
     const colB = TAG_PALETTE_MAP[set.tagColor] ? set.tagColor : 'mint';
     if (colA !== colB) return true;
+    const modeA = boardSelectionMode === 'manual' ? 'manual' : 'auto';
+    const modeB = set.runBoardMode === 'manual' ? 'manual' : 'auto';
+    if (modeA !== modeB) return true;
+    const idsA = modeA === 'manual' ? [...selectedBoardIds].map(String).sort() : [];
+    const idsB = modeB === 'manual' && Array.isArray(set.runBoardIds) ? set.runBoardIds.map(String).sort() : [];
+    if (idsA.length !== idsB.length || idsA.some((id, i) => id !== idsB[i])) return true;
+    if (Boolean(prioritize) !== Boolean(set.runPrioritize)) return true;
     return false;
-  }, [singleSelectedSetForSave, runSetName, tag, runSetTagColor]);
+  }, [singleSelectedSetForSave, runSetName, tag, runSetTagColor, boardSelectionMode, selectedBoardIds, prioritize]);
 
   const canSaveNotRun = runPreview.length > 0 || hasSingleSetMetadataDirty;
 
@@ -637,15 +650,37 @@ const RunSetPage = ({ onNavigateJobs }) => {
     },
     [setRunBoardSelection]
   );
+  const applyBoardsAndPriorityFromSetConfig = useCallback(
+    (set, boardList) => {
+      if (!set || (set.runBoardMode !== 'manual' && set.runBoardMode !== 'auto')) return false;
+      const mode = set.runBoardMode === 'manual' ? 'manual' : 'auto';
+      const rawIds = Array.isArray(set.runBoardIds) ? set.runBoardIds : [];
+      const validIds = rawIds.filter((id) => (boardList || []).some((b) => b.id === id));
+      setPrioritize(Boolean(set.runPrioritize));
+      setBoardSelectionMode(mode);
+      setSelectedBoardIds(mode === 'manual' ? validIds : []);
+      setRunBoardSelection({ mode, boardIds: mode === 'manual' ? validIds : [] });
+      return true;
+    },
+    [setRunBoardSelection]
+  );
 
   /** When exactly one saved set is ticked, fill section 3 with that set’s tag/name + best-known job (boards, priority). */
   const lastSetSelectionKeyRef = useRef('');
   const lastJobHydrateSigRef = useRef('');
+  const prevSelectedSetCountRef = useRef(selectedSetIds.length);
   useEffect(() => {
     const k = selectedSetIds.join(',');
     const isSingle = selectedSetIds.length === 1;
     if (!isSingle) {
       lastSetSelectionKeyRef.current = k;
+      lastJobHydrateSigRef.current = '';
+      // If user unticks all sets in "Use sets", clear section 3 config immediately.
+      // IMPORTANT: only clear on transition (>0 -> 0), not on every rerender while 0 selected.
+      if (selectedSetIds.length === 0 && prevSelectedSetCountRef.current > 0) {
+        clearSection3RunConfig();
+      }
+      prevSelectedSetCountRef.current = selectedSetIds.length;
       return;
     }
     const set = safeSets.find((s) => s.id === selectedSetIds[0]);
@@ -662,21 +697,30 @@ const RunSetPage = ({ onNavigateJobs }) => {
       setRunSetName(setName);
       setTag((set.tag || '').trim());
       setRunSetTagColor(TAG_PALETTE_MAP[set.tagColor] ? set.tagColor : 'mint');
-      applyBoardsAndPriorityFromJob(j, safeBoards);
+      const fromSet = applyBoardsAndPriorityFromSetConfig(set, safeBoards);
+      if (!fromSet) applyBoardsAndPriorityFromJob(j, safeBoards);
       lastJobHydrateSigRef.current = j ? jobSig : 'nojob';
+      prevSelectedSetCountRef.current = selectedSetIds.length;
       return;
     }
 
     if (lastJobHydrateSigRef.current === jobSig) return;
+    if (applyBoardsAndPriorityFromSetConfig(set, safeBoards)) {
+      prevSelectedSetCountRef.current = selectedSetIds.length;
+      return;
+    }
     lastJobHydrateSigRef.current = jobSig;
     applyBoardsAndPriorityFromJob(j, safeBoards);
+    prevSelectedSetCountRef.current = selectedSetIds.length;
   }, [
     selectedSetIds,
     safeSets,
     jobs,
     safeBoards,
     findLatestJobForSetName,
+    applyBoardsAndPriorityFromSetConfig,
     applyBoardsAndPriorityFromJob,
+    clearSection3RunConfig,
   ]);
 
   const contentKeyTc = (tc) =>
@@ -1185,6 +1229,9 @@ const RunSetPage = ({ onNavigateJobs }) => {
     addSavedTestCaseSet(name, items, {
       fileLibrarySnapshot,
       ...(tagTrim ? { tag: tagTrim, tagColor: colorKey } : {}),
+      runBoardMode: boardSelectionMode === 'manual' ? 'manual' : 'auto',
+      runBoardIds: boardSelectionMode === 'manual' ? [...selectedBoardIds] : [],
+      runPrioritize: Boolean(prioritize),
     });
     const sets = useTestStore.getState().savedTestCaseSets;
     const newSetId = Array.isArray(sets) && sets.length ? sets[sets.length - 1]?.id : null;
@@ -1215,6 +1262,19 @@ const RunSetPage = ({ onNavigateJobs }) => {
     }
     if (boardSelectionMode === 'manual' && selectedBoardIds.length === 0) {
       addToast({ type: 'warning', message: 'Select at least one board (or switch to Auto assign)' });
+      return;
+    }
+    if (boardSelectionMode === 'manual' && nonRunnableSelectedBoards.length > 0) {
+      const names = nonRunnableSelectedBoards
+        .map((b) => b.name || b.id || 'Unknown board')
+        .slice(0, 3)
+        .join(', ');
+      const more = nonRunnableSelectedBoards.length > 3 ? ` +${nonRunnableSelectedBoards.length - 3}` : '';
+      addToast({
+        type: 'warning',
+        message: `Cannot run/pending with board status error/offline: ${names}${more}. You can still Save (not run), or switch to Auto assign.`,
+        duration: 7000,
+      });
       return;
     }
 
@@ -1380,6 +1440,9 @@ const RunSetPage = ({ onNavigateJobs }) => {
       patch.tagColor = 'mint';
       patch.tagColorList = [];
     }
+    patch.runBoardMode = boardSelectionMode === 'manual' ? 'manual' : 'auto';
+    patch.runBoardIds = boardSelectionMode === 'manual' ? [...selectedBoardIds] : [];
+    patch.runPrioritize = Boolean(prioritize);
     updateSavedTestCaseSet(set.id, patch);
     addToast({ type: 'success', message: `Saved "${name}"` });
     clearSection3RunConfig();
@@ -1392,6 +1455,9 @@ const RunSetPage = ({ onNavigateJobs }) => {
     runSetName,
     tag,
     runSetTagColor,
+    boardSelectionMode,
+    selectedBoardIds,
+    prioritize,
     hasSingleSetMetadataDirty,
     addToast,
     updateSavedTestCaseSet,
@@ -2227,6 +2293,11 @@ const RunSetPage = ({ onNavigateJobs }) => {
           </div>
           <div>
             <h4 className="text-xs font-bold text-slate-600 dark:text-slate-400 mb-2">Board selection</h4>
+            {nonRunnableSelectedBoards.length > 0 ? (
+              <p className="mb-2 text-xs text-amber-600 dark:text-amber-300">
+                {nonRunnableSelectedBoards.length} selected board(s) are error/offline. Only Save (not run) is available until those boards are removed or become ready.
+              </p>
+            ) : null}
             <div className="flex flex-wrap items-center gap-4">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="radio" name="boardMode" checked={boardSelectionMode === 'auto'} onChange={() => { setBoardSelectionMode('auto'); setRunBoardSelection({ mode: 'auto', boardIds: [] }); }} className="w-4 h-4 text-blue-600" />
@@ -2330,8 +2401,13 @@ const RunSetPage = ({ onNavigateJobs }) => {
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <button
             onClick={() => runSelected({ startImmediately: true, navigateToJobs: true })}
-            disabled={isSubmitting || (runPreview.length === 0 && selectedRunnableCaseCount === 0)}
+            disabled={isSubmitting || nonRunnableSelectedBoards.length > 0 || (runPreview.length === 0 && selectedRunnableCaseCount === 0)}
             className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            title={
+              nonRunnableSelectedBoards.length > 0
+                ? 'Disabled: selected board includes error/offline status. Keep Save (not run) or remove those boards.'
+                : undefined
+            }
           >
             {isSubmitting ? <RefreshCw size={16} className="animate-spin" /> : <Play size={16} />}
             {runPreview.length > 0
@@ -2341,9 +2417,13 @@ const RunSetPage = ({ onNavigateJobs }) => {
           <button
             type="button"
             onClick={() => runSelected({ startImmediately: false, navigateToJobs: true })}
-            disabled={isSubmitting || (runPreview.length === 0 && selectedRunnableCaseCount === 0)}
+            disabled={isSubmitting || nonRunnableSelectedBoards.length > 0 || (runPreview.length === 0 && selectedRunnableCaseCount === 0)}
             className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-bold hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Create job(s) in Pending without starting. You can edit order or remove test cases in Jobs Manager."
+            title={
+              nonRunnableSelectedBoards.length > 0
+                ? 'Disabled: selected board includes error/offline status. Keep Save (not run) or remove those boards.'
+                : 'Create job(s) in Pending without starting. You can edit order or remove test cases in Jobs Manager.'
+            }
           >
             <Clock size={16} />
             Send to Pending
