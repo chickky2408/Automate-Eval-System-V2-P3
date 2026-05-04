@@ -16,7 +16,14 @@ import os
 try:
     # Auto-load .env when present (for local `pipenv run uvicorn ...` dev);
     # harmless in Docker where env vars are already injected by compose.
+    from pathlib import Path
+
     from dotenv import load_dotenv  # type: ignore
+
+    # When cwd is `backend/`, still pick up repo-root `.env` (DB_HOST/DB_PORT for Docker DB on :5433).
+    _repo_env = Path(__file__).resolve().parents[2] / ".env"
+    if _repo_env.is_file():
+        load_dotenv(_repo_env)
     load_dotenv()
 except Exception:
     pass

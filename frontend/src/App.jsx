@@ -31,6 +31,15 @@ const App = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [expandJobId, setExpandJobId] = useState(null); // for expanding job from history / deep-link
   const [tagManagerJobId, setTagManagerJobId] = useState(null);
+  /** Vite production build only: explain empty profile vs dev (different browser origins → separate localStorage). */
+  const [showProdOriginHint, setShowProdOriginHint] = useState(() => {
+    if (!import.meta.env.PROD) return false;
+    try {
+      return sessionStorage.getItem('evalProdOriginHintDismissed') !== '1';
+    } catch {
+      return true;
+    }
+  });
   const { systemHealth, boards, theme, toggleTheme } = useTestStore();
   const setBoardsPageFocusBoardId = useTestStore((s) => s.setBoardsPageFocusBoardId);
   const profiles = useTestStore((s) => s.profiles) || [];
@@ -259,6 +268,50 @@ const App = () => {
             </div>
           </div>
         </header>
+
+        {import.meta.env.PROD && showProdOriginHint && (
+          <div
+            role="status"
+            className={`mx-3 sm:mx-6 lg:mx-8 mt-3 shrink-0 rounded-xl border px-3 py-2.5 sm:px-4 sm:py-3 text-xs sm:text-sm flex gap-2 sm:gap-3 items-start ${
+              theme === 'dark'
+                ? 'bg-amber-950/50 border-amber-700/40 text-amber-50'
+                : 'bg-amber-50 border-amber-200 text-amber-950'
+            }`}
+          >
+            <AlertCircle className="shrink-0 mt-0.5" size={18} aria-hidden />
+            <div className="min-w-0 flex-1 space-y-1 leading-relaxed">
+              <p className="font-semibold">Production build (e.g. Docker on port 8000)</p>
+              <p>
+                โหมดนี้ไม่ใช่ <code className="px-1 rounded bg-black/10 dark:bg-white/10">npm run dev</code> — แอปชุดเดียวกัน
+                แต่เบราว์เซอร์แยก <strong>localStorage ต่อ origin</strong> ดังนั้น profile / ข้อมูลที่เคยเห็นตอน dev (
+                <code className="px-1 rounded bg-black/10 dark:bg-white/10">localhost:5173</code>
+                ) จะไม่โผล่ที่นี่จนกว่าจะโหลดจากเซิร์ฟเวอร์หรือใช้ Profile → Export / Import
+              </p>
+              <p className="opacity-90">
+                Same code as dev — browser storage is per site URL. Use server-backed profiles or export from dev
+                and import here.
+              </p>
+            </div>
+            <button
+              type="button"
+              className={`shrink-0 rounded-lg px-2 py-1 text-xs font-medium border ${
+                theme === 'dark'
+                  ? 'border-amber-600/50 hover:bg-amber-900/40'
+                  : 'border-amber-300 hover:bg-amber-100/80'
+              }`}
+              onClick={() => {
+                try {
+                  sessionStorage.setItem('evalProdOriginHintDismissed', '1');
+                } catch {
+                  /* ignore */
+                }
+                setShowProdOriginHint(false);
+              }}
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
 
         {/* CONTENT PAGES — full-bleed layout for Library / Create TC / Run Job */}
         <div

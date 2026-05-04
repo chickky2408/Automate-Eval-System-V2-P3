@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { 
   Menu, X, LayoutDashboard, Settings, PlayCircle, Cpu, 
   History, Bell, Upload, FileCode, Box, Search, 
-  CheckCircle2, AlertCircle, Clock, Zap, Database, ChevronRight,
+  CheckCircle2, AlertCircle, Clock, Zap, Database, ExternalLink,
   Grid3x3, List, Filter, Terminal, Wifi, WifiOff, HardDrive,
   RefreshCw, Download, Activity, XCircle, Eye, MoreVertical,
   ArrowUp, ArrowDown, Square, Tag, FileJson, StopCircle, Plus,
@@ -13,39 +13,28 @@ import {
 import { useTestStore } from '../store/useTestStore';
 
 // 5. HISTORY PAGE
-const isDemoHistoryJob = (job) => String(job?.id || '').startsWith('demo-history');
+const isDemoHistoryJob = (job) => typeof job?.id === 'string' && String(job.id).startsWith('demo-');
 
 const HistoryPage = ({ onViewJob }) => {
   const { jobs, exportJobToJSON, exportAllFailedLogs, loading, errors, deleteJob, addToast } = useTestStore();
   const [downloadMenuOpen, setDownloadMenuOpen] = useState({});
   const [statusFilter, setStatusFilter] = useState('all'); // all | passed | failed
   const [searchTerm, setSearchTerm] = useState('');
-  
-  // Filter completed jobs (รวมทั้ง completed และ stopped เพื่อเก็บประวัติ demo run)
-  const completedJobs = jobs.filter(
-    (job) => job.status === 'completed' || job.status === 'stopped'
+  const [groupByDate, setGroupByDate] = useState(true);
+  const [expandedJobId, setExpandedJobId] = useState(null);
+  const cardRefs = useRef({});
+
+  const completedJobs = useMemo(
+    () => jobs.filter((job) => job.status === 'completed' || job.status === 'stopped'),
+    [jobs]
   );
 
-  if (loading?.jobs) {
-    return (
-      <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-6 text-blue-700">
-        Loading history...
-      </div>
+  const jobHasExecutionFailure = (job) =>
+    (job.files || []).some(
+      (f) => f.result === 'fail' || String(f.status || '').toLowerCase() === 'error'
     );
-  }
 
-  if (errors?.jobs) {
-    return (
-      <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-6 text-red-700">
-        Failed to load history: {errors.jobs}
-      </div>
-    );
-  }
-  
-  // Helper to check if a job has failed files
-  const hasFailedFiles = (job) => {
-    return (job.files || []).some(f => f.result === 'fail' || f.status === 'error');
-  };
+  const hasFailedFiles = jobHasExecutionFailure;
   
   // Helper to count failed files
   const getFailedFilesCount = (job) => {
@@ -81,66 +70,182 @@ const HistoryPage = ({ onViewJob }) => {
     });
   };
 
-  // Demo history data สำหรับกรณีที่ยังไม่มี completed jobs จริง
-  const DEMO_COMPLETED_HISTORY = {
-    id: 'demo-history-pass',
-    name: 'Demo – All tests pass',
+  const getJobDate = (job) => {
+    if (job.completedAt) return new Date(job.completedAt);
+    if (job.startedAt) return new Date(job.startedAt);
+    return new Date(0);
+  };
+
+  const sortByDate = (list) => [...list].sort((a, b) => getJobDate(b) - getJobDate(a));
+
+  const dayKey = (job) => {
+    const d = getJobDate(job);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  const formatDayHeading = (key) => {
+    const [y, mo, da] = key.split('-').map(Number);
+    const d = new Date(y, mo - 1, da);
+    const today = new Date();
+    const startToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const startThat = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const diffDays = Math.round((startToday - startThat) / (24 * 60 * 60 * 1000));
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    return d.toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+  };
+
+  const DEMO_COMPLETED_JOB = {
+    id: 'demo-completed',
+    name: 'Completed job',
     profileName: 'Demo user',
     status: 'completed',
+    progress: 100,
     tag: 'Demo',
-    configName: 'Demo_Config',
+    configName: 'Default_Setup',
+    totalFiles: 3,
+    completedFiles: 3,
+    firmware: 'abi_many_args_2.bin',
+    boards: ['Demo Board 1'],
+    startedAt: new Date(Date.now() - 3600000).toISOString(),
+    completedAt: new Date().toISOString(),
+    files: [
+      { id: 'demo-c-1', name: 'test_case_1.vcd', status: 'completed', result: 'pass', order: 1 },
+      { id: 'demo-c-2', name: 'test_case_2.vcd', status: 'completed', result: 'pass', order: 2 },
+      { id: 'demo-c-3', name: 'test_case_3.vcd', status: 'completed', result: 'pass', order: 3 },
+    ],
+  };
+
+  const DEMO_COMPLETED_JOB_2 = {
+    id: 'demo-completed-2',
+    name: 'Completed job (ALT)',
+    profileName: 'Demo user',
+    status: 'completed',
+    progress: 100,
+    tag: 'Demo',
+    configName: 'Alt_Setup',
+    totalFiles: 2,
+    completedFiles: 2,
+    firmware: 'demo_erom_2.erom',
+    boards: ['Demo Board 2'],
+    startedAt: new Date(Date.now() - 5400000).toISOString(),
+    completedAt: new Date(Date.now() - 1800000).toISOString(),
+    files: [
+      { id: 'demo-c2-1', name: 'alt_case_1.vcd', status: 'completed', result: 'pass', order: 1 },
+      { id: 'demo-c2-2', name: 'alt_case_2.vcd', status: 'completed', result: 'pass', order: 2 },
+    ],
+  };
+
+  const DEMO_FAILED_JOB = {
+    id: 'demo-failed',
+    name: 'Demo failed job',
+    profileName: 'Demo user',
+    status: 'completed',
+    progress: 100,
+    tag: 'Demo',
+    configName: 'Default_Setup',
     totalFiles: 3,
     completedFiles: 3,
     firmware: 'demo_erom_1.erom',
-    boards: ['Demo Board 1'],
-    startedAt: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
-    completedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+    boards: ['Demo Board 2'],
+    startedAt: new Date(Date.now() - 7200000).toISOString(),
+    completedAt: new Date(Date.now() - 3600000).toISOString(),
     files: [
-      { id: 1, name: 'demo_case_pass_1.vcd', status: 'completed', result: 'pass', order: 1 },
-      { id: 2, name: 'demo_case_pass_2.vcd', status: 'completed', result: 'pass', order: 2 },
-      { id: 3, name: 'demo_case_pass_3.vcd', status: 'completed', result: 'pass', order: 3 },
+      { id: 'demo-f-1', name: 'test_case_1.vcd', status: 'completed', result: 'pass', order: 1 },
+      { id: 'demo-f-2', name: 'test_case_2.vcd', status: 'completed', result: 'fail', order: 2 },
+      { id: 'demo-f-3', name: 'test_case_3.vcd', status: 'completed', result: 'pass', order: 3 },
     ],
   };
 
-  const DEMO_FAILED_HISTORY = {
-    id: 'demo-history-fail',
-    name: 'Demo – Mixed pass / fail',
+  const DEMO_FAILED_JOB_2 = {
+    id: 'demo-failed-2',
+    name: 'Demo failed job (ALT)',
     profileName: 'Demo user',
     status: 'completed',
+    progress: 100,
     tag: 'Demo',
-    configName: 'Demo_Config',
+    configName: 'Alt_Setup',
     totalFiles: 3,
     completedFiles: 3,
-    firmware: 'demo_erom_2.erom',
-    boards: ['Demo Board 2'],
-    startedAt: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
-    completedAt: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+    firmware: 'demo_erom_3.erom',
+    boards: ['Demo Board 3'],
+    startedAt: new Date(Date.now() - 10800000).toISOString(),
+    completedAt: new Date(Date.now() - 5400000).toISOString(),
     files: [
-      { id: 1, name: 'demo_case_1.vcd', status: 'completed', result: 'pass', order: 1 },
-      { id: 2, name: 'demo_case_2.vcd', status: 'completed', result: 'fail', order: 2 },
-      { id: 3, name: 'demo_case_3.vcd', status: 'completed', result: 'pass', order: 3 },
+      { id: 'demo-f2-1', name: 'alt_case_1.vcd', status: 'completed', result: 'pass', order: 1 },
+      { id: 'demo-f2-2', name: 'alt_case_2.vcd', status: 'completed', result: 'fail', order: 2 },
+      { id: 'demo-f2-3', name: 'alt_case_3.vcd', status: 'completed', result: 'fail', order: 3 },
     ],
   };
 
-  const displayCompletedJobs =
-    completedJobs.length === 0 ? [DEMO_COMPLETED_HISTORY, DEMO_FAILED_HISTORY] : completedJobs;
+  const completedSuccessSource = useMemo(
+    () => sortByDate(completedJobs.filter((j) => !jobHasExecutionFailure(j))),
+    [completedJobs]
+  );
 
-  // Apply status filter + search by name/tag
-  const filteredJobs = displayCompletedJobs.filter((job) => {
-    if (statusFilter === 'passed' && hasFailedFiles(job)) return false;
-    if (statusFilter === 'failed' && !hasFailedFiles(job)) return false;
+  const errorColumnSource = useMemo(
+    () => sortByDate(completedJobs.filter((j) => jobHasExecutionFailure(j))),
+    [completedJobs]
+  );
+
+  const displayCompletedColumn = [DEMO_COMPLETED_JOB, DEMO_COMPLETED_JOB_2, ...completedSuccessSource];
+  const displayErrorColumn = [DEMO_FAILED_JOB, DEMO_FAILED_JOB_2, ...errorColumnSource];
+
+  const matchesHistoryFilters = useCallback((job) => {
+    if (statusFilter === 'passed' && jobHasExecutionFailure(job)) return false;
+    if (statusFilter === 'failed' && !jobHasExecutionFailure(job)) return false;
 
     const q = searchTerm.trim().toLowerCase();
     if (!q) return true;
 
-    const name = ((job.name || job.configName || '')).toLowerCase();
+    const name = (job.name || job.configName || '').toLowerCase();
     const tag = (job.tag || '').toLowerCase();
     const runBy = `${job.profileName || ''} ${job.clientId || ''}`.toLowerCase();
     return name.includes(q) || tag.includes(q) || runBy.includes(q);
-  });
+  }, [statusFilter, searchTerm]);
 
-  const passedJobs = filteredJobs.filter((job) => !hasFailedFiles(job));
-  const failedJobs = filteredJobs.filter((job) => hasFailedFiles(job));
+  const filteredCompletedCol = useMemo(
+    () => displayCompletedColumn.filter(matchesHistoryFilters),
+    [displayCompletedColumn, matchesHistoryFilters]
+  );
+
+  const filteredErrorCol = useMemo(
+    () => displayErrorColumn.filter(matchesHistoryFilters),
+    [displayErrorColumn, matchesHistoryFilters]
+  );
+
+  const mergedDemoAndDisplayJobs = useMemo(() => {
+    const m = new Map();
+    [...displayCompletedColumn, ...displayErrorColumn].forEach((j) => m.set(j.id, j));
+    return m;
+  }, [displayCompletedColumn, displayErrorColumn]);
+
+  const getJobById = (jobId) => jobs.find((j) => j.id === jobId) || mergedDemoAndDisplayJobs.get(jobId);
+
+  const groupedByDate = useMemo(() => {
+    if (!groupByDate) return null;
+    const map = new Map();
+    const ingest = (job, col) => {
+      const k = dayKey(job);
+      if (!map.has(k)) {
+        map.set(k, { dayKey: k, label: formatDayHeading(k), completed: [], error: [] });
+      }
+      map.get(k)[col].push(job);
+    };
+    filteredErrorCol.forEach((j) => ingest(j, 'error'));
+    filteredCompletedCol.forEach((j) => ingest(j, 'completed'));
+    const rows = Array.from(map.values());
+    rows.forEach((row) => {
+      row.completed.sort((a, b) => getJobDate(b) - getJobDate(a));
+      row.error.sort((a, b) => getJobDate(b) - getJobDate(a));
+    });
+    return rows.sort((a, b) => b.dayKey.localeCompare(a.dayKey));
+  }, [groupByDate, filteredCompletedCol, filteredErrorCol]);
+
+  const historyJobsShownCount = filteredCompletedCol.length + filteredErrorCol.length;
 
   const getJobProgress = (job) => {
     if (typeof job.progress === 'number') return job.progress;
@@ -155,7 +260,7 @@ const HistoryPage = ({ onViewJob }) => {
   
   // Export functions for different formats
   const exportToCSV = (jobId) => {
-    const job = jobs.find(j => j.id === jobId);
+    const job = getJobById(jobId);
     if (!job) return;
     
     const headers = ['Test Case', 'Order', 'Status', 'Result', 'Board', 'Firmware'];
@@ -183,7 +288,7 @@ const HistoryPage = ({ onViewJob }) => {
   };
   
   const exportToHTML = (jobId) => {
-    const job = jobs.find(j => j.id === jobId);
+    const job = getJobById(jobId);
     if (!job) return;
     
     const htmlContent = `<!DOCTYPE html>
@@ -278,7 +383,7 @@ const HistoryPage = ({ onViewJob }) => {
   };
   
   const exportToPDF = (jobId) => {
-    const job = jobs.find(j => j.id === jobId);
+    const job = getJobById(jobId);
     if (!job) return;
     
     // Generate HTML content for PDF
@@ -379,7 +484,7 @@ const HistoryPage = ({ onViewJob }) => {
   };
   
   const exportLogs = (jobId) => {
-    const job = jobs.find(j => j.id === jobId);
+    const job = getJobById(jobId);
     if (!job) return;
     
     const logContent = `Test Job Log - Job #${jobId}
@@ -473,6 +578,12 @@ Summary:
     };
   }, [downloadMenuOpen]);
 
+  useEffect(() => {
+    if (!expandedJobId) return;
+    const el = cardRefs.current[expandedJobId];
+    el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [expandedJobId]);
+
   const handleDeleteJob = async (e, job) => {
     e.stopPropagation();
     if (isDemoHistoryJob(job)) {
@@ -492,20 +603,340 @@ Summary:
     else addToast({ type: 'error', message: 'Could not delete job.' });
   };
 
-  return (
-  <div className="space-y-6 min-w-0">
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-2">
-        <div className="min-w-0">
-    <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100">Test History</h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm sm:text-base">View completed test jobs and their results</p>
+  const toggleCardExpand = (jobId) => {
+    setExpandedJobId((prev) => (prev === jobId ? null : jobId));
+  };
+
+  const sortedFilesForJob = (job) =>
+    [...(job.files || [])].sort((a, b) => (a.order || 0) - (b.order || 0));
+
+  const renderDownloadMenu = (job) => (
+    <div className="relative download-menu-container">
+      <button
+        type="button"
+        onClick={(e) => toggleDownloadMenu(e, job.id)}
+        className="p-1.5 hover:bg-blue-50 dark:hover:bg-slate-800 rounded-md transition-all group-hover:bg-blue-50 dark:group-hover:bg-slate-800"
+        title="Download files"
+      >
+        <Download size={16} className="text-slate-400 dark:text-slate-300 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors" />
+      </button>
+
+      {downloadMenuOpen[job.id] && (
+        <div className="absolute right-0 top-full mt-1 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 shadow-xl z-50 min-w-[200px]">
+          <div className="py-1">
+            <button
+              type="button"
+              onClick={(e) => handleDownload(e, job.id, 'json')}
+              className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
+            >
+              <FileJson size={16} className="text-blue-600 dark:text-blue-400" />
+              <span>Download JSON</span>
+            </button>
+            <button
+              type="button"
+              onClick={(e) => handleDownload(e, job.id, 'csv')}
+              className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
+            >
+              <FileCode size={16} className="text-green-600 dark:text-green-400" />
+              <span>Download CSV</span>
+            </button>
+            <button
+              type="button"
+              onClick={(e) => handleDownload(e, job.id, 'html')}
+              className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
+            >
+              <FileCode size={16} className="text-purple-600 dark:text-purple-400" />
+              <span>Download HTML Report</span>
+            </button>
+            <button
+              type="button"
+              onClick={(e) => handleDownload(e, job.id, 'pdf')}
+              className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
+            >
+              <FileCode size={16} className="text-red-600 dark:text-red-400" />
+              <span>Download PDF Report</span>
+            </button>
+            <button
+              type="button"
+              onClick={(e) => handleDownload(e, job.id, 'log')}
+              className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
+            >
+              <FileCode size={16} className="text-orange-600 dark:text-orange-400" />
+              <span>Download Logs</span>
+            </button>
+            {hasFailedFiles(job) && (
+              <>
+                <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
+                <button
+                  type="button"
+                  onClick={(e) => handleDownload(e, job.id, 'failed')}
+                  className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-red-50 dark:hover:bg-red-900/40 flex items-center gap-2 text-red-600 dark:text-red-400 font-semibold"
+                >
+                  <AlertCircle size={16} className="text-red-600" />
+                  <span>Download Failed Files ({getFailedFilesCount(job)})</span>
+                </button>
+              </>
+            )}
+          </div>
         </div>
-        <div className="text-sm text-slate-500 dark:text-slate-400 flex-shrink-0">
-          {completedJobs.length} completed job{completedJobs.length !== 1 ? 's' : ''}
+      )}
+    </div>
+  );
+
+  const renderJobCard = (job) => {
+    const expanded = expandedJobId === job.id;
+    return (
+      <div
+        key={job.id}
+        ref={(el) => {
+          cardRefs.current[job.id] = el;
+        }}
+        className={`bg-white dark:bg-slate-900 rounded-lg border transition-all min-w-0 ${
+          expanded
+            ? 'border-blue-400 dark:border-blue-500 ring-1 ring-blue-500/40 shadow-sm'
+            : 'border-slate-200 dark:border-slate-700 hover:border-blue-300/80 dark:hover:border-slate-600'
+        }`}
+      >
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => toggleCardExpand(job.id)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              toggleCardExpand(job.id);
+            }
+          }}
+          className="px-2.5 py-2 sm:px-3 sm:py-2 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 cursor-pointer group hover:bg-slate-50/80 dark:hover:bg-slate-800/60 rounded-lg"
+        >
+          <div className="flex items-start gap-2 sm:gap-2.5 min-w-0 flex-1">
+            <div
+              className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
+                hasFailedFiles(job)
+                  ? 'bg-red-50 text-red-600 dark:bg-red-900/40 dark:text-red-300'
+                  : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-300'
+              }`}
+            >
+              {hasFailedFiles(job) ? <AlertCircle size={18} /> : <CheckCircle2 size={18} />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <h4 className="font-semibold text-slate-800 dark:text-slate-100 text-sm leading-snug truncate">
+                {(job.name || job.configName || '').trim() || `Job #${job.id}`}
+              </h4>
+              <p className="text-slate-500 dark:text-slate-400 text-[11px] sm:text-xs leading-tight mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                <span className="inline-flex items-center gap-0.5 shrink-0">
+                  <Clock size={11} className="opacity-70" />
+                  {formatDate(job)}
+                </span>
+                <span className="text-slate-400">·</span>
+                <span>{formatDuration(job)}</span>
+                <span className="text-slate-400">·</span>
+                <span className="inline-flex items-center gap-0.5 min-w-0">
+                  <User size={11} className="shrink-0 opacity-70" />
+                  <span className="truncate font-medium text-slate-600 dark:text-slate-300">
+                    {(job.profileName && String(job.profileName).trim()) || job.clientId || '—'}
+                  </span>
+                </span>
+              </p>
+              <div className="flex flex-wrap items-center gap-1 mt-1">
+                <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 tabular-nums">
+                  {job.completedFiles}/{job.totalFiles}
+                </span>
+                {hasFailedFiles(job) && (
+                  <span className="text-[10px] font-semibold bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300 px-1 py-px rounded flex items-center gap-0.5">
+                    <AlertCircle size={10} />
+                    {getFailedFilesCount(job)} fail
+                  </span>
+                )}
+                {job.tag && (
+                  <span className="text-[10px] font-semibold bg-purple-100 text-purple-700 dark:bg-purple-900/45 dark:text-purple-300 px-1 py-px rounded">
+                    {job.tag}
+                  </span>
+                )}
+                <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400 truncate max-w-[140px] sm:max-w-[220px]">
+                  {job.firmware}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-1 sm:gap-1 flex-shrink-0 sm:pl-2 border-t border-slate-100 dark:border-slate-800/80 pt-2 sm:border-0 sm:pt-0">
+            <div className="text-right leading-none mr-0.5">
+              <div
+                className={`text-xs font-bold tabular-nums ${
+                  hasFailedFiles(job)
+                    ? 'text-slate-600 dark:text-slate-300'
+                    : 'text-emerald-600 dark:text-emerald-400'
+                }`}
+              >
+                {getJobProgress(job)}%
+              </div>
+              <div className="text-[9px] text-slate-400 dark:text-slate-500 mt-0.5 hidden sm:block">done</div>
+            </div>
+            {hasFailedFiles(job) && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDownload(e, job.id, 'failed');
+                }}
+                className="px-2 py-1 bg-red-600 text-white rounded-md text-[11px] font-semibold hover:bg-red-700 transition-colors inline-flex items-center gap-1 shadow-sm"
+                title={`Download failed files report (${getFailedFilesCount(job)} failed)`}
+              >
+                <Download size={12} />
+                <span className="hidden sm:inline">Failed</span>
+                <span className="bg-red-800/80 px-1 rounded text-[10px] font-bold tabular-nums">{getFailedFilesCount(job)}</span>
+              </button>
+            )}
+            {renderDownloadMenu(job)}
+            {!isDemoHistoryJob(job) && (
+              <button
+                type="button"
+                onClick={(e) => handleDeleteJob(e, job)}
+                className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 dark:hover:text-red-300 transition-colors"
+                title="Delete job from server"
+              >
+                <Trash2 size={16} />
+              </button>
+            )}
+            {typeof onViewJob === 'function' && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onViewJob(job.id);
+                }}
+                className="p-1.5 rounded-md text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 dark:hover:text-blue-300 transition-colors"
+                title="Open in Jobs Manager"
+              >
+                <ExternalLink size={16} />
+              </button>
+            )}
+            {expanded ? (
+              <ChevronUp className="text-blue-500 dark:text-blue-400 transition-colors shrink-0" size={16} />
+            ) : (
+              <ChevronDown className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors shrink-0" size={16} />
+            )}
+          </div>
+        </div>
+
+        {expanded && (
+          <div className="px-2.5 sm:px-3 pb-3 border-t border-slate-200 dark:border-slate-700">
+            <div className="pt-2 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">
+              Test cases run
+            </div>
+            <div className="overflow-x-auto rounded-md border border-slate-200 dark:border-slate-700">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 dark:bg-slate-800/80 text-[10px] uppercase text-slate-500 dark:text-slate-400">
+                  <tr>
+                    <th className="px-2 py-1 font-semibold">#</th>
+                    <th className="px-2 py-1 font-semibold">Test case</th>
+                    <th className="px-2 py-1 font-semibold">Status</th>
+                    <th className="px-2 py-1 font-semibold">Result</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                  {sortedFilesForJob(job).map((file) => (
+                    <tr key={file.id ?? `${job.id}-${file.order}`} className="bg-white dark:bg-slate-900">
+                      <td className="px-2 py-1 text-slate-600 dark:text-slate-300 whitespace-nowrap tabular-nums">{file.order ?? '—'}</td>
+                      <td className="px-2 py-1 text-slate-800 dark:text-slate-100 font-medium">{getTestCaseDisplayName(file)}</td>
+                      <td className="px-2 py-1 text-slate-600 dark:text-slate-300">{file.status || '—'}</td>
+                      <td className="px-2 py-1">
+                        <span
+                          className={`font-semibold ${
+                            file.result === 'pass'
+                              ? 'text-emerald-600 dark:text-emerald-400'
+                              : file.result === 'fail'
+                                ? 'text-red-600 dark:text-red-400'
+                                : 'text-slate-600 dark:text-slate-300'
+                          }`}
+                        >
+                          {file.result || '—'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderTwoColumns = (errorList, completedList) => (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
+      <section className="rounded-xl border border-red-200/70 dark:border-red-900/45 bg-red-50/25 dark:bg-red-950/15 p-2 sm:p-2.5 min-w-0">
+        <div className="flex items-center gap-1.5 mb-2 px-0.5">
+          <span className="h-1.5 w-1.5 rounded-full bg-red-500 shrink-0" />
+          <h2 className="text-xs font-bold text-red-700 dark:text-red-300 uppercase tracking-wide">Error</h2>
+          <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-red-100 dark:bg-red-900/50 text-[10px] font-bold text-red-800 dark:text-red-200 tabular-nums">
+            {errorList.length}
+          </span>
+        </div>
+        <div className="space-y-1.5">
+          {errorList.length === 0 ? (
+            <p className="text-xs text-slate-500 dark:text-slate-400 px-1 py-3 text-center">No jobs in this group.</p>
+          ) : (
+            errorList.map((job) => renderJobCard(job))
+          )}
+        </div>
+      </section>
+      <section className="rounded-xl border border-emerald-200/70 dark:border-emerald-900/45 bg-emerald-50/25 dark:bg-emerald-950/15 p-2 sm:p-2.5 min-w-0">
+        <div className="flex items-center gap-1.5 mb-2 px-0.5">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
+          <h2 className="text-xs font-bold text-emerald-700 dark:text-emerald-300 uppercase tracking-wide">Completed</h2>
+          <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-emerald-100 dark:bg-emerald-900/50 text-[10px] font-bold text-emerald-800 dark:text-emerald-200 tabular-nums">
+            {completedList.length}
+          </span>
+        </div>
+        <div className="space-y-1.5">
+          {completedList.length === 0 ? (
+            <p className="text-xs text-slate-500 dark:text-slate-400 px-1 py-3 text-center">No jobs in this group.</p>
+          ) : (
+            completedList.map((job) => renderJobCard(job))
+          )}
+        </div>
+      </section>
+    </div>
+  );
+
+  if (loading?.jobs) {
+    return (
+      <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-6 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
+        Loading history...
+      </div>
+    );
+  }
+
+  if (errors?.jobs) {
+    return (
+      <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-6 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+        Failed to load history: {errors.jobs}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4 min-w-0">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-1.5">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100">Test History</h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-0.5 text-xs sm:text-sm leading-snug">
+            Two columns by outcome; click a row to expand test cases here.
+          </p>
+        </div>
+        <div className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 flex-shrink-0 text-right tabular-nums">
+          <div>
+            {historyJobsShownCount} job{historyJobsShownCount !== 1 ? 's' : ''} shown
+          </div>
+          <div className="text-[11px] opacity-80">
+            {completedJobs.length} on server
+          </div>
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+      <div className="flex flex-col lg:flex-row lg:items-center gap-2 flex-wrap">
         <div className="inline-flex rounded-full border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-900/40 p-1">
           {[
             { key: 'all', label: 'All' },
@@ -526,7 +957,19 @@ Summary:
             </button>
           ))}
         </div>
-        <div className="flex-1 min-w-[200px]">
+        <button
+          type="button"
+          onClick={() => setGroupByDate((v) => !v)}
+          className={`inline-flex items-center gap-2 px-3 py-1.5 text-xs sm:text-sm font-semibold rounded-full border transition-colors ${
+            groupByDate
+              ? 'border-blue-400 bg-blue-50 text-blue-800 dark:border-blue-600 dark:bg-blue-950/50 dark:text-blue-200'
+              : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <Layers size={14} className="shrink-0" />
+          Group by date
+        </button>
+        <div className="flex-1 min-w-[200px] lg:max-w-md">
           <div className="relative">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
@@ -540,349 +983,31 @@ Summary:
         </div>
       </div>
 
-      <div className="space-y-6">
-        {filteredJobs.length === 0 && (
-          <div className="border border-dashed border-slate-300 dark:border-slate-700 rounded-2xl py-10 px-4 text-center text-slate-500 dark:text-slate-400 text-sm">
+      <div className="space-y-4">
+        {historyJobsShownCount === 0 && (
+          <div className="border border-dashed border-slate-300 dark:border-slate-700 rounded-xl py-8 px-3 text-center text-slate-500 dark:text-slate-400 text-sm">
             No history matches the current filters.
           </div>
         )}
 
-        {(statusFilter === 'all' || statusFilter === 'passed') && passedJobs.length > 0 && (
-          <section>
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="text-sm font-bold text-emerald-600 dark:text-emerald-300 uppercase tracking-wide flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                Passed
-                <span className="ml-1 inline-flex items-center justify-center px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-900/40 text-[10px] font-semibold text-emerald-700 dark:text-emerald-200">
-                  {passedJobs.length}
-                </span>
-              </h2>
-            </div>
-            <div className="space-y-4">
-              {passedJobs.map((job) => (
-            <div 
-              key={job.id} 
-              onClick={() => onViewJob(job.id)}
-              className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-2xl border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-blue-300 dark:hover:border-slate-600 transition-all group cursor-pointer min-w-0"
-            >
-          <div className="flex items-center gap-4 sm:gap-6 min-w-0">
-            <div className={`h-14 w-14 rounded-2xl flex items-center justify-center ${
-              hasFailedFiles(job) 
-                ? 'bg-red-50 text-red-600 dark:bg-red-900/40 dark:text-red-300' 
-                : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-300'
-            }`}>
-              {hasFailedFiles(job) ? (
-                <AlertCircle size={28} />
-              ) : (
-                <CheckCircle2 size={28} />
-              )}
-            </div>
-            <div className="min-w-0">
-                  <h4 className="font-bold text-slate-800 dark:text-slate-100 text-base sm:text-lg truncate">{(job.name || job.configName || '').trim() || `Job #${job.id}`}</h4>
-                  <p className="text-slate-400 dark:text-slate-400 text-sm flex items-center gap-2">
-                    <Clock size={14}/> {formatDate(job)} • {formatDuration(job)} duration
-                  </p>
-                  <div className="flex items-center gap-1.5 mt-1.5 text-xs text-slate-500 dark:text-slate-400">
-                    <User size={14} className="shrink-0 opacity-70" />
-                    <span>
-                      Run by{' '}
-                      <span className="font-semibold text-slate-600 dark:text-slate-300">
-                        {(job.profileName && String(job.profileName).trim()) || job.clientId || '—'}
-                      </span>
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3 mt-2">
-                    <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                      {job.completedFiles}/{job.totalFiles} files
-                    </span>
-                    {hasFailedFiles(job) && (
-                      <span className="text-xs font-bold bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 px-2 py-0.5 rounded flex items-center gap-1">
-                        <AlertCircle size={12} />
-                        {getFailedFilesCount(job)} failed
-                      </span>
-                    )}
-                    {job.tag && (
-                      <span className="text-xs font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 px-2 py-0.5 rounded">
-                        {job.tag}
-                      </span>
-                    )}
-                    <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                      {job.firmware}
-                    </span>
-            </div>
+        {groupByDate && groupedByDate && groupedByDate.length > 0 && (
+          <div className="space-y-5">
+            {groupedByDate.map((row) => (
+              <div key={row.dayKey} className="space-y-2">
+                <h3 className="text-xs font-bold text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 pb-1.5">
+                  {row.label}
+                  <span className="ml-2 font-normal text-slate-400 tabular-nums">{row.dayKey}</span>
+                </h3>
+                {renderTwoColumns(row.error, row.completed)}
+              </div>
+            ))}
           </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 sm:gap-3 flex-shrink-0">
-                <div className="text-right">
-                  <div className="text-sm font-bold text-emerald-600 dark:text-emerald-300">{getJobProgress(job)}%</div>
-                  <div className="text-xs text-slate-400 dark:text-slate-400">Completed</div>
-                </div>
-                {hasFailedFiles(job) && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDownload(e, job.id, 'failed');
-                    }}
-                    className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-semibold hover:bg-red-700 transition-all flex items-center gap-2 shadow-sm"
-                    title={`Download failed files report (${getFailedFilesCount(job)} failed)`}
-                  >
-                    <Download size={16} />
-                    <span>Failed Files</span>
-                    <span className="bg-red-700 px-1.5 py-0.5 rounded text-xs font-bold">
-                      {getFailedFilesCount(job)}
-                    </span>
-                  </button>
-                )}
-                <div className="relative download-menu-container">
-                  <button
-                    onClick={(e) => toggleDownloadMenu(e, job.id)}
-                    className="p-2 hover:bg-blue-50 dark:hover:bg-slate-800 rounded-lg transition-all group-hover:bg-blue-50 dark:group-hover:bg-slate-800"
-                    title="Download files"
-                  >
-                    <Download size={20} className="text-slate-400 dark:text-slate-300 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors" />
-                  </button>
-                  
-                  {downloadMenuOpen[job.id] && (
-                    <div className="absolute right-0 top-full mt-1 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 shadow-xl z-50 min-w-[200px]">
-                      <div className="py-1">
-                        <button
-                          onClick={(e) => handleDownload(e, job.id, 'json')}
-                          className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
-                        >
-                          <FileJson size={16} className="text-blue-600 dark:text-blue-400" />
-                          <span>Download JSON</span>
-                        </button>
-                        <button
-                          onClick={(e) => handleDownload(e, job.id, 'csv')}
-                          className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
-                        >
-                          <FileCode size={16} className="text-green-600 dark:text-green-400" />
-                          <span>Download CSV</span>
-                        </button>
-                        <button
-                          onClick={(e) => handleDownload(e, job.id, 'html')}
-                          className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
-                        >
-                          <FileCode size={16} className="text-purple-600 dark:text-purple-400" />
-                          <span>Download HTML Report</span>
-                        </button>
-                        <button
-                          onClick={(e) => handleDownload(e, job.id, 'pdf')}
-                          className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
-                        >
-                          <FileCode size={16} className="text-red-600 dark:text-red-400" />
-                          <span>Download PDF Report</span>
-                        </button>
-                        <button
-                          onClick={(e) => handleDownload(e, job.id, 'log')}
-                          className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
-                        >
-                          <FileCode size={16} className="text-orange-600 dark:text-orange-400" />
-                          <span>Download Logs</span>
-                        </button>
-                        {hasFailedFiles(job) && (
-                          <>
-                            <div className="border-t border-slate-200 dark:border-slate-700 my-1"></div>
-                            <button
-                              onClick={(e) => handleDownload(e, job.id, 'failed')}
-                              className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-red-50 dark:hover:bg-red-900/40 flex items-center gap-2 text-red-600 dark:text-red-400 font-semibold"
-                            >
-                              <AlertCircle size={16} className="text-red-600" />
-                              <span>Download Failed Files ({getFailedFilesCount(job)})</span>
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-                {!isDemoHistoryJob(job) && (
-                  <button
-                    type="button"
-                    onClick={(e) => handleDeleteJob(e, job)}
-                    className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 dark:hover:text-red-300 transition-colors"
-                    title="Delete job from server"
-                  >
-                    <Trash2 size={20} />
-                  </button>
-                )}
-                <ChevronRight className="text-slate-300 dark:text-slate-600 group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors" size={20} />
-              </div>
-            </div>
-              ))}
-            </div>
-          </section>
         )}
 
-        {(statusFilter === 'all' || statusFilter === 'failed') && failedJobs.length > 0 && (
-          <section>
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="text-sm font-bold text-red-600 dark:text-red-300 uppercase tracking-wide flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-red-500" />
-                Failed
-                <span className="ml-1 inline-flex items-center justify-center px-2 py-0.5 rounded-full bg-red-50 dark:bg-red-900/40 text-[10px] font-semibold text-red-700 dark:text-red-200">
-                  {failedJobs.length}
-                </span>
-              </h2>
-            </div>
-            <div className="space-y-4">
-              {failedJobs.map((job) => (
-            <div 
-              key={job.id} 
-              onClick={() => onViewJob(job.id)}
-              className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-2xl border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-blue-300 dark:hover:border-slate-600 transition-all group cursor-pointer min-w-0"
-            >
-            <div className="flex items-center gap-4 sm:gap-6 min-w-0">
-            <div className={`h-14 w-14 rounded-2xl flex items-center justify-center ${
-              hasFailedFiles(job) 
-                ? 'bg-red-50 text-red-600 dark:bg-red-900/40 dark:text-red-300' 
-                : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-300'
-            }`}>
-              {hasFailedFiles(job) ? (
-                <AlertCircle size={28} />
-              ) : (
-                <CheckCircle2 size={28} />
-              )}
-            </div>
-            <div className="min-w-0">
-                  <h4 className="font-bold text-slate-800 dark:text-slate-100 text-base sm:text-lg truncate">{(job.name || job.configName || '').trim() || `Job #${job.id}`}</h4>
-                  <p className="text-slate-400 dark:text-slate-400 text-sm flex items-center gap-2">
-                    <Clock size={14}/> {formatDate(job)} • {formatDuration(job)} duration
-                  </p>
-                  <div className="flex items-center gap-1.5 mt-1.5 text-xs text-slate-500 dark:text-slate-400">
-                    <User size={14} className="shrink-0 opacity-70" />
-                    <span>
-                      Run by{' '}
-                      <span className="font-semibold text-slate-600 dark:text-slate-300">
-                        {(job.profileName && String(job.profileName).trim()) || job.clientId || '—'}
-                      </span>
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3 mt-2">
-                    <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                      {job.completedFiles}/{job.totalFiles} files
-                    </span>
-                    {hasFailedFiles(job) && (
-                      <span className="text-xs font-bold bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 px-2 py-0.5 rounded flex items-center gap-1">
-                        <AlertCircle size={12} />
-                        {getFailedFilesCount(job)} failed
-                      </span>
-                    )}
-                    {job.tag && (
-                      <span className="text-xs font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 px-2 py-0.5 rounded">
-                        {job.tag}
-                      </span>
-                    )}
-                    <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                      {job.firmware}
-                    </span>
-            </div>
-          </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 sm:gap-3 flex-shrink-0">
-                <div className="text-right">
-                  <div className="text-sm font-bold text-emerald-600 dark:text-emerald-300">{getJobProgress(job)}%</div>
-                  <div className="text-xs text-slate-400 dark:text-slate-400">Completed</div>
-                </div>
-                {hasFailedFiles(job) && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDownload(e, job.id, 'failed');
-                    }}
-                    className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-semibold hover:bg-red-700 transition-all flex items-center gap-2 shadow-sm"
-                    title={`Download failed files report (${getFailedFilesCount(job)} failed)`}
-                  >
-                    <Download size={16} />
-                    <span>Failed Files</span>
-                    <span className="bg-red-700 px-1.5 py-0.5 rounded text-xs font-bold">
-                      {getFailedFilesCount(job)}
-                    </span>
-                  </button>
-                )}
-                <div className="relative download-menu-container">
-                  <button
-                    onClick={(e) => toggleDownloadMenu(e, job.id)}
-                    className="p-2 hover:bg-blue-50 dark:hover:bg-slate-800 rounded-lg transition-all group-hover:bg-blue-50 dark:group-hover:bg-slate-800"
-                    title="Download files"
-                  >
-                    <Download size={20} className="text-slate-400 dark:text-slate-300 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors" />
-                  </button>
-                  
-                  {downloadMenuOpen[job.id] && (
-                    <div className="absolute right-0 top-full mt-1 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 shadow-xl z-50 min-w-[200px]">
-                      <div className="py-1">
-                        <button
-                          onClick={(e) => handleDownload(e, job.id, 'json')}
-                          className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
-                        >
-                          <FileJson size={16} className="text-blue-600 dark:text-blue-400" />
-                          <span>Download JSON</span>
-                        </button>
-                        <button
-                          onClick={(e) => handleDownload(e, job.id, 'csv')}
-                          className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
-                        >
-                          <FileCode size={16} className="text-green-600 dark:text-green-400" />
-                          <span>Download CSV</span>
-                        </button>
-                        <button
-                          onClick={(e) => handleDownload(e, job.id, 'html')}
-                          className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
-                        >
-                          <FileCode size={16} className="text-purple-600 dark:text-purple-400" />
-                          <span>Download HTML Report</span>
-                        </button>
-                        <button
-                          onClick={(e) => handleDownload(e, job.id, 'pdf')}
-                          className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
-                        >
-                          <FileCode size={16} className="text-red-600 dark:text-red-400" />
-                          <span>Download PDF Report</span>
-                        </button>
-                        <button
-                          onClick={(e) => handleDownload(e, job.id, 'log')}
-                          className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
-                        >
-                          <FileCode size={16} className="text-orange-600 dark:text-orange-400" />
-                          <span>Download Logs</span>
-                        </button>
-                        {hasFailedFiles(job) && (
-                          <>
-                            <div className="border-t border-slate-200 dark:border-slate-700 my-1"></div>
-                            <button
-                              onClick={(e) => handleDownload(e, job.id, 'failed')}
-                              className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-red-50 dark:hover:bg-red-900/40 flex items-center gap-2 text-red-600 dark:text-red-400 font-semibold"
-                            >
-                              <AlertCircle size={16} className="text-red-600" />
-                              <span>Download Failed Files ({getFailedFilesCount(job)})</span>
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-                {!isDemoHistoryJob(job) && (
-                  <button
-                    type="button"
-                    onClick={(e) => handleDeleteJob(e, job)}
-                    className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 dark:hover:text-red-300 transition-colors"
-                    title="Delete job from server"
-                  >
-                    <Trash2 size={20} />
-                  </button>
-                )}
-                <ChevronRight className="text-slate-300 dark:text-slate-600 group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors" size={20} />
-              </div>
-            </div>
-              ))}
-            </div>
-          </section>
-        )}
+        {!groupByDate && historyJobsShownCount > 0 && renderTwoColumns(filteredErrorCol, filteredCompletedCol)}
       </div>
-  </div>
-);
+    </div>
+  );
 };
 
 // --- HELPER COMPONENTS ---
