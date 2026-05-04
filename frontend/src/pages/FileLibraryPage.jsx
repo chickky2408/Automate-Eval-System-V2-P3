@@ -939,7 +939,6 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     return () => document.removeEventListener('mousedown', onClick);
   }, [fileTagColorDropdownOpen]);
   const [fileSizeSearch, setFileSizeSearch] = useState('');
-  const [fileOwnerSearch, setFileOwnerSearch] = useState('');
   const [fileTcSearch, setFileTcSearch] = useState('');
   const [fileSetSearch, setFileSetSearch] = useState('');
   const [fileDateSearch, setFileDateSearch] = useState('');
@@ -1024,33 +1023,12 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
       } else if (field === 'size') {
         setFileSizeSearch(value);
         recordFileLibraryToolbarFilterHistory('size', value);
-      } else if (field === 'owner') {
-        setFileOwnerSearch(value);
-        recordFileLibraryToolbarFilterHistory('owner', value);
       }
       setLibraryToolbarFilterPickField(null);
       libraryFilterPickTriggerRef.current = null;
     },
     [recordFileLibraryToolbarFilterHistory]
   );
-
-  /** Files library toolbar — reset type, status, text filters, tag color UI, and close pickers. */
-  const clearFileLibraryToolbarFilters = useCallback(() => {
-    setFileFilter('all');
-    setFileStatusFilter('all');
-    setFileSearch('');
-    setFileTagSearch('');
-    setFileTagColorFilter('');
-    setFileTagColorSearch('');
-    setFileTagColorDropdownOpen(false);
-    setFileTcSearch('');
-    setFileSetSearch('');
-    setFileDateSearch('');
-    setFileSizeSearch('');
-    setFileOwnerSearch('');
-    setLibraryToolbarFilterPickField(null);
-    libraryFilterPickTriggerRef.current = null;
-  }, []);
 
   const [tagInputByFileId, setTagInputByFileId] = useState({});
   const [isTagEditorOpenByFileId, setIsTagEditorOpenByFileId] = useState({});
@@ -1286,18 +1264,38 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
   const isDragSelectingFileRef = useRef(false);
   const [libraryFocusFileName, setLibraryFocusFileName] = useState(null);
   const focusedLibraryFileRef = useRef(null);
-  // Separate filter per Library tab: Set=Active profile, Test Cases=Mine, File=All
+  // Separate filter per Library tab: Set / Test Cases / Files — default active profile owner
   // For Sets tab, this stores an "owner filter key": '__active__' | 'all' | <profileId>
   const [librarySetFilter, setLibrarySetFilter] = useState('__active__'); // Set Library
   /** Test Cases Library owner: same keys as Sets — '__active__' | 'all' | <profileId> | 'shared' */
   const [libraryTestCasesFilter, setLibraryTestCasesFilter] = useState('__active__');
-  const [libraryFileFilter, setLibraryFileFilter] = useState('all'); // File in Library
+  /** Files tab owner scope: '__active__' = current profile (default), 'mine' | 'shared' | 'all' | <profileId> */
+  const [libraryFileFilter, setLibraryFileFilter] = useState('__active__');
   const libraryCreatedByFilter = libraryView === 'testCases' ? librarySetFilter : libraryView === 'rawTestCases' ? libraryTestCasesFilter : libraryFileFilter;
   const setLibraryCreatedByFilter = (value) => {
     if (libraryView === 'testCases') setLibrarySetFilter(value);
     else if (libraryView === 'rawTestCases') setLibraryTestCasesFilter(value);
     else setLibraryFileFilter(value);
   };
+
+  /** Files library toolbar — reset type, status, text filters, tag color UI, owner scope → active profile, and close pickers. */
+  const clearFileLibraryToolbarFilters = useCallback(() => {
+    setFileFilter('all');
+    setFileStatusFilter('all');
+    setFileSearch('');
+    setFileTagSearch('');
+    setFileTagColorFilter('');
+    setFileTagColorSearch('');
+    setFileTagColorDropdownOpen(false);
+    setFileTcSearch('');
+    setFileSetSearch('');
+    setFileDateSearch('');
+    setFileSizeSearch('');
+    setLibraryFileFilter('__active__');
+    setLibraryToolbarFilterPickField(null);
+    libraryFilterPickTriggerRef.current = null;
+  }, []);
+
   const refreshGlobalTestCaseData = useTestStore((s) => s.refreshGlobalTestCaseData);
 
   // Cross-profile data (GET /profiles/all-test-cases) — fetch when filter needs non-local data.
@@ -1800,17 +1798,6 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     return out.sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true })).slice(0, 80);
   }, [uploadedFiles, fileLibraryToolbarFilterHistory]);
 
-  const libraryFilterPickOwnerOptions = useMemo(() => {
-    const seen = new Set();
-    const out = [];
-    (fileLibraryToolbarFilterHistory.owner || []).forEach((x) => pushUniqueCi(out, seen, x));
-    (uploadedFiles || []).forEach((f) => {
-      pushUniqueCi(out, seen, resolveFileOwnerDisplay(f, ownerLabelCtx));
-      pushUniqueCi(out, seen, f.ownerId);
-    });
-    return out.sort((a, b) => a.localeCompare(b)).slice(0, 50);
-  }, [uploadedFiles, ownerLabelCtx, fileLibraryToolbarFilterHistory]);
-
   const filteredFiles = [...(uploadedFiles || [])]
     .filter((f) => {
       const k = getFileKind(f);
@@ -1845,12 +1832,6 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
         const sizeTxt = String(f.sizeFormatted || f.size || '').toLowerCase();
         if (!sizeTxt.includes(q) && !String(n).includes(q)) return false;
       }
-      if (fileOwnerSearch.trim()) {
-        const q = fileOwnerSearch.trim().toLowerCase();
-        const display = resolveFileOwnerDisplay(f, ownerLabelCtx).toLowerCase();
-        const ownerId = String(f.ownerId || '').toLowerCase();
-        if (!display.includes(q) && !ownerId.includes(q)) return false;
-      }
       if (fileTcSearch.trim()) {
         const q = fileTcSearch.trim().toLowerCase();
         const usedByTcs = getTestCasesUsingFile(f.name, fileReferenceTestCases, fileReferenceTestCaseSets);
@@ -1873,12 +1854,24 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
         const pretty = d && !Number.isNaN(d.getTime()) ? d.toLocaleDateString().toLowerCase() : '';
         if (!ymd.toLowerCase().includes(q) && !pretty.includes(q)) return false;
       }
-      if (libraryCreatedByFilter === 'mine') {
+      if (libraryCreatedByFilter === 'mine' || libraryCreatedByFilter === '__active__') {
         if (!isFileOwnerMine(f, currentClientId, activeProfileId)) return false;
         return true;
       }
       if (libraryCreatedByFilter === 'shared') {
         if (!isFileOwnerOtherUser(f, currentClientId, activeProfileId)) return false;
+        return true;
+      }
+      if (
+        libraryCreatedByFilter &&
+        libraryCreatedByFilter !== 'all' &&
+        libraryCreatedByFilter !== 'mine' &&
+        libraryCreatedByFilter !== '__active__' &&
+        libraryCreatedByFilter !== 'shared'
+      ) {
+        const want = String(libraryCreatedByFilter);
+        const oid = String(f.ownerId ?? f.owner_id ?? '');
+        if (oid !== want) return false;
         return true;
       }
       return true;
@@ -8038,7 +8031,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                     </div>
                     {rawTcLibraryFilePathReadOnly && (
                       <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                        ช่องชื่อไฟล์ห้ามพิมพ์เอง — เลือกจาก Library ด้านปุ่ม ▼ หรือลากวางเมื่อเป็น MDI เท่านั้น
+                        
                       </p>
                     )}
                     <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
@@ -8817,11 +8810,6 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                         <option key={`z-${h}`} value={h} />
                       ))}
                     </datalist>
-                    <datalist id="lib-filter-h-owner">
-                      {(fileLibraryToolbarFilterHistory.owner || []).map((h) => (
-                        <option key={`o-${h}`} value={h} />
-                      ))}
-                    </datalist>
                     <div className="flex shrink-0 items-center gap-1.5">
                     <div className="relative shrink-0 min-w-[136px] w-[154px]" data-lib-filter-pick-root>
                       <input
@@ -9072,32 +9060,25 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                         <ChevronDown className="w-3.5 h-3.5 pointer-events-none" strokeWidth={2} />
                       </button>
                     </div>
-                    <div className="relative shrink-0 min-w-[112px] w-[132px]" data-lib-filter-pick-root>
-                      <input
-                        type="text"
-                        list="lib-filter-h-owner"
-                        value={fileOwnerSearch}
-                        onChange={(e) => setFileOwnerSearch(e.target.value)}
-                        onBlur={() => recordFileLibraryToolbarFilterHistory('owner', fileOwnerSearch)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') recordFileLibraryToolbarFilterHistory('owner', fileOwnerSearch);
-                        }}
-                        placeholder="Owner"
-                        className="w-full h-8 pl-2 pr-8 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
-                      />
-                      <button
-                        type="button"
-                        aria-label="Suggestions"
-                        title="Suggestions"
-                        className="absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/90 dark:hover:bg-slate-800/80"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleLibraryToolbarFilterPick('owner', e.currentTarget);
-                        }}
-                      >
-                        <ChevronDown className="w-3.5 h-3.5 pointer-events-none" strokeWidth={2} />
-                      </button>
-                    </div>
+                    <select
+                      value={libraryFileFilter === 'mine' ? '__active__' : libraryFileFilter}
+                      onChange={(e) => setLibraryFileFilter(e.target.value)}
+                      className="shrink-0 h-8 pl-1.5 pr-6 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 min-w-[112px] max-w-[min(180px,32vw)]"
+                      title="Filter files by owner (profile)"
+                    >
+                      <option value="all">All owners</option>
+                      <option value="__active__">
+                        {resolveOwnerDisplayName(activeProfileId, ownerLabelCtx) || activeProfile?.name || 'My profile'}
+                      </option>
+                      {allOwnerProfiles
+                        .filter((p) => String(p?.id) !== String(activeProfileId))
+                        .map((p) => (
+                          <option key={`file-owner-${p.id}`} value={String(p.id)}>
+                            {p.name || p.id}
+                          </option>
+                        ))}
+                      <option value="shared">Shared with me</option>
+                    </select>
 
                     </div>
 
@@ -9132,9 +9113,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                           ? libraryFilterPickDateOptions
                                           : libraryToolbarFilterPickField === 'size'
                                             ? libraryFilterPickSizeOptions
-                                            : libraryToolbarFilterPickField === 'owner'
-                                              ? libraryFilterPickOwnerOptions
-                                              : [];
+                                            : [];
                               if (pickList.length === 0) {
                                 return (
                                   <div className="px-3 py-4 text-center text-[11px] text-slate-400">No suggestions yet</div>

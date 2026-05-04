@@ -36,15 +36,24 @@ def _effective_profile_display_name(p: ProfileORM) -> Optional[str]:
 
 def _tc_stable_seed_for_id(tc: Dict[str, Any], fallback: str) -> str:
     """
-    Stable id input so the same display name in library + set does not create two test_cases rows.
-    Generic placeholder names still use the frontend id to avoid collapsing distinct drafts.
+    Stable id input for `_stable_id("tc", ...)`.
+
+    Prefer the frontend `id` so every distinct saved row in `savedTestCases` / set items gets its own
+    `test_cases` mirror row. Name-only seeds caused subtle collisions (e.g. same normalized name twice
+    or unexpected duplicates) where `ensure_case` hit `tc_id in tc_by_key` and skipped the row —
+    Library JSON still showed the TC but the normalized table did not.
+
+    When `id` is missing (legacy/import), fall back to non-generic display name, then the positional
+    fallback. Same logical TC re-used in library + set still shares one `id` and maps to one row.
     """
+    rid = str(tc.get("id") or "").strip()
+    if rid:
+        return rid
     generic = {"", "new test case", "test case"}
     nm = _normalize_tc_name(tc.get("name")).strip().lower()
-    rid = str(tc.get("id") or "").strip()
     if nm and nm not in generic:
         return nm
-    return rid if rid else fallback
+    return fallback
 
 
 def _first_mdi_txt_filename(tc: Dict[str, Any]) -> Optional[str]:
