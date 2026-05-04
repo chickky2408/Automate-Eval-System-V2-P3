@@ -777,6 +777,47 @@ const putActiveProfileDataWithRecovery = async (getPayload, opts = {}) => {
   }
 };
 
+/**
+ * Hydrate from GET /profiles/:id/data: server rows win on same `id`; keep local-only rows
+ * (e.g. Save job succeeded locally before PUT, or server briefly returned empty `[]`).
+ */
+const mergeProfileListsRemoteThenLocalOnly = (remoteList, localList) => {
+  const r = Array.isArray(remoteList) ? remoteList : [];
+  const l = Array.isArray(localList) ? localList : [];
+  const seen = new Set();
+  for (const row of r) {
+    const id = row?.id;
+    if (id == null || String(id).trim() === '') continue;
+    seen.add(String(id));
+  }
+  const out = [...r];
+  for (const row of l) {
+    const id = row?.id;
+    if (id == null || String(id).trim() === '') continue;
+    const key = String(id);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
+  }
+  return out;
+};
+
+const mergeProfileSnapshotFromServer = (data, localTestCases, localSets) => {
+  if (!data || typeof data !== 'object') {
+    return { savedTestCases: localTestCases, savedTestCaseSets: localSets };
+  }
+  const hasCases = Object.prototype.hasOwnProperty.call(data, 'savedTestCases');
+  const hasSets = Object.prototype.hasOwnProperty.call(data, 'savedTestCaseSets');
+  return {
+    savedTestCases: hasCases
+      ? mergeProfileListsRemoteThenLocalOnly(data.savedTestCases, localTestCases)
+      : localTestCases,
+    savedTestCaseSets: hasSets
+      ? mergeProfileListsRemoteThenLocalOnly(data.savedTestCaseSets, localSets)
+      : localSets,
+  };
+};
+
 // Save saved test cases to active profile (and sync to backend if profile is backend UUID)
 const saveSavedTestCases = (list) => {
   const activeId = getActiveProfileId();
@@ -798,8 +839,17 @@ const saveSavedTestCases = (list) => {
   if (isBackendProfileId(activeId)) {
     return putActiveProfileDataWithRecovery(
       () => {
+        const id = getActiveProfileId();
+        const p = loadProfile(id) || {};
+        const s = useTestStore.getState();
+        const setsPayload = Array.isArray(p.savedTestCaseSets)
+          ? p.savedTestCaseSets
+          : Array.isArray(s.savedTestCaseSets)
+            ? s.savedTestCaseSets
+            : [];
         return {
           savedTestCases: list,
+          savedTestCaseSets: setsPayload,
           preferences: mergePreferencesForActiveProfilePut(),
         };
       },
@@ -934,37 +984,62 @@ const getTestCaseFilesKey = (tc) => {
   return [vcd, bin, lin, ...extraPairs].join('\0');
 };
 
-/** Same logical identity as FileLibraryPage `tcSignatureKeyForDedupe` (VCD/ERoM/ULP + extra erom/ulp/mdi + MDI commands). */
-const getExtendedTestCaseKey = (tc) => {
-  if (!tc || typeof tc !== 'object') return '';
-  const vcd = normalizeFilenameForKey(tc.vcdName);
-  const bin = normalizeFilenameForKey(tc.binName);
-  const lin = normalizeFilenameForKey(tc.linName);
-  const ex = tc.extraColumns && typeof tc.extraColumns === 'object' ? tc.extraColumns : {};
-  const extraPairs = Object.keys(ex)
-    .filter((k) => /^(erom|ulp|mdi)\d+$/i.test(String(k)))
-    .map((k) => {
-      const vv = normalizeFilenameForKey(ex[k]);
-      return vv ? `${String(k).toUpperCase()}=${vv}` : null;
-    })
-    .filter(Boolean)
-    .sort((a, b) => String(a).localeCompare(String(b)));
-  const mdiCmds = (tc.commands || [])
-    .filter((c) => c && c.type === 'mdi' && String(c.file || '').trim())
-    .map((c) => normalizeFilenameForKey(c.file))
-    .sort()
-    .join('\0');
-  const base = [vcd, bin, lin, ...extraPairs].join('\0');
-  return mdiCmds ? `${base}\0mdi:${mdiCmds}` : base;
-};
+/**
+ * Active-profile library only: if a saved row has the same display name as `incoming` but a different
+ * VCD/ERoM/ULP/MDI* file-set, remove that row (user expects "replace old with new", not `name (2)`).
+ * Rewire saved-job items that referenced the removed id to `reassignedId` + file fields from `incoming`.
+ */
+function evictLocalLibrarySameNameDifferentFiles(savedTestCases, savedTestCaseSets, incoming, reassignedId) {
+  const rawDesired = normalizeTestCaseName(incoming?.name);
+  const incomingKey = getTestCaseFilesKey(incoming);
+  if (!rawDesired || !incomingKey) {
+    return { savedTestCases, savedTestCaseSets, evictedId: null };
+  }
+  const nextCases = [...(savedTestCases || [])];
+  const idx = nextCases.findIndex(
+    (t) =>
+      normalizeTestCaseName(t.name) === rawDesired &&
+      Boolean(getTestCaseFilesKey(t)) &&
+      getTestCaseFilesKey(t) !== incomingKey
+  );
+  if (idx < 0) {
+    return { savedTestCases: nextCases, savedTestCaseSets, evictedId: null };
+  }
+  const evictedId = String(nextCases[idx].id);
+  nextCases.splice(idx, 1);
+  const patch = {
+    id: reassignedId,
+    name: rawDesired,
+    vcdName: incoming.vcdName || '',
+    binName: incoming.binName || '',
+    linName: incoming.linName || '',
+    boardId: incoming.boardId || '',
+    tryCount: typeof incoming.tryCount === 'number' && incoming.tryCount > 0 ? incoming.tryCount : 1,
+    extraColumns: incoming.extraColumns && typeof incoming.extraColumns === 'object' ? { ...incoming.extraColumns } : {},
+  };
+  if (Array.isArray(incoming.commands) && incoming.commands.length) {
+    patch.commands = incoming.commands.map((c) => ({ ...c }));
+  }
+  const nextSets = (savedTestCaseSets || []).map((set) => ({
+    ...set,
+    items: Array.isArray(set.items)
+      ? set.items.map((it) => (String(it.id) === evictedId ? { ...it, ...patch } : it))
+      : set.items,
+  }));
+  return { savedTestCases: nextCases, savedTestCaseSets: nextSets, evictedId };
+}
 
-/** Lets a set copy reuse the same display name as the library TC with identical file bundle (different id). */
-function subtractNamesFromSharedTestCaseSignature(used, tc, state) {
-  const k = getExtendedTestCaseKey(tc);
+/**
+ * Aligns with backend `_tc_files_key`: any row with the same VCD/ERoM/ULP/MDI* file-set may share that display name
+ * with a new job item (different id). Without this, saving a job from Library renames to "test1 (2)" while "test1"
+ * stays in Library — same file signature twice → server rejects sync.
+ */
+function subtractNamesFromSameFileSetKey(used, tc, state) {
+  const k = getTestCaseFilesKey(tc);
   if (!k) return;
   const walk = (row) => {
     if (!row) return;
-    if (getExtendedTestCaseKey(row) !== k) return;
+    if (getTestCaseFilesKey(row) !== k) return;
     const n = normalizeTestCaseName(row.name);
     if (n) used.delete(n);
   };
@@ -988,6 +1063,17 @@ function subtractNamesFromSharedTestCaseSignature(used, tc, state) {
     (prof.savedTestCases || []).forEach(walk);
     (prof.savedTestCaseSets || []).forEach((set) => (set.items || []).forEach(walk));
   }
+}
+
+/** Prefer Library display name when file-set matches (fixes stale "name (2)" on queue/copies). */
+function preferredJobItemBaseName(tc, savedTestCases) {
+  const k = getTestCaseFilesKey(tc);
+  if (k && Array.isArray(savedTestCases)) {
+    const row = savedTestCases.find((r) => getTestCaseFilesKey(r) === k);
+    const nn = normalizeTestCaseName(row?.name);
+    if (nn) return nn;
+  }
+  return normalizeTestCaseName(tc?.name) || '';
 }
 
 function collectFileNamesFromTestCaseForSetSnapshot(tc) {
@@ -1914,37 +2000,17 @@ export const useTestStore = create((set, get) => {
   },
   addSavedTestCase: (tc, options = {}) => {
     const extraLists = options.extraTestCaseLists || [];
-    const state = get();
-    const used = buildGlobalTestCaseNameSet(state, null, extraLists);
-    const rawDesired = normalizeTestCaseName(tc.name);
-    const finalName = pickUniqueTestCaseName(rawDesired || 'Test case', used);
-    if (rawDesired && finalName !== rawDesired) {
-      get().addToast({
-        type: 'info',
-        message: `Name "${rawDesired}" already exists — renamed to "${finalName}"`,
-      });
-    }
-    const id = `tc-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-    const ts = testCaseNowIso();
-    const entry = {
-      ...tc,
-      id,
-      name: finalName,
-      createdAt: tc.createdAt || ts,
-      updatedAt: tc.updatedAt || ts,
-    };
-
-    // Prevent saving an identical TC (same full file-set) more than once (current profile + global snapshot when available).
-    const entryKey = getTestCaseFilesKey(entry);
-    if (entryKey) {
-      const localList = Array.isArray(state.savedTestCases) ? state.savedTestCases : [];
+    const state0 = get();
+    const incomingKey = getTestCaseFilesKey(tc);
+    if (incomingKey) {
+      const localList = Array.isArray(state0.savedTestCases) ? state0.savedTestCases : [];
       const globalList =
-        state.globalTestCaseDataLoaded && Array.isArray(state.globalSavedTestCases)
-          ? state.globalSavedTestCases
+        state0.globalTestCaseDataLoaded && Array.isArray(state0.globalSavedTestCases)
+          ? state0.globalSavedTestCases
           : [];
       const existing =
-        localList.find((t) => getTestCaseFilesKey(t) === entryKey) ||
-        globalList.find((t) => getTestCaseFilesKey(t) === entryKey);
+        localList.find((t) => getTestCaseFilesKey(t) === incomingKey) ||
+        globalList.find((t) => getTestCaseFilesKey(t) === incomingKey);
       if (existing) {
         queueMicrotask(() => {
           get().addToast({
@@ -1956,8 +2022,31 @@ export const useTestStore = create((set, get) => {
       }
     }
 
+    const id = `tc-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const ts = testCaseNowIso();
+
     set((state) => {
       if (state.loadedSetId) {
+        const used = new Set(buildGlobalTestCaseNameSet(state, null, extraLists));
+        subtractNamesFromSameFileSetKey(used, tc, state);
+        const rawDesired = normalizeTestCaseName(tc.name) || 'Test case';
+        const base = preferredJobItemBaseName(tc, state.savedTestCases) || rawDesired;
+        const finalName = pickUniqueTestCaseName(base, used);
+        if (rawDesired && finalName !== rawDesired) {
+          queueMicrotask(() => {
+            get().addToast({
+              type: 'info',
+              message: `Name "${rawDesired}" already exists — renamed to "${finalName}"`,
+            });
+          });
+        }
+        const entry = {
+          ...tc,
+          id,
+          name: finalName,
+          createdAt: tc.createdAt || ts,
+          updatedAt: tc.updatedAt || ts,
+        };
         const table = [...(state.loadedSetTable || [])];
         if (typeof options.insertAt === 'number') {
           const at = Math.max(0, Math.min(options.insertAt, table.length));
@@ -1966,15 +2055,63 @@ export const useTestStore = create((set, get) => {
         }
         return { loadedSetTable: [...table, entry] };
       }
-      const next = [...state.savedTestCases];
-      if (typeof options.insertAt === 'number') {
-        const at = Math.max(0, Math.min(options.insertAt, next.length));
-        next.splice(at, 0, entry);
-      } else {
-        next.push(entry);
+
+      let nextCases = [...(state.savedTestCases || [])];
+      let nextSets = [...(state.savedTestCaseSets || [])];
+      const ev = evictLocalLibrarySameNameDifferentFiles(nextCases, nextSets, tc, id);
+      if (ev.evictedId) {
+        nextCases = ev.savedTestCases;
+        nextSets = ev.savedTestCaseSets;
+        queueMicrotask(() => {
+          get().addToast({
+            type: 'info',
+            message: `แทนที่ test case "${normalizeTestCaseName(tc.name)}" เดิมใน Library (ชื่อเดิม ชุดไฟล์ใหม่)`,
+          });
+        });
       }
-      saveSavedTestCases(next);
-      return { savedTestCases: next };
+
+      const mergedState = { ...state, savedTestCases: nextCases, savedTestCaseSets: nextSets };
+      const used = new Set(buildGlobalTestCaseNameSet(mergedState, null, extraLists));
+      subtractNamesFromSameFileSetKey(used, tc, mergedState);
+      const rawDesired = normalizeTestCaseName(tc.name) || 'Test case';
+      const base = preferredJobItemBaseName(tc, nextCases) || rawDesired;
+      const finalName = pickUniqueTestCaseName(base, used);
+      if (rawDesired && finalName !== rawDesired && !ev.evictedId) {
+        queueMicrotask(() => {
+          get().addToast({
+            type: 'info',
+            message: `Name "${rawDesired}" already exists — renamed to "${finalName}"`,
+          });
+        });
+      } else if (rawDesired && finalName !== rawDesired && ev.evictedId) {
+        queueMicrotask(() => {
+          get().addToast({
+            type: 'info',
+            message: `ชื่อ "${rawDesired}" ยังชนกับโปรไฟล์อื่น — ใช้ "${finalName}" แทน`,
+          });
+        });
+      }
+
+      const entry = {
+        ...tc,
+        id,
+        name: finalName,
+        createdAt: tc.createdAt || ts,
+        updatedAt: tc.updatedAt || ts,
+      };
+
+      if (typeof options.insertAt === 'number') {
+        const at = Math.max(0, Math.min(options.insertAt, nextCases.length));
+        nextCases.splice(at, 0, entry);
+      } else {
+        nextCases.push(entry);
+      }
+      saveSavedTestCases(nextCases);
+      if (ev.evictedId) {
+        saveSavedTestCaseSets(nextSets);
+        return { savedTestCases: nextCases, savedTestCaseSets: nextSets };
+      }
+      return { savedTestCases: nextCases };
     });
     return id;
   },
@@ -2413,7 +2550,8 @@ export const useTestStore = create((set, get) => {
   // Saved Test Case Sets (collections) — เก็บ items + fileLibrarySnapshot (รายชื่อไฟล์ที่ Set ใช้)
   addSavedTestCaseSet: (name, items, options = {}) => {
     const id = `tcs-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-    if (!beginSavedTestCaseSetPending(id, 'add')) return;
+    if (!beginSavedTestCaseSetPending(id, 'add')) return false;
+    let didSave = false;
     try {
       set((state) => {
         const setName = normalizeSetName(name || 'Unnamed Job') || 'Unnamed Job';
@@ -2426,16 +2564,34 @@ export const useTestStore = create((set, get) => {
           return state;
         }
         const now = new Date().toISOString();
-        const usedInSet = new Set();
-        let renamedInSet = false;
-        const usedGlobalTcNames = buildGlobalTestCaseNameSet(state, null, []);
-        const normalizedItems = (items || []).map((t, idx) => {
+        let workCases = [...(state.savedTestCases || [])];
+        let workSets = [...(state.savedTestCaseSets || [])];
+        let anyLibraryEvict = false;
+        let renamedForUniqueness = false;
+        const usedInJobBatch = new Set();
+        const normalizedItems = [];
+        const rawList = items || [];
+        for (let idx = 0; idx < rawList.length; idx++) {
+          const t = rawList[idx];
           const itemId = t.id || `tc-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 9)}`;
-          const base = normalizeTestCaseName(t.name) || `Test case ${idx + 1}`;
-          const finalName = pickUniqueTestCaseName(base, usedInSet);
-          if (finalName !== base) renamedInSet = true;
-          usedInSet.add(finalName);
-          return {
+          const ev = evictLocalLibrarySameNameDifferentFiles(workCases, workSets, t, itemId);
+          if (ev.evictedId) {
+            workCases = ev.savedTestCases;
+            workSets = ev.savedTestCaseSets;
+            anyLibraryEvict = true;
+          }
+          const mergedState = { ...state, savedTestCases: workCases, savedTestCaseSets: workSets };
+          const usedForPick = new Set([
+            ...buildGlobalTestCaseNameSet(mergedState, null, []),
+            ...usedInJobBatch,
+          ]);
+          subtractNamesFromSameFileSetKey(usedForPick, t, mergedState);
+          const rawDesired = normalizeTestCaseName(t.name) || `Test case ${idx + 1}`;
+          const base = preferredJobItemBaseName(t, workCases) || rawDesired;
+          const finalName = pickUniqueTestCaseName(base, usedForPick);
+          if (finalName !== base) renamedForUniqueness = true;
+          usedInJobBatch.add(finalName);
+          normalizedItems.push({
             id: itemId,
             name: finalName,
             vcdName: t.vcdName || '',
@@ -2445,22 +2601,21 @@ export const useTestStore = create((set, get) => {
             tryCount: typeof t.tryCount === 'number' && t.tryCount > 0 ? t.tryCount : 1,
             extraColumns: t.extraColumns && typeof t.extraColumns === 'object' ? { ...t.extraColumns } : {},
             createdAt: t.createdAt || now,
-          };
-        });
-        const globalDup = normalizedItems.find((t) => {
-          const n = normalizeTestCaseName(t.name);
-          return n && usedGlobalTcNames.has(n);
-        });
-        if (globalDup) {
-          get().addToast({
-            type: 'warning',
-            message: `Test case name "${globalDup.name}" already exists in the system. Please rename before saving job.`,
           });
-          return state;
         }
-        if (renamedInSet) {
-          get().addToast({ type: 'info', message: 'พบชื่อซ้ำใน job เดียวกัน — ปรับชื่ออัตโนมัติใน job นี้เท่านั้น' });
+
+        if (anyLibraryEvict) {
+          get().addToast({
+            type: 'info',
+            message: 'แทนที่ test case ใน Library ที่ชื่อเดิมแต่ชุดไฟล์ต่าง — แล้วบันทึก job',
+          });
+        } else if (renamedForUniqueness) {
+          get().addToast({
+            type: 'info',
+            message: 'ชื่อ test case บางแถวยังชนกับโปรไฟล์อื่น — ปรับชื่ออัตโนมัติใน job นี้ (เช่น test1 (2))',
+          });
         }
+
         const fileLibrarySnapshot = options.fileLibrarySnapshot || [];
         const entry = { id, name: setName, createdAt: now, updatedAt: now, items: normalizedItems, fileLibrarySnapshot };
         const tagTrim = typeof options.tag === 'string' ? options.tag.trim() : '';
@@ -2479,10 +2634,15 @@ export const useTestStore = create((set, get) => {
           ? options.runBoardIds.filter(Boolean)
           : [];
         entry.runPrioritize = Boolean(options.runPrioritize);
-        const next = [...state.savedTestCaseSets, entry];
-        saveSavedTestCaseSets(next);
-        return { savedTestCaseSets: next };
+        const nextSets = [...workSets, entry];
+        saveSavedTestCases(workCases);
+        saveSavedTestCaseSets(nextSets);
+        didSave = true;
+        return anyLibraryEvict
+          ? { savedTestCases: workCases, savedTestCaseSets: nextSets }
+          : { savedTestCaseSets: nextSets };
       });
+      return didSave;
     } finally {
       queueMicrotask(() => endSavedTestCaseSetPending(id));
     }
@@ -2557,8 +2717,8 @@ export const useTestStore = create((set, get) => {
         }
         namesInSet.add(n);
         const ex = tc.id;
-        const used = buildGlobalTestCaseNameSet(state, ex, []);
-        subtractNamesFromSharedTestCaseSignature(used, tc, state);
+        const used = new Set(buildGlobalTestCaseNameSet(state, ex, []));
+        subtractNamesFromSameFileSetKey(used, tc, state);
         if (used.has(n)) {
           get().addToast({
             type: 'warning',
@@ -2698,22 +2858,82 @@ export const useTestStore = create((set, get) => {
       queueMicrotask(() => endSavedTestCaseSetPending(id));
       return { ok: false };
     }
+    const state0 = get();
     const now = new Date().toISOString();
     const newId = `tcs-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     const baseName = src.name || 'Job';
     const newName = `${baseName} (copy)`;
+    let workCases = [...(state0.savedTestCases || [])];
+    let workSets = [...(state0.savedTestCaseSets || [])];
+    const usedInBatch = new Set();
+    const rawItems = Array.isArray(src.items) ? src.items : [];
+    let anyLibraryEvict = false;
+    const newItems = [];
+    for (let idx = 0; idx < rawItems.length; idx++) {
+      const t = rawItems[idx];
+      const itemId = `tc-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 9)}`;
+      const ev = evictLocalLibrarySameNameDifferentFiles(workCases, workSets, t, itemId);
+      if (ev.evictedId) {
+        workCases = ev.savedTestCases;
+        workSets = ev.savedTestCaseSets;
+        anyLibraryEvict = true;
+      }
+      const mergedState = { ...state0, savedTestCases: workCases, savedTestCaseSets: workSets };
+      const usedForPick = new Set([
+        ...buildGlobalTestCaseNameSet(mergedState, null, []),
+        ...usedInBatch,
+      ]);
+      subtractNamesFromSameFileSetKey(usedForPick, t, mergedState);
+      const rawDesired = normalizeTestCaseName(t.name) || `Test case ${idx + 1}`;
+      const base = preferredJobItemBaseName(t, workCases) || rawDesired;
+      const finalName = pickUniqueTestCaseName(base, usedForPick);
+      usedInBatch.add(finalName);
+      const extra = t.extraColumns && typeof t.extraColumns === 'object' ? { ...t.extraColumns } : {};
+      const commands = Array.isArray(t.commands)
+        ? t.commands.map((c) => ({
+            ...c,
+            id: `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+          }))
+        : [];
+      newItems.push({
+        id: itemId,
+        name: finalName,
+        vcdName: t.vcdName || '',
+        binName: t.binName || '',
+        linName: t.linName || '',
+        boardId: t.boardId || '',
+        tryCount: typeof t.tryCount === 'number' && t.tryCount > 0 ? t.tryCount : 1,
+        extraColumns: extra,
+        commands,
+        createdAt: t.createdAt || now,
+      });
+    }
     const copy = {
       ...src,
       id: newId,
       name: newName,
+      items: newItems,
       createdAt: now,
       updatedAt: now,
     };
-    const before = [...(get().savedTestCaseSets || [])];
-    const next = [...(get().savedTestCaseSets || []), copy];
-    set({ savedTestCaseSets: next });
+    const beforeCases = [...(get().savedTestCases || [])];
+    const beforeSets = [...(get().savedTestCaseSets || [])];
+    const next = [...workSets, copy];
+    const activeIdNow = getActiveProfileId();
+    const prof = loadProfile(activeIdNow);
+    if (prof) {
+      saveProfile(activeIdNow, { ...prof, savedTestCases: workCases, savedTestCaseSets: next });
+    }
+    set({ savedTestCases: workCases, savedTestCaseSets: next });
     try {
       await saveSavedTestCaseSets(next, { suppressSyncErrorToast: true, rethrow: true });
+      if (anyLibraryEvict) {
+        get().addToast({
+          type: 'info',
+          message: 'อัปเดต Library ตามชุดไฟล์ใหม่ของรายการที่ซ้ำชื่อ (ถ้ามี)',
+          duration: 4000,
+        });
+      }
       get().addToast({
         type: 'success',
         message: `สำเนา job แล้ว — "${newName}"`,
@@ -2721,14 +2941,17 @@ export const useTestStore = create((set, get) => {
       });
       return { ok: true, newId };
     } catch (err) {
-      // Keep backend-profile behavior consistent with server DB:
-      // if sync fails, rollback local duplicate so UI won't show unsaved set.
-      const activeIdNow = getActiveProfileId();
       if (isBackendProfileId(activeIdNow)) {
-        set({ savedTestCaseSets: before });
+        set({ savedTestCases: beforeCases, savedTestCaseSets: beforeSets });
         try {
           const p = loadProfile(activeIdNow);
-          if (p) saveProfile(activeIdNow, { ...p, savedTestCaseSets: before });
+          if (p) {
+            saveProfile(activeIdNow, {
+              ...p,
+              savedTestCases: beforeCases,
+              savedTestCaseSets: beforeSets,
+            });
+          }
         } catch {
           /* ignore rollback persistence error */
         }
@@ -2751,10 +2974,13 @@ export const useTestStore = create((set, get) => {
       set((state) => {
         const setEntry = state.savedTestCaseSets.find((s) => s.id === id);
         if (!setEntry) return state;
-        const used = buildGlobalTestCaseNameSet(state, null, []);
+        const used = new Set(buildGlobalTestCaseNameSet(state, null, []));
         const list = (setEntry.items || []).map((t) => {
-          const base = normalizeTestCaseName(t.name) || 'Test case';
-          const name = pickUniqueTestCaseName(base, used);
+          const u = new Set(used);
+          subtractNamesFromSameFileSetKey(u, t, state);
+          const raw = normalizeTestCaseName(t.name) || 'Test case';
+          const base = preferredJobItemBaseName(t, state.savedTestCases) || raw;
+          const name = pickUniqueTestCaseName(base, u);
           used.add(name);
           const extra = t.extraColumns && typeof t.extraColumns === 'object' ? { ...t.extraColumns } : {};
           const commands = [];
@@ -3015,7 +3241,7 @@ export const useTestStore = create((set, get) => {
     });
     if (isBackendProfileId(profileId)) {
       void api.getProfileData(profileId).then((data) => {
-        const merged = { savedTestCases: data.savedTestCases ?? testCases, savedTestCaseSets: data.savedTestCaseSets ?? sets };
+        const merged = mergeProfileSnapshotFromServer(data, testCases, sets);
         let mergePrefs = false;
         if (data && typeof data === 'object' && data.preferences != null && typeof data.preferences === 'object') {
           merged.preferences = { ...(profile.preferences || {}), ...data.preferences };

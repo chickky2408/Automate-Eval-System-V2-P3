@@ -1226,13 +1226,22 @@ const RunSetPage = ({ onNavigateJobs }) => {
     const fileLibrarySnapshot = [...fileNames].map((n) => ({ name: n }));
     const tagTrim = (tag || '').trim();
     const colorKey = TAG_PALETTE_MAP[runSetTagColor] ? runSetTagColor : 'mint';
-    addSavedTestCaseSet(name, items, {
+    const savedOk = addSavedTestCaseSet(name, items, {
       fileLibrarySnapshot,
       ...(tagTrim ? { tag: tagTrim, tagColor: colorKey } : {}),
       runBoardMode: boardSelectionMode === 'manual' ? 'manual' : 'auto',
       runBoardIds: boardSelectionMode === 'manual' ? [...selectedBoardIds] : [],
       runPrioritize: Boolean(prioritize),
     });
+    if (!savedOk) {
+      if (options.showToast) {
+        addToast({
+          type: 'warning',
+          message: 'ไม่ได้บันทึก job — ชื่อ job ซ้ำในระบบ หรือมีการแก้ saved job อื่นอยู่ (รอให้จบก่อน)',
+        });
+      }
+      return null;
+    }
     const sets = useTestStore.getState().savedTestCaseSets;
     const newSetId = Array.isArray(sets) && sets.length ? sets[sets.length - 1]?.id : null;
     if (newSetId && safeFiles.length > 0) {
