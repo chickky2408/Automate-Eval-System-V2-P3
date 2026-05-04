@@ -16,8 +16,10 @@ import {
   syncTagColorListAfterTagChange,
   isExtraColumnHiddenFromLibraryTable,
   jobTagPillClasses,
+  libraryFileRowMatchesTagColorFilter,
 } from '../utils/tagPalette';
 import TagColorSwatchPicker from '../components/TagColorSwatchPicker';
+import LibraryFileTagColorFilter from '../components/LibraryFileTagColorFilter';
 import { isTestCasePrimaryFileSetComplete } from '../utils/testCasePrimaryFiles';
 
 /** จัดกลุ่มไฟล์เช่น TC0008.vcd + TC0008_erom_1.erom → คีย์ TC0008 */
@@ -458,21 +460,10 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
     return [...(pendingDraftTestCases || [])];
   })();
 
-  /** Vertical tab: one horizontal row (scroll), newest / most recently updated on the left. Indices = order in `displayedSavedTestCases` for drag/drop. */
+  /** Vertical tab: `originalIndex` is the index in the full list for reorder / drag-drop. */
   const stepViewOrderedCases = useMemo(() => {
-    const list = displayedSavedTestCases || [];
-    const rowTime = (tc) => {
-      const t = new Date(tc.updatedAt || tc.createdAt || 0).getTime();
-      return Number.isFinite(t) ? t : 0;
-    };
-    return [...list]
-      .map((tc, originalIndex) => ({ tc, originalIndex }))
-      .sort((a, b) => {
-        const tb = rowTime(b.tc);
-        const ta = rowTime(a.tc);
-        if (tb !== ta) return tb - ta;
-        return b.originalIndex - a.originalIndex;
-      });
+    const full = displayedSavedTestCases || [];
+    return full.map((tc, originalIndex) => ({ tc, originalIndex }));
   }, [displayedSavedTestCases]);
 
   const displayedSavedTestCaseSets = viewingSharedProfileId && sharedProfileDataCache[viewingSharedProfileId]
@@ -525,6 +516,8 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
   const [libraryPickerOpen, setLibraryPickerOpen] = useState(false);
   const [libraryPickerNameQ, setLibraryPickerNameQ] = useState('');
   const [libraryPickerTagQ, setLibraryPickerTagQ] = useState('');
+  /** Select File from Library — filter rows by tag pill color (fileTagColors / file row). */
+  const [libraryPickerTagColorFilter, setLibraryPickerTagColorFilter] = useState('');
   const [libraryPickerSizeQ, setLibraryPickerSizeQ] = useState('');
   const [libraryPickerOwnerQ, setLibraryPickerOwnerQ] = useState('');
   const [libraryPickerDateQ, setLibraryPickerDateQ] = useState('');
@@ -874,7 +867,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
     (testCases, nameOverride) => {
       const list = Array.isArray(testCases) ? testCases : [];
       if (list.length === 0) {
-        addToast({ type: 'warning', message: 'No test cases to send to Run Set' });
+        addToast({ type: 'warning', message: 'No test cases to send to Run Job' });
         return;
       }
       const incomplete = list.filter((tc) => !isTestCasePrimaryFileSetComplete(tc));
@@ -904,7 +897,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
         name: (nameOverride || '').trim() || `Selected ${items.length} test case(s)`,
       });
       if (onNavigateToRunSet) onNavigateToRunSet();
-      addToast({ type: 'success', message: `Sent ${items.length} test case(s) to Run Set` });
+      addToast({ type: 'success', message: `Sent ${items.length} test case(s) to Run Job` });
     },
     [setRunSetImportContext, onNavigateToRunSet, addToast]
   );
@@ -1801,8 +1794,15 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
   };
 
   const toggleSelectAllTestCases = () => {
-    if (selectedTestCaseIds.length === displayedSavedTestCases.length) setSelectedTestCaseIds([]);
-    else setSelectedTestCaseIds(displayedSavedTestCases.map((t) => t.id));
+    const visible = displayedSavedTestCases;
+    const visibleIds = visible.map((t) => t.id);
+    const allVisibleSelected =
+      visibleIds.length > 0 && visibleIds.every((id) => selectedTestCaseIds.includes(id));
+    if (allVisibleSelected) {
+      setSelectedTestCaseIds((prev) => prev.filter((id) => !visibleIds.includes(id)));
+    } else {
+      setSelectedTestCaseIds((prev) => [...new Set([...prev, ...visibleIds])]);
+    }
   };
   const toggleTestCaseSelect = (id) => {
     setSelectedTestCaseIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -1820,7 +1820,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
     }
     if (savedIds.length > 0) bulkUpdateTryCount(savedIds, num);
     setBulkTryCount('');
-    addToast({ type: 'success', message: `Set try count to ${num} for ${selectedTestCaseIds.length} test case(s)` });
+    addToast({ type: 'success', message: `Applied try count ${num} for ${selectedTestCaseIds.length} test case(s)` });
   };
   const handleDeleteSelectedTestCases = () => {
     if (selectedTestCaseIds.length === 0) {
@@ -1842,7 +1842,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
     if (inUse.length > 0) {
       addToast({
         type: 'warning',
-        message: `${inUse.length} selected saved test case(s) use files in a running or pending set. Wait for the job to finish before removing them from the library.`,
+        message: `${inUse.length} selected saved test case(s) use files in a running or pending job. Wait for the job to finish before removing them from the library.`,
       });
       return;
     }
@@ -2404,13 +2404,18 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
         const timeStr = lastModified ? String(lastModified).replace('T', ' ').toLowerCase() : '';
         if (!timeStr.includes(dateQ)) return false;
       }
+      if (!libraryFileRowMatchesTagColorFilter(f, fileTags, fileTagColors, libraryPickerTagColorFilter)) {
+        return false;
+      }
       return true;
     });
   }, [
     uploadedFiles,
     fileTags,
+    fileTagColors,
     libraryPickerNameQ,
     libraryPickerTagQ,
+    libraryPickerTagColorFilter,
     libraryPickerSizeQ,
     libraryPickerOwnerQ,
     libraryPickerDateQ,
@@ -2433,6 +2438,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
         prepared={saveLibraryUploadModal?.prepared ?? []}
         onConfirm={handleSaveLibraryUploadChoiceConfirm}
         onCancel={() => setSaveLibraryUploadModal(null)}
+        extraTestCaseLists={[pendingDraftTestCases]}
       />
       {commandMenuPopover &&
         typeof window !== 'undefined' &&
@@ -2440,7 +2446,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
         createPortal(
           (() => {
             const MENU_W = 192;
-            const MENU_H_ALLOW = 160;
+            const MENU_H_ALLOW = 200;
             const { anchor, tcId } = commandMenuPopover;
             let top = anchor.bottom + 6;
             let left = anchor.right - MENU_W;
@@ -2458,6 +2464,17 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                 style={{ top, left, width: MENU_W }}
                 onMouseDown={(e) => e.stopPropagation()}
               >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    addDisplayedTestCaseCommand(tcId, { type: 'vcd', file: '' });
+                    setCommandMenuPopover(null);
+                  }}
+                  className={itemCls}
+                >
+                  Add VCD
+                </button>
                 <button
                   type="button"
                   role="menuitem"
@@ -2511,6 +2528,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
             setTcTagModalEditDraft('');
             setTcTagPlusInputTcId(null);
             setLibraryPickerSuggest(null);
+            setLibraryPickerTagColorFilter('');
           }}
           role="presentation"
         >
@@ -2525,7 +2543,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
               <h3 id="library-picker-title" className="text-lg font-bold text-slate-800 dark:text-slate-100">
                 Select File from Library
               </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 mt-3">
+              <div className="grid grid-cols-2 gap-2 mt-3 sm:grid-cols-3 lg:grid-cols-6 lg:gap-3">
                 <label className="flex flex-col gap-0.5 min-w-0">
                   <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Name</span>
                   <div className="relative" data-library-picker-filter-root>
@@ -2574,6 +2592,10 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                     </button>
                   </div>
                 </label>
+                <LibraryFileTagColorFilter
+                  value={libraryPickerTagColorFilter}
+                  onChange={setLibraryPickerTagColorFilter}
+                />
                 <label className="flex flex-col gap-0.5 min-w-0">
                   <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Size</span>
                   <div className="relative" data-library-picker-filter-root>
@@ -2647,73 +2669,80 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                   </div>
                 </label>
               </div>
-              <div className="flex flex-wrap items-center gap-3 mt-3">
-                <button
-                  type="button"
-                  onClick={() => setLibraryPickerSelectedIds([...libraryPickerSelectableIds])}
-                  className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline"
-                  title="Same as File Library: skips Vis=close and files in running/pending jobs"
-                >
-                  Select all shown
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setLibraryPickerSelectedIds([])}
-                  className="text-xs font-semibold text-slate-500 hover:underline"
-                >
-                  Clear selection
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLibraryPickerNameQ('');
-                    setLibraryPickerTagQ('');
-                    setLibraryPickerSizeQ('');
-                    setLibraryPickerOwnerQ('');
-                    setLibraryPickerDateQ('');
-                  }}
-                  className="text-xs font-semibold text-slate-500 hover:underline"
-                >
-                  Clear filters
-                </button>
+              <div className="mt-3 rounded-xl border border-slate-200/90 bg-gradient-to-b from-slate-50 to-slate-100/80 p-0.5 shadow-sm dark:border-slate-600/90 dark:from-slate-800/80 dark:to-slate-900/60 dark:shadow-none">
+                <div className="flex flex-wrap items-stretch divide-x divide-slate-200/80 first:[&>button]:rounded-l-[10px] last:[&>button]:rounded-r-[10px] dark:divide-slate-600/70">
+                  <button
+                    type="button"
+                    onClick={() => setLibraryPickerSelectedIds([...libraryPickerSelectableIds])}
+                    className="px-3.5 py-2.5 text-xs font-semibold tracking-wide text-blue-600 transition-colors hover:bg-white/60 hover:text-blue-700 dark:text-blue-400 dark:hover:bg-slate-800/80 dark:hover:text-blue-300"
+                    title="Same as File Library: skips Vis=close and files in running/pending jobs"
+                  >
+                    Select all shown
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLibraryPickerSelectedIds([])}
+                    className="px-3.5 py-2.5 text-xs font-medium tracking-wide text-slate-500 transition-colors hover:bg-white/50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800/60 dark:hover:text-slate-300"
+                  >
+                    Clear selection
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLibraryPickerNameQ('');
+                      setLibraryPickerTagQ('');
+                      setLibraryPickerTagColorFilter('');
+                      setLibraryPickerSizeQ('');
+                      setLibraryPickerOwnerQ('');
+                      setLibraryPickerDateQ('');
+                    }}
+                    className="px-3.5 py-2.5 text-xs font-medium tracking-wide text-slate-500 transition-colors hover:bg-white/50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800/60 dark:hover:text-slate-300"
+                  >
+                    Clear filters
+                  </button>
+                </div>
               </div>
             </div>
             <div
-              className="overflow-auto flex-1 min-h-[140px] border-t border-slate-100 dark:border-slate-700"
+              className="mx-4 mb-2 mt-2 flex min-h-[160px] flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[inset_0_1px_0_0_rgba(148,163,184,0.12)] dark:border-slate-700 dark:bg-slate-900/50 dark:shadow-none"
               title="Click and drag across rows to select multiple files"
             >
               {libraryPickerFiles.length === 0 ? (
-                <p className="text-sm text-slate-500 p-6 text-center">No files match the current filters</p>
+                <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-14 text-center">
+                  <p className="text-sm font-medium text-slate-600 dark:text-slate-300">No files match the current filters</p>
+                  <p className="max-w-sm text-xs text-slate-500 dark:text-slate-400">Try clearing filters or changing name, tag, or tag color.</p>
+                </div>
               ) : (
-                <table className="w-full text-left text-xs border-collapse select-none">
-                  <thead className="sticky top-0 z-10 bg-slate-100 dark:bg-slate-900/95 border-b border-slate-200 dark:border-slate-600">
-                    <tr className="text-slate-600 dark:text-slate-300">
-                      <th className="w-10 px-2 py-2 font-semibold">
+                <div className="min-h-0 flex-1 overflow-auto overscroll-contain [scrollbar-width:thin]">
+                <table className="w-full min-w-[720px] text-left text-xs border-collapse select-none">
+                  <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100/95 backdrop-blur-sm dark:border-slate-600 dark:bg-slate-800/95">
+                    <tr className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      <th className="w-11 px-3 py-2.5 text-center font-bold">
                         <span className="sr-only">Select</span>
                       </th>
-                      <th className="px-2 py-2 font-semibold min-w-[140px]">Name</th>
-                      <th className="px-2 py-2 font-semibold min-w-[120px]">Tags</th>
-                      <th className="px-2 py-2 font-semibold min-w-[100px]">Used by TC</th>
+                      <th className="px-3 py-2.5 font-bold min-w-[140px]">Name</th>
+                      <th className="px-3 py-2.5 font-bold min-w-[120px]">Tags</th>
+                      <th className="px-3 py-2.5 font-bold min-w-[100px]">Used by TC</th>
                       <th
-                        className="px-2 py-2 font-semibold min-w-[120px]"
-                        title="Saved sets that reference this file (color follows job status when available)"
+                        className="px-3 py-2.5 font-bold min-w-[120px]"
+                        title="Saved jobs that reference this file (color follows job status when available)"
                       >
-                        Sets
+                        Jobs
                       </th>
-                      <th className="px-2 py-2 font-semibold w-16">Owner</th>
-                      <th className="px-2 py-2 font-semibold w-10 text-center" title="Visibility">
+                      <th className="px-3 py-2.5 font-bold w-20">Owner</th>
+                      <th className="px-3 py-2.5 font-bold w-11 text-center" title="Visibility">
                         Vis
                       </th>
                       <th
-                        className="px-2 py-2 font-semibold min-w-[120px]"
+                        className="px-3 py-2.5 font-bold min-w-[120px]"
                         title="Calendar date modified; hover a cell for full timestamp"
                       >
                         Date
                       </th>
-                      <th className="px-2 py-2 font-semibold w-20 text-right">Size</th>
+                      <th className="px-3 py-2.5 pr-4 text-right font-bold w-24">Size</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
                     {libraryPickerFiles.map((f) => {
                       const tagVal = (fileTags && fileTags[f.id]) || '';
                       const tags = splitTags(tagVal);
@@ -2728,8 +2757,12 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                       return (
                         <tr
                           key={f.id}
-                          className={`text-slate-800 dark:text-slate-100 ${
-                            isFileClosed ? 'opacity-75 bg-slate-50/50 dark:bg-slate-800/30 cursor-not-allowed' : 'hover:bg-slate-50 dark:hover:bg-slate-700/40 cursor-default'
+                          className={`text-slate-800 dark:text-slate-100 transition-colors ${
+                            isFileClosed
+                              ? 'cursor-not-allowed opacity-75 bg-slate-50/60 dark:bg-slate-800/25'
+                              : libraryPickerSelectedIds.includes(f.id)
+                                ? 'cursor-default bg-blue-50/90 hover:bg-blue-100/90 dark:bg-blue-950/30 dark:hover:bg-blue-950/45'
+                                : 'cursor-default odd:bg-white even:bg-slate-50/40 hover:bg-slate-100/90 dark:odd:bg-slate-900/20 dark:even:bg-slate-800/25 dark:hover:bg-slate-700/35'
                           }`}
                           onMouseDown={(e) => {
                             if (e.target.closest('input[type="checkbox"]') || e.target.closest('button')) return;
@@ -2745,7 +2778,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                             setLibraryPickerSelectedIds((prev) => (prev.includes(f.id) ? prev : [...prev, f.id]));
                           }}
                         >
-                          <td className="px-2 py-1.5 align-top">
+                          <td className="px-3 py-2 align-top">
                             <input
                               type="checkbox"
                               checked={libraryPickerSelectedIds.includes(f.id)}
@@ -2762,7 +2795,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                               title={isFileClosed ? 'Vis=close — not selectable (same as File Library)' : undefined}
                             />
                           </td>
-                          <td className="px-2 py-1.5 align-top">
+                          <td className="px-3 py-2 align-top">
                             <span className="font-medium break-all" title={f.name}>
                               {displayName}
                             </span>
@@ -2772,7 +2805,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                               </div>
                             )}
                           </td>
-                          <td className="px-2 py-1.5 align-top">
+                          <td className="px-3 py-2 align-top">
                             <div className="flex flex-wrap items-center gap-0.5">
                               {tags.length === 0 ? (
                                 <span className="text-slate-400">—</span>
@@ -2806,7 +2839,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                               )}
                             </div>
                           </td>
-                          <td className="px-2 py-1.5 align-top">
+                          <td className="px-3 py-2 align-top">
                             <div className="flex flex-wrap items-center gap-0.5">
                               {usedByTcs.length === 0 ? (
                                 <span className="text-slate-400">—</span>
@@ -2840,7 +2873,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                               )}
                             </div>
                           </td>
-                          <td className="px-2 py-1.5 align-top">
+                          <td className="px-3 py-2 align-top">
                             <div className="flex flex-wrap items-center gap-0.5">
                               {setNames.length === 0 ? (
                                 <span className="text-slate-400">—</span>
@@ -2868,7 +2901,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                                         setLibraryPickerSetsOverflowFileName(f.name);
                                       }}
                                       className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold border border-slate-200 dark:border-slate-700 bg-white/60 dark:bg-slate-800 text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 shrink-0"
-                                      title={`All sets: ${setNames.join(', ')}`}
+                                      title={`All saved jobs: ${setNames.join(', ')}`}
                                     >
                                       …
                                     </button>
@@ -2877,10 +2910,10 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                               )}
                             </div>
                           </td>
-                          <td className="px-2 py-1.5 align-top text-slate-600 dark:text-slate-300" title={f.ownerId ? String(f.ownerId) : ''}>
+                          <td className="px-3 py-2 align-top text-slate-600 dark:text-slate-300" title={f.ownerId ? String(f.ownerId) : ''}>
                             {ownerShort}
                           </td>
-                          <td className="px-2 py-1.5 align-top text-center text-slate-400">
+                          <td className="px-3 py-2 align-top text-center text-slate-400">
                             <button
                               type="button"
                               onClick={(e) => {
@@ -2888,7 +2921,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                                 if (inUseByBatch) {
                                   addToast({
                                     type: 'warning',
-                                    message: 'This file is locked by a running or pending set — cannot change Vis',
+                                    message: 'This file is locked by a running or pending job — cannot change Vis',
                                   });
                                   return;
                                 }
@@ -2914,7 +2947,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                               {inUseByBatch ? <Lock size={14} className="inline" /> : isFileClosed ? <Lock size={14} className="inline" /> : <Globe size={14} className="inline" />}
                             </button>
                           </td>
-                          <td className="px-2 py-1.5 align-top whitespace-nowrap text-slate-500 dark:text-slate-400" title={lastModified ? String(lastModified) : ''}>
+                          <td className="px-3 py-2 align-top whitespace-nowrap text-slate-500 dark:text-slate-400" title={lastModified ? String(lastModified) : ''}>
                             {(() => {
                               if (!lastModified) return '—';
                               const d = new Date(lastModified);
@@ -2922,7 +2955,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                               return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
                             })()}
                           </td>
-                          <td className="px-2 py-1.5 align-top text-right text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                          <td className="px-3 py-2 align-top text-right text-slate-600 dark:text-slate-300 whitespace-nowrap">
                             {f.sizeFormatted ?? f.size ?? '—'}
                           </td>
                         </tr>
@@ -2930,6 +2963,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                     })}
                   </tbody>
                 </table>
+                </div>
               )}
             </div>
             <div className="p-4 border-t border-slate-200 dark:border-slate-600 flex flex-wrap justify-end gap-2 shrink-0">
@@ -2945,6 +2979,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                   setTcTagModalEditDraft('');
                   setTcTagPlusInputTcId(null);
                   setLibraryPickerSuggest(null);
+                  setLibraryPickerTagColorFilter('');
                 }}
                 className="px-4 py-2 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600"
               >
@@ -2968,6 +3003,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                   setTcTagPlusInputTcId(null);
                   setLibraryPickerNameQ('');
                   setLibraryPickerTagQ('');
+                  setLibraryPickerTagColorFilter('');
                   setLibraryPickerSizeQ('');
                   setLibraryPickerOwnerQ('');
                   setLibraryPickerDateQ('');
@@ -3286,7 +3322,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                         <span className="font-medium text-emerald-700 dark:text-emerald-300">{u.name}</span>
                         {u.set && (
                           <span className="text-xs text-slate-500 dark:text-slate-400">
-                            {String(u.set).startsWith('Current') ? u.set : `Set: ${u.set}`}
+                            {String(u.set).startsWith('Current') ? u.set : `Job: ${u.set}`}
                           </span>
                         )}
                       </li>
@@ -3307,7 +3343,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
           />
           <div className="relative w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl">
             <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
-              <div className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">Sets using this file</div>
+              <div className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">Jobs using this file</div>
               <button
                 type="button"
                 onClick={() => setLibraryPickerSetsOverflowFileName(null)}
@@ -3330,7 +3366,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                         <li
                           key={`browse-set-all-${libraryPickerSetsOverflowFileName}-${sn}`}
                           className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${getSetJobStatusPillClass(st)}`}
-                          title={st ? `Job status: ${st}` : 'No active job for this set name'}
+                          title={st ? `Job status: ${st}` : 'No active job for this saved job name'}
                         >
                           {sn}
                         </li>
@@ -3442,13 +3478,13 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
         const total = namesArr.length;
         return total > 0 ? (
           <div className="mb-3 rounded-xl border border-blue-200 dark:border-blue-800 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 text-xs text-blue-800 dark:text-blue-200">
-            Set &quot;{loadedSet?.name}&quot;: Files in Library {inLibrary}/{total}
-            {inLibrary < total && <span className="ml-1"> — Upload missing files in Library to run this set</span>}
+            Job &quot;{loadedSet?.name}&quot;: Files in Library {inLibrary}/{total}
+            {inLibrary < total && <span className="ml-1"> — Upload missing files in Library to run this job</span>}
           </div>
         ) : null;
       })()}
 
-      {/* Saved Test Cases table (Apply try, Duplicate, Move, Auto select, Save as Set) */}
+      {/* Saved Test Cases table (Apply try, Duplicate, Move, Auto select, Save as job) */}
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-4 flex flex-col flex-1 min-h-0">
         <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-3">
           
@@ -3458,6 +3494,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
               onClick={() => {
                 setLibraryPickerNameQ('');
                 setLibraryPickerTagQ('');
+                setLibraryPickerTagColorFilter('');
                 setLibraryPickerSizeQ('');
                 setLibraryPickerOwnerQ('');
                 setLibraryPickerDateQ('');
@@ -3562,7 +3599,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
         {loadedSetId && displayedSavedTestCaseSets?.find((s) => s.id === loadedSetId) && !isViewingShared && (
           <div className="mb-3 flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700">
             <span className="text-xs font-semibold text-amber-800 dark:text-amber-200">
-              Editing set: {displayedSavedTestCaseSets.find((s) => s.id === loadedSetId)?.name}
+              Editing saved job: {displayedSavedTestCaseSets.find((s) => s.id === loadedSetId)?.name}
             </span>
             <button
               onClick={() => {
@@ -3570,7 +3607,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                 if (currentSet && isSetInUseByJobs(currentSet)) {
                   addToast({
                     type: 'warning',
-                    message: 'ชุด Set นี้กำลังถูกใช้รันอยู่ ไม่สามารถอัปเดต test cases / files ได้จนกว่ารันเสร็จ',
+                    message: 'Job นี้กำลังถูกใช้รันอยู่ ไม่สามารถอัปเดต test cases / files ได้จนกว่ารันเสร็จ',
                   });
                   return;
                 }
@@ -3579,7 +3616,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                   const names = badUpdate.map((t) => String(t.name || '—').trim() || '—').slice(0, 5);
                   addToast({
                     type: 'warning',
-                    message: `แต่ละ test case ต้องมี VCD, ERoM และ ULP ให้ครบก่อนอัปเดต Set — ${badUpdate.length} แถว: ${names.join(', ')}${badUpdate.length > 5 ? '…' : ''}`,
+                    message: `แต่ละ test case ต้องมี VCD, ERoM และ ULP ให้ครบก่อนอัปเดต job — ${badUpdate.length} แถว: ${names.join(', ')}${badUpdate.length > 5 ? '…' : ''}`,
                   });
                   return;
                 }
@@ -3616,9 +3653,9 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                 });
                 const fileLibrarySnapshot = [...fileNames].map((n) => ({ name: n }));
                 updateSavedTestCaseSet(loadedSetId, { items: normalized, fileLibrarySnapshot });
-                const setName = displayedSavedTestCaseSets.find((s) => s.id === loadedSetId)?.name || 'Set';
+                const setName = displayedSavedTestCaseSets.find((s) => s.id === loadedSetId)?.name || 'Job';
                 restoreSavedTestCasesFromProfile();
-                addToast({ type: 'success', message: `Updated set "${setName}"` });
+                addToast({ type: 'success', message: `Updated saved job "${setName}"` });
               }}
               className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 text-white hover:bg-amber-700"
             >
@@ -3651,7 +3688,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                     selectedTestCaseIds.some((tid) => isTcStorePending(tid))
                       ? 'รอให้ action กับ test case ที่เลือกจบก่อน'
                       : loadedSetId
-                        ? 'Remove selected rows from this set (saved rows may delete from library)'
+                        ? 'Remove selected rows from this saved job (saved rows may delete from library)'
                         : 'Remove selected rows from this table only — does not delete from Library'
                   }
                 >
@@ -3664,8 +3701,8 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
         )}
         <div className="flex min-h-0 flex-1 flex-col">
         {/* Tab switcher: Table (horizontal) | Step (vertical layout per image) + Select all when Step */}
-        <div className="mb-3 flex shrink-0 items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-600">
-          <div className="flex items-center gap-2">
+        <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-600">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => setTestCaseTableLayout('table')}
@@ -3693,11 +3730,14 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
             <label className={`flex items-center gap-2 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-400 ${isViewingShared ? 'pointer-events-none opacity-70' : 'cursor-pointer'}`}>
               <input
                 type="checkbox"
-                checked={selectedTestCaseIds.length === displayedSavedTestCases.length}
+                checked={
+                  displayedSavedTestCases.length > 0 &&
+                  displayedSavedTestCases.every((t) => selectedTestCaseIds.includes(t.id))
+                }
                 disabled={isViewingShared}
                 onChange={toggleSelectAllTestCases}
                 className="w-4 h-4 rounded cursor-pointer"
-                title="Select all"
+                title="Select all visible"
               />
               Select all
             </label>
@@ -3727,11 +3767,14 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                 <th className="w-10 px-2 py-2 border-r border-slate-200 dark:border-slate-600">
                   <input
                     type="checkbox"
-                    checked={displayedSavedTestCases.length > 0 && selectedTestCaseIds.length === displayedSavedTestCases.length}
+                    checked={
+                      displayedSavedTestCases.length > 0 &&
+                      displayedSavedTestCases.every((t) => selectedTestCaseIds.includes(t.id))
+                    }
                     onChange={toggleSelectAllTestCases}
                     disabled={isViewingShared}
                     className="w-4 h-4 rounded cursor-pointer"
-                    title="Select all"
+                    title="Select all visible"
                   />
                 </th>
                 <th className="w-8 px-2 py-2 border-r border-slate-200 dark:border-slate-600">#</th>
@@ -3764,19 +3807,24 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                   </td>
                 </tr>
               ) : (
-                displayedSavedTestCases.map((tc, idx) => {
+                displayedSavedTestCases.map((tc, originalIndex) => {
                   const tcPending = isTcStorePending(tc.id);
                   return (
                   <tr
                     key={tc.id}
                     data-tc-row-id={String(tc.id)}
                     onDragEnter={(e) => e.preventDefault()}
-                    onDragOver={(e) => handleRowDragOver(e, idx)}
-                    onDrop={(e) => handleRowDrop(e, idx)}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      handleRowDragOver(e, originalIndex);
+                    }}
+                    onDrop={(e) => {
+                      handleRowDrop(e, originalIndex);
+                    }}
                     className={`border-b border-slate-100 dark:border-slate-700 ${
-                      draggingRowIndex === idx ? 'opacity-50' : ''
+                      draggingRowIndex === originalIndex ? 'opacity-50' : ''
                     } ${
-                      dropTargetRowIndex === idx
+                      dropTargetRowIndex === originalIndex
                         ? 'ring-1 ring-blue-400 bg-blue-50 dark:bg-blue-900/20'
                         : ''
                     } ${
@@ -3802,7 +3850,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                       />
                     </td>
                     <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-500">
-                      {idx + 1}
+                      {originalIndex + 1}
                     </td>
                     <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700">
                       <input
@@ -3813,7 +3861,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                         }
                         disabled={isTestCaseInUseByBatch(tc) || isViewingShared}
                         className={`w-full min-w-0 px-1.5 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800 ${isTestCaseInUseByBatch(tc) ? 'opacity-70 cursor-not-allowed' : ''}`}
-                        placeholder="set name"
+                        placeholder="job name"
                         title={isTestCaseInUseByBatch(tc) ? 'ล็อก — test case อยู่ใน process (running/pending)' : 'Use a unique name for this test case'}
                       />
                     </td>
@@ -3835,9 +3883,9 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                         className="w-full min-w-0 px-1.5 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800"
                         title={
                           isTestCaseLocked(tc.id)
-                            ? 'Files are locked because this test case is used in a set. Duplicate this test case to change files.'
+                            ? 'Files are locked because this test case is used in a saved job. Duplicate this test case to change files.'
                             : isTestCaseInUseByBatch(tc)
-                              ? 'Files are locked because this test case is in a running or pending set. Duplicate this test case to change files.'
+                              ? 'Files are locked because this test case is in a running or pending job. Duplicate this test case to change files.'
                             : 'Select ERoM file'
                         }
                       >
@@ -3865,7 +3913,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                         className="w-full min-w-0 px-1.5 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800"
                         title={
                           isTestCaseLocked(tc.id)
-                            ? 'Files are locked because this test case is used in a set. Duplicate this test case to change files.'
+                            ? 'Files are locked because this test case is used in a saved job. Duplicate this test case to change files.'
                             : isTestCaseInUseByBatch(tc)
                             ? 'Files are locked because this test case is in a running or pending set. Duplicate this test case to change files.'
                             : 'Select ULP file'
@@ -3893,7 +3941,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                         className="w-full min-w-0 px-1.5 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800"
                         title={
                           isTestCaseLocked(tc.id)
-                            ? 'Files are locked because this test case is used in a set. Duplicate this test case to change files.'
+                            ? 'Files are locked because this test case is used in a saved job. Duplicate this test case to change files.'
                             : isTestCaseInUseByBatch(tc)
                             ? 'Files are locked because this test case is in a running or pending set. Duplicate this test case to change files.'
                             : 'Select VCD file'
@@ -3927,9 +3975,9 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                               className="w-full min-w-0 px-1.5 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800"
                               title={
                                 isTestCaseLocked(tc.id)
-                                ? 'Files are locked because this test case is used in a set. Duplicate this test case to change files.'
+                                ? 'Files are locked because this test case is used in a saved job. Duplicate this test case to change files.'
                                 : isTestCaseInUseByBatch(tc)
-                                  ? 'Files are locked because this test case is in a running or pending set. Duplicate this test case to change files.'
+                                  ? 'Files are locked because this test case is in a running or pending job. Duplicate this test case to change files.'
                                   : `Select file for ${col}`
                               }
                             >
@@ -3976,7 +4024,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                     <td className="px-2 py-1.5 flex items-center justify-center gap-0.5 relative">
                       <span
                         draggable={!tcPending}
-                        onDragStart={(e) => handleRowDragStart(e, idx)}
+                        onDragStart={(e) => handleRowDragStart(e, originalIndex)}
                         onDragEnd={handleRowDragEnd}
                         className={`p-1 text-slate-400 hover:text-slate-600 ${tcPending ? 'opacity-40 cursor-not-allowed' : 'cursor-grab active:cursor-grabbing'}`}
                         title={tcPending ? 'กำลังลบ/สำเนา/จัดเรียง — รอสักครู่' : 'Drag to reorder'}
@@ -4022,7 +4070,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                       <button
                         type="button"
                         onClick={() => moveDisplayedTestCaseUp(tc.id)}
-                        disabled={idx === 0 || tcPending}
+                        disabled={originalIndex === 0 || tcPending}
                         className="p-1 text-slate-500 hover:text-slate-700 disabled:opacity-30"
                         title="Move up"
                       >
@@ -4031,7 +4079,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                       <button
                         type="button"
                         onClick={() => moveDisplayedTestCaseDown(tc.id)}
-                        disabled={idx === displayedSavedTestCases.length - 1 || isViewingShared || tcPending}
+                        disabled={originalIndex === displayedSavedTestCases.length - 1 || isViewingShared || tcPending}
                         className="p-1 text-slate-500 hover:text-slate-700 disabled:opacity-30"
                         title="Move down"
                       >
@@ -4041,10 +4089,10 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                         type="button"
                         onClick={() => {
                           if (isTestCaseInUseByBatch(tc)) {
-                            addToast({ type: 'warning', message: 'This test case uses files in a running or pending set. Wait for the set to finish.' });
+                            addToast({ type: 'warning', message: 'This test case uses files in a running or pending job. Wait for the job to finish.' });
                             return;
                           }
-                          removeDisplayedTestCase(tc.id, idx);
+                          removeDisplayedTestCase(tc.id, originalIndex);
                           queueMicrotask(() =>
                             addToast({
                               type: 'success',
@@ -4060,7 +4108,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                             : isDraftId(tc.id)
                               ? 'Remove this row from the table only — does not delete from Library'
                               : isTestCaseInUseByBatch(tc)
-                                ? 'In use by a running or pending set'
+                                ? 'In use by a running or pending job'
                                 : 'Remove from library'
                         }
                       >
@@ -4075,21 +4123,26 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
           </table>
         </div>
         ) : (
-          /* Tab 2: Vertical — single row, scroll horizontally; newest / latest updated first (left) */
+          /* Tab 2: Vertical — single row, scroll horizontally; same order as Table (left = earlier rows) */
           <div className="flex flex-row flex-nowrap gap-3 overflow-x-auto pb-1 scroll-smooth [scrollbar-gutter:stable]">
             {displayedSavedTestCases.length === 0 ? (
               <div className="w-full min-w-0 py-8 text-center text-slate-400 text-sm border border-slate-200 dark:border-slate-600 rounded-lg">
                 No test cases — use From Library or Add Test Case
               </div>
             ) : (
-              stepViewOrderedCases.map(({ tc, originalIndex }, displayIdx) => {
+              stepViewOrderedCases.map(({ tc, originalIndex }) => {
                 const tcPending = isTcStorePending(tc.id);
                 return (
                 <div
                   key={tc.id}
                   onDragEnter={(e) => e.preventDefault()}
-                  onDragOver={(e) => handleRowDragOver(e, originalIndex)}
-                  onDrop={(e) => handleRowDrop(e, originalIndex)}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    handleRowDragOver(e, originalIndex);
+                  }}
+                  onDrop={(e) => {
+                    handleRowDrop(e, originalIndex);
+                  }}
                   className={`shrink-0 w-[min(100%,380px)] min-w-[280px] border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 ${
                     draggingRowIndex === originalIndex ? 'opacity-50' : ''
                   } ${
@@ -4124,7 +4177,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                     <div className="flex-1 min-w-0">
                       {/* Name row: input grows; tag strip must not shrink to 0 (was breaking + / tag clicks in Vertical) */}
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-xs font-semibold text-slate-500 shrink-0">#{displayIdx + 1}</span>
+                        <span className="text-xs font-semibold text-slate-500 shrink-0">#{originalIndex + 1}</span>
                         <input
                           type="text"
                           value={tc.name || ''}
@@ -4153,9 +4206,27 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                       </button>
                       <button
                         type="button"
+                        onClick={() => moveDisplayedTestCaseUp(tc.id)}
+                        disabled={originalIndex === 0 || tcPending}
+                        className="p-1 text-slate-500 hover:text-slate-700 disabled:opacity-30"
+                        title="Move earlier in list (same as Move up in Table)"
+                      >
+                        <ArrowUp size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveDisplayedTestCaseDown(tc.id)}
+                        disabled={originalIndex === displayedSavedTestCases.length - 1 || isViewingShared || tcPending}
+                        className="p-1 text-slate-500 hover:text-slate-700 disabled:opacity-30"
+                        title="Move later in list (same as Move down in Table)"
+                      >
+                        <ArrowDown size={14} />
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => {
                           if (isTestCaseInUseByBatch(tc)) {
-                            addToast({ type: 'warning', message: 'This test case uses files in a running or pending set. Wait for the set to finish.' });
+                            addToast({ type: 'warning', message: 'This test case uses files in a running or pending job. Wait for the job to finish.' });
                             return;
                           }
                           removeDisplayedTestCase(tc.id, originalIndex);
@@ -4174,7 +4245,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                             : isDraftId(tc.id)
                               ? 'Remove this row from the table only — does not delete from Library'
                               : isTestCaseInUseByBatch(tc)
-                                ? 'In use by a running or pending set'
+                                ? 'In use by a running or pending job'
                                 : 'Remove from library'
                         }
                       >
@@ -4194,7 +4265,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                           className="w-full min-w-0 px-1.5 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800"
                           title={
                             isTestCaseLocked(tc.id)
-                              ? 'Files are locked because this test case is used in a set. Use “Save as new test case” to change files.'
+                              ? 'Files are locked because this test case is used in a saved job. Use “Save as new test case” to change files.'
                               : 'Select ERoM file'
                           }
                         >
@@ -4218,7 +4289,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                           className="w-full min-w-0 px-1.5 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800"
                           title={
                             isTestCaseLocked(tc.id)
-                              ? 'Files are locked because this test case is used in a set. Use “Save as new test case” to change files.'
+                              ? 'Files are locked because this test case is used in a saved job. Use “Save as new test case” to change files.'
                               : 'Select ULP file'
                           }
                         >
@@ -4242,7 +4313,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                           className="w-full min-w-0 px-1.5 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800"
                           title={
                             isTestCaseLocked(tc.id)
-                              ? 'Files are locked because this test case is used in a set. Use “Save as new test case” to change files.'
+                              ? 'Files are locked because this test case is used in a saved job. Use “Save as new test case” to change files.'
                               : 'Select VCD file'
                           }
                         >
@@ -4340,7 +4411,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                                   className="flex-1 min-w-0 px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800"
                                   title={
                                     isTestCaseLocked(tc.id)
-                                      ? 'Files are locked because this test case is used in a set. Use “Save as new test case” to change files.'
+                                      ? 'Files are locked because this test case is used in a saved job. Use “Save as new test case” to change files.'
                                       : `Select file for ${col}`
                                   }
                                 >
@@ -4442,10 +4513,10 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
           <button
             onClick={handleSaveAndSendToRunSet}
             className="px-3 py-2 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-1.5"
-            title="Save test cases and then jump to Run Set"
+            title="Save test cases and then jump to Run Job"
           >
             <Play size={14} />
-            <span>Save&Send to run set</span>
+            <span>Save&Send to Run Job</span>
           </button>
           <button
             onClick={handleSaveToLibrary}

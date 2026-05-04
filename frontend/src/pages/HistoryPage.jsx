@@ -214,7 +214,7 @@ const HistoryPage = ({ onViewJob }) => {
 </head>
 <body>
   <div class="container">
-    <h1>Test Report - Set #${jobId}</h1>
+    <h1>Test Report - Job #${jobId}</h1>
     <div class="info">
       <div class="info-item">
         <div class="info-label">Test Name</div>
@@ -313,7 +313,7 @@ const HistoryPage = ({ onViewJob }) => {
 </head>
 <body>
   <div class="container">
-    <h1>Test Report - Set #${jobId}</h1>
+    <h1>Test Report - Job #${jobId}</h1>
     <div class="info">
       <div class="info-item">
         <div class="info-label">Test Name</div>
@@ -382,7 +382,7 @@ const HistoryPage = ({ onViewJob }) => {
     const job = jobs.find(j => j.id === jobId);
     if (!job) return;
     
-    const logContent = `Test Set Log - Set #${jobId}
+    const logContent = `Test Job Log - Job #${jobId}
 Generated: ${new Date().toISOString()}
 ========================================
 
@@ -479,7 +479,7 @@ Summary:
       addToast({ type: 'info', message: 'Demo rows are not stored on the server.' });
       return;
     }
-    const label = (job.name || job.configName || job.id || '').trim() || `Set #${job.id}`;
+    const label = (job.name || job.configName || job.id || '').trim() || `Job #${job.id}`;
     if (
       !window.confirm(
         `Remove "${label}" from history?\n\nThis deletes the job and all stored results on the server. This cannot be undone.`
@@ -497,10 +497,10 @@ Summary:
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-2">
         <div className="min-w-0">
     <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100">Test History</h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm sm:text-base">View completed test sets and their results</p>
+          <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm sm:text-base">View completed test jobs and their results</p>
         </div>
         <div className="text-sm text-slate-500 dark:text-slate-400 flex-shrink-0">
-          {completedJobs.length} completed set{completedJobs.length !== 1 ? 's' : ''}
+          {completedJobs.length} completed job{completedJobs.length !== 1 ? 's' : ''}
         </div>
       </div>
 
@@ -533,7 +533,7 @@ Summary:
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search by set name, tag, or who ran it"
+              placeholder="Search by job name, tag, or who ran it"
               className="w-full pl-9 pr-3 py-1.5 text-sm rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/60"
             />
           </div>
@@ -578,7 +578,7 @@ Summary:
               )}
             </div>
             <div className="min-w-0">
-                  <h4 className="font-bold text-slate-800 dark:text-slate-100 text-base sm:text-lg truncate">{(job.name || job.configName || '').trim() || `Set #${job.id}`}</h4>
+                  <h4 className="font-bold text-slate-800 dark:text-slate-100 text-base sm:text-lg truncate">{(job.name || job.configName || '').trim() || `Job #${job.id}`}</h4>
                   <p className="text-slate-400 dark:text-slate-400 text-sm flex items-center gap-2">
                     <Clock size={14}/> {formatDate(job)} • {formatDuration(job)} duration
                   </p>
@@ -745,7 +745,7 @@ Summary:
               )}
             </div>
             <div className="min-w-0">
-                  <h4 className="font-bold text-slate-800 dark:text-slate-100 text-base sm:text-lg truncate">{(job.name || job.configName || '').trim() || `Set #${job.id}`}</h4>
+                  <h4 className="font-bold text-slate-800 dark:text-slate-100 text-base sm:text-lg truncate">{(job.name || job.configName || '').trim() || `Job #${job.id}`}</h4>
                   <p className="text-slate-400 dark:text-slate-400 text-sm flex items-center gap-2">
                     <Clock size={14}/> {formatDate(job)} • {formatDuration(job)} duration
                   </p>
@@ -915,7 +915,7 @@ const ActiveJobCard = ({ job, onClick }) => {
       <div className="flex justify-between items-start mb-3">
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1">
-            <span className="font-bold text-slate-700 dark:text-slate-200">Set #{job.id}</span>
+            <span className="font-bold text-slate-700 dark:text-slate-200">Job #{job.id}</span>
             <span className={`text-xs font-bold px-2 py-0.5 rounded ${
               job.status === 'running' ? 'bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
             }`}>

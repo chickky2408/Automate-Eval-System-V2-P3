@@ -580,7 +580,7 @@ const SetupPage = ({ editJobId, onEditComplete }) => {
 
     addToast({ 
       type: 'success', 
-      message: `Set try count to ${tryCount} for ${selectedTestCaseIds.length} test case(s).` 
+      message: `Applied try count ${tryCount} for ${selectedTestCaseIds.length} test case(s).` 
     });
     setBulkTryCount(''); // Clear input after applying
   };
@@ -1047,7 +1047,7 @@ const SetupPage = ({ editJobId, onEditComplete }) => {
     <div className="flex flex-col sm:flex-row sm:flex-wrap sm:justify-between sm:items-end gap-4">
       <div className="min-w-0">
     <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 dark:text-slate-100">
-      {editJobId ? `Edit Set #${editJobId}` : 'Test Case Setup'}
+      {editJobId ? `Edit Job #${editJobId}` : 'Test Case Setup'}
     </h1>
         <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm sm:text-base">
           {editJobId 
@@ -1374,7 +1374,7 @@ const SetupPage = ({ editJobId, onEditComplete }) => {
                         <div>
                           <div className="flex items-center gap-2">
                             <h3 className="text-lg font-bold text-slate-900">
-                              {editJobId ? `Edit Set #${editJobId}` : 'Pair Files'}
+                              {editJobId ? `Edit Job #${editJobId}` : 'Pair Files'}
                             </h3>
                             {selectedPairs.length > 0 && (
                               <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded text-xs font-semibold">

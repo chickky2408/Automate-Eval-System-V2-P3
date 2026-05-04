@@ -493,6 +493,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     savedTestCaseSets,
     savedTestCases,
     removeSavedTestCase,
+    removeSavedTestCasesBulk,
     addSavedTestCase,
     updateSavedTestCase,
     duplicateSavedTestCase,
@@ -1270,7 +1271,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
       const sn = String(payload?.setName || '').trim();
       addToast({
         type: 'info',
-        message: sn ? `Set "${sn}" was not found in Library.` : 'Set was not found in Library.',
+        message: sn ? `Saved job "${sn}" was not found in Library.` : 'Saved job was not found in Library.',
       });
     }
   }, [librarySetPointerOnNavigate, clearLibrarySetPointerOnNavigate, navigateLibraryToSetByIdOrName, addToast]);
@@ -1944,7 +1945,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     });
 
     (savedTestCaseSets || []).forEach((set) => {
-      const setName = String(set?.name ?? '').trim() || 'Set';
+      const setName = String(set?.name ?? '').trim() || 'Job';
       const setSt = (setStatusByName.get(setName) || '').toLowerCase();
       if (setSt === 'running' || setSt === 'pending') return;
       if (savedTestCaseSetPendingById?.[String(set.id)]) return;
@@ -2182,7 +2183,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
           _key: `set-${set.id}-${tcIdx}`,
           _source: 'set',
           _setId: set.id,
-          _setName: set.name || `Set #${set.id}`,
+          _setName: set.name || `Job #${set.id}`,
           _itemIndex: tcIdx,
           _ownerId: set._ownerId ?? activeProfileId,
           _owner: resolveOwnerDisplayName(set._ownerId ?? activeProfileId, ownerLabelCtx),
@@ -2668,7 +2669,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
           _key: `set-${set.id}-${itemIndex}`,
           _source: 'set',
           _setId: set.id,
-          _setName: set.name || `Set #${set.id}`,
+          _setName: set.name || `Job #${set.id}`,
           _itemIndex: itemIndex,
           _ownerId: set._ownerId ?? activeProfileId,
           _owner: resolveOwnerDisplayName(set._ownerId ?? activeProfileId, ownerLabelCtx),
@@ -2736,7 +2737,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
 
   const runSavedSetNow = useCallback(
     async (set) => {
-      const setName = (set?.name || '').trim() || 'Set';
+      const setName = (set?.name || '').trim() || 'Job';
       const items = Array.isArray(set?.items) ? set.items : [];
       if (items.length === 0) {
         addToast({ type: 'warning', message: 'Set นี้ไม่มี test case ให้รัน' });
@@ -2756,7 +2757,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
       if (mode === 'manual' && boardIds.length === 0) {
         addToast({
           type: 'warning',
-          message: 'ไม่มีบอร์ดที่เลือกไว้ (manual) — เปิด Edit set แล้วเลือกบอร์ด หรือไปที่ Run Set',
+          message: 'ไม่มีบอร์ดที่เลือกไว้ (manual) — เปิด Edit saved job แล้วเลือกบอร์ด หรือไปที่ Run Job',
         });
         return;
       }
@@ -3112,7 +3113,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     if (fileIds.length > 0) {
       api.saveSetFiles(setId, fileIds).catch((err) => console.error('Save set files failed', err));
     }
-    const setDisplayName = (set.name || '').trim() || 'Set';
+    const setDisplayName = (set.name || '').trim() || 'Job';
     addToast({ type: 'success', message: `เพิ่ม ${newItems.length} test case(s) ใน "${setDisplayName}"` });
     if (skippedDup > 0) {
       addToast({ type: 'info', message: `ข้าม ${skippedDup} รายการที่มีชุดไฟล์ซ้ำกับที่อยู่ใน set แล้ว` });
@@ -3478,12 +3479,23 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
   const handleDeleteAll = async () => {
     if (!uploadedFiles?.length) return;
     const inUseCount = uploadedFiles.filter((f) => fileNamesLockedForLibraryDelete.has(f.name)).length;
-    const toDelete = uploadedFiles.filter((f) => !fileNamesLockedForLibraryDelete.has(f.name));
+    const notMineCount = uploadedFiles.filter((f) => !isFileOwnerMine(f, currentClientId, activeProfileId)).length;
+    const toDelete = uploadedFiles.filter(
+      (f) => !fileNamesLockedForLibraryDelete.has(f.name) && isFileOwnerMine(f, currentClientId, activeProfileId)
+    );
     if (toDelete.length === 0) {
+      if (notMineCount > 0) {
+        addToast({
+          type: 'warning',
+          message:
+            'ลบได้เฉพาะไฟล์ที่อัปโหลดจากโปรไฟล์ของคุณ — ไฟล์ที่ Owner เป็นโปรไฟล์อื่นจะไม่ถูกลบ',
+        });
+        return;
+      }
       addToast({ type: 'warning', message: 'ไฟล์ทั้งหมดถูกอ้างอิงโดย Test Case / Set ที่บันทึกไว้ หรือกำลัง running/pending — ลบไม่ได้จนกว่าจะไม่ถูกใช้' });
       return;
     }
-    if (!window.confirm(`Delete ${toDelete.length} file(s) from Library?${inUseCount > 0 ? `\n\n${inUseCount} file(s) ถูกอ้างอิง (saved / running/pending) จะไม่ถูกลบ` : ''}`)) return;
+    if (!window.confirm(`Delete ${toDelete.length} file(s) from Library?${inUseCount > 0 ? `\n\n${inUseCount} file(s) ถูกอ้างอิง (saved / running/pending) จะไม่ถูกลบ` : ''}${notMineCount > 0 ? `\n\n${notMineCount} file(s) owned by another profile will be skipped` : ''}`)) return;
     setIsDeleting(true);
     let deleted = 0;
     for (const f of toDelete) {
@@ -3493,17 +3505,28 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     setIsDeleting(false);
     if (deleted > 0) addToast({ type: 'success', message: `Deleted ${deleted} file(s)` });
     if (inUseCount > 0) addToast({ type: 'info', message: `${inUseCount} file(s) ไม่ถูกลบ (ถูกอ้างอิงโดย saved Test Case / Set หรือ process)` });
+    if (notMineCount > 0) addToast({ type: 'info', message: `${notMineCount} file(s) ไม่ถูกลบ (Owner เป็นโปรไฟล์อื่น)` });
   };
 
   const handleDeleteBox = async (setId, files) => {
     if (!files?.length) return;
-    const toDelete = files.filter((f) => !fileNamesLockedForLibraryDelete.has(f.name));
-    const inUseCount = files.length - toDelete.length;
+    const notMineInBox = files.filter((f) => !isFileOwnerMine(f, currentClientId, activeProfileId)).length;
+    const toDelete = files.filter(
+      (f) => !fileNamesLockedForLibraryDelete.has(f.name) && isFileOwnerMine(f, currentClientId, activeProfileId)
+    );
+    const inUseCount = files.length - files.filter((f) => !fileNamesLockedForLibraryDelete.has(f.name)).length;
     if (toDelete.length === 0) {
+      if (notMineInBox > 0) {
+        addToast({
+          type: 'warning',
+          message: 'ไฟล์ในกล่องนี้เป็นของ Owner อื่นทั้งหมด — ลบได้เฉพาะไฟล์ที่อัปโหลดจากโปรไฟล์ของคุณ',
+        });
+        return;
+      }
       addToast({ type: 'warning', message: 'ไฟล์ในกล่องนี้ทั้งหมดถูกอ้างอิง (saved / running/pending) — ไม่สามารถลบได้' });
       return;
     }
-    if (!window.confirm(`Delete ${toDelete.length} file(s) in this box from Library?${inUseCount > 0 ? `\n\n${inUseCount} file(s) กำลังถูกใช้ จะไม่ถูกลบ` : ''}`)) return;
+    if (!window.confirm(`Delete ${toDelete.length} file(s) in this box from Library?${inUseCount > 0 ? `\n\n${inUseCount} file(s) กำลังถูกใช้ จะไม่ถูกลบ` : ''}${notMineInBox > 0 ? `\n\n${notMineInBox} file(s) owned by another profile will be skipped` : ''}`)) return;
     setDeletingBoxId(setId);
     let deleted = 0;
     for (const f of toDelete) {
@@ -3513,6 +3536,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     setDeletingBoxId(null);
     if (deleted > 0) addToast({ type: 'success', message: `Deleted ${deleted} file(s) from box` });
     if (inUseCount > 0) addToast({ type: 'info', message: `${inUseCount} file(s) ไม่ถูกลบ (กำลังถูกใช้)` });
+    if (notMineInBox > 0) addToast({ type: 'info', message: `${notMineInBox} file(s) ไม่ถูกลบ (Owner เป็นโปรไฟล์อื่น)` });
   };
 
   return (
@@ -3653,7 +3677,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                       onClick={() => void saveImportDraftsToLibraryAndSendToRunSet()}
                       disabled={isImporting}
                       className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
-                      title="Save files to Library, then go to Run Set"
+                      title="Save files to Library, then go to Run Job"
                     >
                       Save&Send to run set
                     </button>
@@ -3755,10 +3779,10 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                 </div>
                 <div className="min-w-0 flex-1">
                   <h3 id="add-tcs-to-set-title" className="text-lg font-bold text-slate-800 dark:text-slate-100">
-                    Edit set
+                    Edit saved job
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                    Set name, tag, boards (same as Run Set) — then add test cases from Library if you like
+                    Job name, tag, boards (same as Run Job) — then add test cases from Library if you like
                   </p>
                 </div>
                 <button
@@ -3772,7 +3796,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
               </div>
               <div className="mt-3 flex flex-col sm:flex-row sm:items-end gap-2">
                 <label className="flex-1 min-w-0 flex flex-col gap-0.5">
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Set name</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Job name</span>
                   <input
                     type="text"
                     value={addTcsToSetNameDraft}
@@ -3784,9 +3808,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                       }
                     }}
                     className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
-                    placeholder="ชื่อ set"
+                    placeholder="ชื่อ job"
                     autoComplete="off"
-                    aria-label="Set name"
+                    aria-label="Job name"
                   />
                 </label>
                 <button
@@ -5043,7 +5067,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                           <div className="text-xs text-slate-500 dark:text-slate-400 flex flex-wrap gap-x-2 gap-y-0.5">
                             {u.sets.slice(0, 3).map((sn) => (
                               <span key={`${u.name}-set-${sn}`} className="whitespace-nowrap">
-                                {String(sn).startsWith('Current') ? sn : `Set: ${sn}`}
+                                {String(sn).startsWith('Current') ? sn : `Job: ${sn}`}
                               </span>
                             ))}
                             {u.sets.length > 3 && <span className="text-slate-400">…</span>}
@@ -5068,7 +5092,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
           />
           <div className="relative w-[min(480px,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl">
             <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
-              <div className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">Sets using this file</div>
+              <div className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">Jobs using this file</div>
               <button
                 type="button"
                 onClick={() => setShowAllSetsForFileName(null)}
@@ -5094,7 +5118,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                         <li
                           key={`lib-set-all-${showAllSetsForFileName}-${sn}`}
                           className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${getSetJobStatusPillClass(st)} cursor-pointer`}
-                          title={st ? `Job status: ${st}` : 'No active job for this set name'}
+                          title={st ? `Job status: ${st}` : 'No active job for this saved job name'}
                           onClick={() => {
                             const setObj =
                               (fileReferenceTestCaseSets || []).find((s) => String(s?.name || '').trim() === String(sn).trim()) ||
@@ -5146,7 +5170,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
             <button
               type="button"
               onClick={goPrevLibraryTab}
-              title="Previous tab (Files → Test Cases → Sets)"
+              title="Previous tab (Files → Test Cases → Jobs)"
               aria-label="Previous Library tab"
               className="inline-flex items-center justify-center p-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
             >
@@ -5172,13 +5196,13 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                 onClick={() => setLibraryView('testCases')}
                 className={`px-3 py-1.5 text-xs font-semibold ${libraryView === 'testCases' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
               >
-                Sets
+                Jobs
               </button>
             </div>
             <button
               type="button"
               onClick={goNextLibraryTab}
-              title="Next tab (Files → Test Cases → Sets)"
+              title="Next tab (Files → Test Cases → Jobs)"
               aria-label="Next Library tab"
               className="inline-flex items-center justify-center p-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
             >
@@ -5203,7 +5227,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
               : String(librarySetFilter || 'all');
 
           const setMatchesFilters = (set) => {
-            const setName = String(set?.name || '').trim() || 'Set';
+            const setName = String(set?.name || '').trim() || 'Job';
             const nameQ = librarySetTcNameFilter.trim().toLowerCase();
             if (nameQ && !setName.toLowerCase().includes(nameQ)) return false;
 
@@ -5281,7 +5305,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
             Object.entries(bySet).forEach(([setId, indices]) => {
               const set = (savedTestCaseSets || []).find((s) => s.id === setId);
               if (!set || !Array.isArray(set.items)) return;
-              const setName = (set.name || '').trim() || 'Set';
+              const setName = (set.name || '').trim() || 'Job';
               const st = (setStatusByName.get(setName) || '').toLowerCase();
               if (st === 'running' || st === 'pending') {
                 addToast({ type: 'warning', message: `Can't remove from set — "${setName}" is ${st}` });
@@ -5318,7 +5342,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
 
           const deletableSetIdsInView = (setsFilteredForView || [])
             .filter((set) => {
-              const setName = String(set?.name || '').trim() || 'Set';
+              const setName = String(set?.name || '').trim() || 'Job';
               const st = (setStatusByName.get(setName) || '').toLowerCase();
               if (st === 'running' || st === 'pending') return false;
               if (savedTestCaseSetPendingById?.[String(set.id)]) return false;
@@ -5334,12 +5358,12 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
           const handleBulkDeleteSelectedSets = async () => {
             const rawIds = [...new Set(selectedLibrarySetHeaderIds)];
             if (rawIds.length === 0) {
-              addToast({ type: 'info', message: 'Select sets to delete (header checkboxes) first.' });
+              addToast({ type: 'info', message: 'Select saved jobs to delete (header checkboxes) first.' });
               return;
             }
             if (
               !window.confirm(
-                `Remove ${rawIds.length} selected set(s) from Saved?\n\nTest cases and files in the Library stay — only the set entries are removed.`
+                `Remove ${rawIds.length} selected saved job(s) from Saved?\n\nTest cases and files in the Library stay — only the saved job entries are removed.`
               )
             ) {
               return;
@@ -5352,7 +5376,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                 skipped += 1;
                 continue;
               }
-              const setName = (set.name || '').trim() || 'Set';
+              const setName = (set.name || '').trim() || 'Job';
               const st = (setStatusByName.get(setName) || '').toLowerCase();
               if (st === 'running' || st === 'pending') {
                 addToast({ type: 'warning', message: `Skipped "${setName}" — ${st}` });
@@ -5366,7 +5390,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
               }
               const canEdit = set._ownerId == null || String(set._ownerId) === String(activeProfileId);
               if (!canEdit) {
-                addToast({ type: 'warning', message: `Skipped "${setName}" — not your profile's set` });
+                addToast({ type: 'warning', message: `Skipped "${setName}" — not your profile's saved job` });
                 skipped += 1;
                 continue;
               }
@@ -5383,7 +5407,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
             setSelectedLibrarySetHeaderIds((prev) => prev.filter((id) => !rawIds.includes(id)));
             setSelectedLibrarySetTcKeys((prev) => prev.filter((k) => !rawIds.some((rid) => k.startsWith(`${rid}::`))));
             if (deleted > 0) {
-              addToast({ type: 'success', message: `Deleted ${deleted} set(s)` });
+              addToast({ type: 'success', message: `Deleted ${deleted} saved job(s)` });
             }
             if (skipped > 0 && deleted === 0) {
               addToast({ type: 'info', message: 'Nothing could be deleted from the current selection.' });
@@ -5397,7 +5421,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                   value={librarySetFilter}
                   onChange={(e) => setLibrarySetFilter(e.target.value)}
                   className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800"
-                  title="Filter sets by owner (profile)"
+                  title="Filter saved jobs by owner (profile)"
                 >
                   <option value="all">All owners</option>
                   <option value="__active__">{resolveOwnerDisplayName(activeProfileId, ownerLabelCtx) || (activeProfile?.name || 'My profile')}</option>
@@ -5492,7 +5516,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                   <option value="error">Error</option>
                   <option value="completed">Completed</option>
                 </select>
-                <button type="button" onClick={handleDeleteSelectedSetTcs} disabled={selectedSetKeys.size === 0} className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-40 disabled:pointer-events-none transition-colors" title={selectedSetKeys.size > 0 ? `Remove ${selectedSetKeys.size} from set(s) only (not from Library)` : 'Select rows to remove from set'}>
+                <button type="button" onClick={handleDeleteSelectedSetTcs} disabled={selectedSetKeys.size === 0} className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-40 disabled:pointer-events-none transition-colors" title={selectedSetKeys.size > 0 ? `Remove ${selectedSetKeys.size} from saved job(s) only (not from Library)` : 'Select rows to remove from saved job'}>
                   <Trash2 size={18} strokeWidth={2} />
                 </button>
                 {selectedSetKeys.size > 0 && <span className="text-xs text-slate-500">{selectedSetKeys.size} row(s)</span>}
@@ -5510,11 +5534,11 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                   }}
                   disabled={deletableSetIdsInView.length === 0}
                   className="px-2 py-1 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800/80 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
-                  title="Select or clear all sets that can be deleted in the filtered list"
+                  title="Select or clear all saved jobs that can be deleted in the filtered list"
                 >
                   {deletableSetIdsInView.length > 0 && deletableSetIdsInView.every((id) => selectedLibrarySetHeaderIds.includes(id))
                     ? 'Clear selection'
-                    : 'Select all sets'}
+                    : 'Select all saved jobs'}
                 </button>
                 <button
                   type="button"
@@ -5524,7 +5548,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                   title="Delete checked sets — does not remove test cases or files from the Library"
                 >
                   <Trash2 size={14} strokeWidth={2.25} />
-                  Delete set ({selectedLibrarySetHeaderIds.length})
+                  Delete saved job ({selectedLibrarySetHeaderIds.length})
                 </button>
                 {selectedLibrarySetHeaderIds.length > 0 && (
                   <span className="text-xs text-slate-500 dark:text-slate-400">{selectedLibrarySetHeaderIds.length} set(s) selected</span>
@@ -5537,7 +5561,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
               ) : null}
               {!(setsFilteredForView || [])?.length ? (
                 <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-8 text-center text-slate-500 dark:text-slate-400">
-                  No sets yet — create test cases and Save Set on the Test Cases page
+                  No saved jobs yet — create test cases and Save job on the Test Cases page
                 </div>
               ) : (
                 (setsFilteredForView || []).map((set, setIdx) => {
@@ -5574,7 +5598,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                     .filter((col) =>
                       filteredItems.some((t) => (getTcExtraColVal(t, col) ?? '').toString().trim() !== '')
                     );
-                  const setName = set.name || `Set ${setIdx + 1}`;
+                  const setName = set.name || `Job ${setIdx + 1}`;
                   const setStatusRaw = setStatusByName.get(setName) || null;
                   const setStatus = (setStatusRaw || '').toLowerCase();
                   const isSetLocked = setStatus === 'running' || setStatus === 'pending';
@@ -5762,7 +5786,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                 }}
                                 disabled={setBusy}
                                 className="p-1.5 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-600 disabled:opacity-40 disabled:pointer-events-none"
-                                title="Duplicate this set (same as Run Set page)"
+                                title="Duplicate this saved job (same as Run Job page)"
                                 aria-label="Duplicate set"
                               >
                                 <Copy size={14} strokeWidth={2} />
@@ -5868,7 +5892,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                 });
                                 return;
                               }
-                              if (!window.confirm(`Delete set "${setName}"? This will remove it from Saved sets only (test cases and files in Library will stay).`)) return;
+                              if (!window.confirm(`Delete saved job "${setName}"? This removes it from Saved jobs only (test cases and files in Library will stay).`)) return;
                               try {
                                 await api.deleteSet(set.id);
                               } catch (e) {
@@ -6210,7 +6234,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                           );
                                         }
                                         // Not yet run — show the parent set's name (this row IS a set item).
-                                        const parentSetName = (set && (set.name || `Set #${set.id}`)) || '';
+                                        const parentSetName = (set && (set.name || `Job #${set.id}`)) || '';
                                         if (parentSetName) {
                                           return (
                                             <span
@@ -6361,7 +6385,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
             if (!isDragSelectingLibraryRef.current) return;
             if (!selectedSet.has(key)) setSelectedLibraryTcKeys((prev) => [...prev, key]);
           };
-          const handleDeleteSelected = () => {
+          const handleDeleteSelected = async () => {
             if (selectedSet.size === 0) {
               addToast({ type: 'info', message: 'Select test case(s) first' });
               return;
@@ -6388,26 +6412,29 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
             if (!window.confirm(`Delete ${toRemove.length} selected test case(s)?`)) return;
 
             const bySet = {};
+            const libraryIds = [];
             toRemove.forEach((row) => {
-              // Library item: remove from Test Case Library
               if (row._source === 'current' && row.id) {
-                removeSavedTestCase(row.id);
+                libraryIds.push(row.id);
                 return;
               }
-
-              // Set item: remove from that set only (do NOT delete library item)
               if (row._source === 'set' && row._setId != null && row._itemIndex != null) {
                 if (!bySet[row._setId]) bySet[row._setId] = new Set();
                 bySet[row._setId].add(row._itemIndex);
               }
             });
 
+            // Remove set rows first (index-based), reading fresh sets from the store so indices stay valid.
             Object.entries(bySet).forEach(([setId, indices]) => {
-              const set = (savedTestCaseSets || []).find((s) => s.id === setId);
+              const set = (useTestStore.getState().savedTestCaseSets || []).find((s) => String(s.id) === String(setId));
               if (!set || !Array.isArray(set.items)) return;
               const newItems = set.items.filter((_, i) => !indices.has(i));
               updateSavedTestCaseSet(setId, { items: newItems });
             });
+
+            if (libraryIds.length) {
+              await removeSavedTestCasesBulk(libraryIds);
+            }
 
             setSelectedLibraryTcKeys([]);
             addToast({ type: 'success', message: `Deleted ${toRemove.length} test case(s)` });
@@ -6444,7 +6471,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                 .slice(0, 5);
               addToast({
                 type: 'warning',
-                message: `ส่ง Run Set ได้เฉพาะเคสที่มี VCD, ERoM และ ULP ครบ — ${runIncomplete.length} รายการยังไม่ครบ: ${names.join(', ')}${runIncomplete.length > 5 ? '…' : ''}`,
+                message: `ส่ง Run Job ได้เฉพาะเคสที่มี VCD, ERoM และ ULP ครบ — ${runIncomplete.length} รายการยังไม่ครบ: ${names.join(', ')}${runIncomplete.length > 5 ? '…' : ''}`,
               });
               return;
             }
@@ -6453,7 +6480,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
               name: `Selected ${rows.length} test case(s)`,
             });
             onNavigateToRunSet();
-            addToast({ type: 'success', message: `Sent ${rows.length} test case(s) to Run Set` });
+            addToast({ type: 'success', message: `Sent ${rows.length} test case(s) to Run Job` });
           };
 
           const handleInsertRowBelowRawTc = (tc, e) => {
@@ -6490,7 +6517,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
             if (tc._source === 'set' && tc._setId != null && tc._itemIndex != null) {
               const set = (savedTestCaseSets || []).find((s) => s.id === tc._setId);
               if (!set || !Array.isArray(set.items)) return;
-              const setName = (set.name || '').trim() || 'Set';
+              const setName = (set.name || '').trim() || 'Job';
               const st = (setStatusByName.get(setName) || '').toLowerCase();
               if (st === 'running' || st === 'pending') {
                 addToast({ type: 'warning', message: 'Set กำลังรัน/รอ — เพิ่มแถวใน set ไม่ได้' });
@@ -6554,7 +6581,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
             if (tc._source === 'set' && tc._setId != null && tc._itemIndex != null) {
               const set = (savedTestCaseSets || []).find((s) => s.id === tc._setId);
               if (!set || !Array.isArray(set.items)) return;
-              const setName = (set.name || '').trim() || 'Set';
+              const setName = (set.name || '').trim() || 'Job';
               const st = (setStatusByName.get(setName) || '').toLowerCase();
               if (st === 'running' || st === 'pending') {
                 addToast({ type: 'warning', message: 'Set กำลังรัน/รอ — เพิ่มแถวใน set ไม่ได้' });
@@ -7028,9 +7055,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                     onClick={handleSendSelectedToRunSet}
                     disabled={selectedSet.size === 0}
                     className="ml-auto inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:pointer-events-none transition-colors"
-                    title={selectedSet.size > 0 ? `Send ${selectedSet.size} selected to Run Set` : 'Select test cases to send'}
+                    title={selectedSet.size > 0 ? `Send ${selectedSet.size} selected to Run Job` : 'Select test cases to send'}
                   >
-                    Send to Run Set
+                    Send to Run Job
                   </button>
                 )}
                 {selectedSet.size > 0 && (
@@ -8117,7 +8144,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                   <th className="px-2 py-2 font-semibold min-w-[220px]">Name</th>
                                   <th className="px-2 py-2 font-semibold min-w-[140px]">Tags</th>
                                   <th className="px-2 py-2 font-semibold min-w-[120px]">Used by TC</th>
-                                  <th className="px-2 py-2 font-semibold min-w-[120px]">Sets</th>
+                                  <th className="px-2 py-2 font-semibold min-w-[120px]">Jobs</th>
                                   <th className="px-2 py-2 font-semibold w-16">Owner</th>
                                   <th className="px-2 py-2 font-semibold w-10 text-center" title="Visibility">Vis</th>
                                   <th className="px-2 py-2 font-semibold min-w-[120px]">Modified</th>
@@ -8558,6 +8585,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
         /* File in Library — filter, multi-select (shift/ctrl/drag), delete icon */
         (() => {
           const selectedFileSet = new Set(selectedLibraryFileIds);
+          const otherOwnerFileCount = filteredFiles.filter(
+            (f) => !isFileOwnerMine(f, currentClientId, activeProfileId)
+          ).length;
           const selectableFileIds = filteredFiles
             .filter((f) => !fileNamesLockedForLibraryDelete.has(f.name) && !isFileManuallyClosed(f))
             .map((f) => f.id)
@@ -8597,6 +8627,10 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
             const f = filteredFiles.find((x) => x.id === id);
             return f && fileNamesLockedForLibraryDelete.has(f.name);
           }).length;
+          const selectedNotOwned = selectedLibraryFileIds.filter((id) => {
+            const f = filteredFiles.find((x) => x.id === id);
+            return f && !isFileOwnerMine(f, currentClientId, activeProfileId);
+          }).length;
           const handleDeleteSelectedFiles = async () => {
             if (selectedFileSet.size === 0) {
               addToast({ type: 'info', message: 'Select file(s) first' });
@@ -8614,12 +8648,21 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
               });
               return;
             }
+            if (selectedNotOwned > 0) {
+              addToast({
+                type: 'warning',
+                message:
+                  'ลบได้เฉพาะไฟล์ที่อัปโหลดจากโปรไฟล์ของคุณ — ถอนการเลือกไฟล์ที่ Owner เป็นโปรไฟล์อื่นก่อน (Cannot delete files owned by another profile.)',
+              });
+              return;
+            }
             if (!window.confirm(`Delete ${selectedFileSet.size} selected file(s) from Library?`)) return;
             setIsDeleting(true);
             let deleted = 0;
             for (const id of selectedLibraryFileIds) {
               const f = filteredFiles.find((x) => x.id === id);
               if (f && fileNamesLockedForLibraryDelete.has(f.name)) continue;
+              if (f && !isFileOwnerMine(f, currentClientId, activeProfileId)) continue;
               const ok = await removeUploadedFile(id);
               if (ok) deleted++;
             }
@@ -9196,16 +9239,24 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                       <button
                         type="button"
                         onClick={handleDeleteSelectedFiles}
-                        disabled={selectedFileSet.size === 0 || selectedInUse > 0 || isDeleting || selectedFilesPending}
+                        disabled={
+                          selectedFileSet.size === 0 ||
+                          selectedInUse > 0 ||
+                          selectedNotOwned > 0 ||
+                          isDeleting ||
+                          selectedFilesPending
+                        }
                         className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-40 disabled:pointer-events-none transition-colors"
                         title={
                           selectedFilesPending
                             ? 'รอให้ action กับไฟล์ที่เลือกจบก่อน'
                             : selectedInUse > 0
                               ? 'มีไฟล์ที่กำลังถูกใช้ (running/pending) — ไม่สามารถลบได้'
-                              : selectedFileSet.size > 0
-                                ? `Delete ${selectedFileSet.size} selected`
-                                : 'Select files to delete'
+                              : selectedNotOwned > 0
+                                ? 'มีไฟล์ที่ Owner เป็นโปรไฟล์อื่น — ลบไม่ได้'
+                                : selectedFileSet.size > 0
+                                  ? `Delete ${selectedFileSet.size} selected`
+                                  : 'Select files to delete'
                         }
                       >
                         <Trash2 size={18} strokeWidth={2} />
@@ -9263,6 +9314,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                               <span className="text-xs text-slate-500 dark:text-slate-400">
                                 Select all ({filteredFiles.length})
                                 {selectableFileIds.length < filteredFiles.length ? ` — ${filteredFiles.length - selectableFileIds.length} locked (referenced)` : ''}
+                                {otherOwnerFileCount > 0 ? ` — ${otherOwnerFileCount} other owner (delete disabled for those)` : ''}
                               </span>
                             </div>
                           </th>
@@ -9277,7 +9329,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                           </th>
                           <th className="px-2 py-2 font-semibold min-w-[140px]">Tags</th>
                           <th className="px-2 py-2 font-semibold min-w-[120px]">Used by TC</th>
-                          <th className="px-2 py-2 font-semibold min-w-[100px]" title="Saved sets that reference this file; color follows job status when available">
+                          <th className="px-2 py-2 font-semibold min-w-[100px]" title="Saved jobs that reference this file; color follows job status when available">
                             Sets
                           </th>
                           <th className="px-2 py-2 font-semibold w-16">Owner</th>
@@ -9669,7 +9721,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                         <p className="font-medium">No files in library</p>
                         <p className="text-xs max-w-md mx-auto">Upload files on the Test Cases page first (drag & drop or click upload). Save test case only saves the test case definition, not the file content.</p>
                       </div>
-                    ) : filesBySet.length === 0 ? <div className="p-8 text-center text-slate-400">No sets — create a set on the Test Cases page (Save Set)</div> : (
+                    ) : filesBySet.length === 0 ? <div className="p-8 text-center text-slate-400">No saved jobs — create a job on the Test Cases page (Save job)</div> : (
                       <>
                         {filteredFiles.length > 0 && (
                           <div className="flex items-center gap-2 pb-2">
@@ -9679,16 +9731,20 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                         )}
                         {filesBySet.map(({ set: setInfo, files }, idx) => {
                           if (files.length === 0) return null;
-                          const title = setInfo.name || `Set ${idx + 1}`;
+                          const title = setInfo.name || `Job ${idx + 1}`;
                           const boxId = setInfo.id;
                           const isDeletingBox = deletingBoxId === boxId;
-                          const boxDeletableFiles = files.filter((f) => !fileNamesLockedForLibraryDelete.has(f.name));
+                          const boxDeletableFiles = files.filter(
+                            (f) =>
+                              !fileNamesLockedForLibraryDelete.has(f.name) &&
+                              isFileOwnerMine(f, currentClientId, activeProfileId)
+                          );
                           const boxAllInUse = boxDeletableFiles.length === 0;
                           return (
                             <div key={boxId} className="rounded-lg border border-slate-200 dark:border-slate-600 overflow-hidden bg-slate-50/50 dark:bg-slate-800/30">
                               <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800/50 flex items-center justify-between gap-2">
                                 <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">{title} <span className="text-xs font-normal text-slate-500">({files.length})</span></span>
-                                <button type="button" onClick={() => handleDeleteBox(boxId, files)} disabled={isDeletingBox || boxAllInUse} className={`p-1.5 rounded ${boxAllInUse ? 'opacity-50 cursor-not-allowed text-slate-400' : 'text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20'} disabled:opacity-60`} title={boxAllInUse ? 'ไฟล์ในกล่องนี้ถูกอ้างอิง (saved / running/pending) — ไม่สามารถลบได้' : 'Delete all files in this box'}><Trash2 size={16} strokeWidth={2} /></button>
+                                <button type="button" onClick={() => handleDeleteBox(boxId, files)} disabled={isDeletingBox || boxAllInUse} className={`p-1.5 rounded ${boxAllInUse ? 'opacity-50 cursor-not-allowed text-slate-400' : 'text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20'} disabled:opacity-60`} title={boxAllInUse ? 'ไม่มีไฟล์ที่ลบได้ในกล่องนี้ (ถูกอ้างอิง / หรือ Owner เป็นโปรไฟล์อื่น)' : 'Delete all files in this box (yours only, not in use)'}><Trash2 size={16} strokeWidth={2} /></button>
                               </div>
                               <div className="divide-y divide-slate-100 dark:divide-slate-700">
                                 {files.map((f, fileIdx) => {

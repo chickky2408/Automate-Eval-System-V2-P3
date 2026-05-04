@@ -71,13 +71,13 @@ function buildMyJobLocalNotifications(prevJobs, nextJobs, activeProfileId, clien
     if (wasRunning && nowDone) {
       const anyFail = (j.files || []).some(fileIsFail);
       const title =
-        st === 'stopped' ? 'Set stopped' : anyFail ? 'Set finished with failures' : 'Set completed';
+        st === 'stopped' ? 'Job stopped' : anyFail ? 'Job finished with failures' : 'Job completed';
       const message =
         st === 'stopped'
-          ? `Set #${j.id} (${j.name || 'Unnamed'}) was stopped.`
+          ? `Job #${j.id} (${j.name || 'Unnamed'}) was stopped.`
           : anyFail
-            ? `Set #${j.id} (${j.name || 'Unnamed'}) finished — some test cases failed.`
-            : `Set #${j.id} (${j.name || 'Unnamed'}) finished successfully.`;
+            ? `Job #${j.id} (${j.name || 'Unnamed'}) finished — some test cases failed.`
+            : `Job #${j.id} (${j.name || 'Unnamed'}) finished successfully.`;
       const type = st === 'stopped' ? 'info' : anyFail ? 'error' : 'success';
       out.push({
         id: `local-${j.id}-done-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -100,7 +100,7 @@ function buildMyJobLocalNotifications(prevJobs, nextJobs, activeProfileId, clien
           out.push({
             id: `local-${j.id}-tc-${file.id ?? idx}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
             title: 'Test case error',
-            message: `${name} failed while running (Set #${j.id}).`,
+            message: `${name} failed while running (Job #${j.id}).`,
             type: 'error',
             read: false,
             createdAt: now,
@@ -565,7 +565,7 @@ const putActiveProfileDataWithRecovery = async (getPayload, opts = {}) => {
     let changed = false;
     const out = (Array.isArray(list) ? list : []).map((s, idx) => {
       if (!s || typeof s !== 'object') return s;
-      const base = String(s.name || '').trim() || `Unnamed Set ${idx + 1}`;
+      const base = String(s.name || '').trim() || `Unnamed Job ${idx + 1}`;
       let candidate = base;
       let n = 2;
       while (used.has(candidate.toLowerCase())) {
@@ -606,7 +606,7 @@ const putActiveProfileDataWithRecovery = async (getPayload, opts = {}) => {
     out.savedTestCases = patchTcList(src.savedTestCases, 'Test case');
     out.savedTestCaseSets = (Array.isArray(src.savedTestCaseSets) ? src.savedTestCaseSets : []).map((set, sIdx) => {
       if (!set || typeof set !== 'object') return set;
-      const nextItems = patchTcList(set.items, `Set ${sIdx + 1} item`);
+      const nextItems = patchTcList(set.items, `Job ${sIdx + 1} item`);
       return { ...set, items: nextItems };
     });
     return { changed, payload: out };
@@ -851,11 +851,31 @@ const saveSavedTestCaseSets = (sets, opts = {}) => {
       {
         suppressSyncErrorToast,
         rethrow,
-        failMessage: 'Save set to server failed',
+        failMessage: 'Save job to server failed',
       }
     );
   }
   return Promise.resolve();
+};
+
+/** Ensure saved job names are unique within this profile's payload (avoids 409 when local data has duplicate names). */
+const dedupeSavedTestCaseSetNamesLocally = (sets) => {
+  const used = new Set();
+  let changed = false;
+  const out = (Array.isArray(sets) ? sets : []).map((s, idx) => {
+    if (!s || typeof s !== 'object') return s;
+    const base = String(s.name || '').trim() || `Unnamed Job ${idx + 1}`;
+    let candidate = base;
+    let n = 2;
+    while (used.has(candidate.toLowerCase())) {
+      candidate = `${base} (${n})`;
+      n += 1;
+    }
+    used.add(candidate.toLowerCase());
+    if (candidate !== base) changed = true;
+    return { ...s, name: candidate };
+  });
+  return { changed, sets: out };
 };
 
 // Helper function to format file size
@@ -1134,7 +1154,7 @@ export const useTestStore = create((set, get) => {
     if (cur[key]) {
       get().addToast({
         type: 'info',
-        message: 'Please wait for the current action to finish before changing this set.',
+        message: 'Please wait for the current action to finish before changing this saved job.',
         duration: 2800,
       });
       return false;
@@ -1789,7 +1809,10 @@ export const useTestStore = create((set, get) => {
       const target = (stateBefore.uploadedFiles || []).find((f) => f.id === id);
       const targetName = target?.name || null;
 
-      await api.deleteFile(id);
+      await api.deleteFile(id, {
+        actingProfileId: stateBefore.activeProfileId,
+        actingClientId: getClientId(),
+      });
 
       set((state) => {
         const nextTags = { ...(state.fileTags || {}) };
@@ -1860,7 +1883,15 @@ export const useTestStore = create((set, get) => {
       } else if (error?.status === 409) {
         get().addToast({
           type: 'warning',
-          message: error?.detail || 'File is in use by a running or pending set. Wait for the set to finish or remove the set first.',
+          message: error?.detail || 'File is in use by a running or pending job. Wait for the job to finish or remove the job first.',
+        });
+      } else if (error?.status === 403) {
+        get().addToast({
+          type: 'warning',
+          message:
+            error?.message ||
+            error?.detail ||
+            'Cannot delete a file owned by another profile.',
         });
       } else {
         console.error('Failed to delete file', error);
@@ -2021,47 +2052,99 @@ export const useTestStore = create((set, get) => {
     });
     return !blocked;
   },
+  /**
+   * Remove many library test cases in one state update + one server PUT (avoids racing PUTs / duplicate
+   * set-name validation when deleting several rows from File Library).
+   */
+  removeSavedTestCasesBulk: (rawIds) => {
+    const ids = [
+      ...new Set(
+        (Array.isArray(rawIds) ? rawIds : [])
+          .map((x) => (x == null ? '' : String(x)))
+          .filter(Boolean)
+      ),
+    ];
+    if (!ids.length) return Promise.resolve(true);
+
+    const started = [];
+    for (const id of ids) {
+      if (!beginTestCasePending(id, 'delete')) {
+        started.forEach((i) => queueMicrotask(() => endTestCasePending(i)));
+        return Promise.resolve(false);
+      }
+      started.push(id);
+    }
+
+    const sameContentAsTarget = (item, target) =>
+      (item.name || '').trim() === (target.name || '').trim() &&
+      (item.vcdName || '').trim() === (target.vcdName || '').trim() &&
+      (item.binName || '').trim() === (target.binName || '').trim() &&
+      (item.linName || '').trim() === (target.linName || '').trim();
+
+    const releasePending = () => {
+      started.forEach((id) => endTestCasePending(id));
+    };
+
+    try {
+      const state = get();
+      const idSet = new Set(ids);
+
+      if (state.loadedSetId) {
+        const next = (state.loadedSetTable || []).filter((t) => !idSet.has(String(t.id)));
+        set({ loadedSetTable: next });
+        releasePending();
+        return Promise.resolve(true);
+      }
+
+      const removedTargets = (state.savedTestCases || []).filter((t) => idSet.has(String(t.id)));
+      const nextCases = (state.savedTestCases || []).filter((t) => !idSet.has(String(t.id)));
+
+      let nextSets = state.savedTestCaseSets || [];
+      if (removedTargets.length > 0) {
+        nextSets = (state.savedTestCaseSets || [])
+          .map((set) => ({
+            ...set,
+            items: Array.isArray(set.items)
+              ? set.items.filter(
+                  (item) => !removedTargets.some((target) => sameContentAsTarget(item, target))
+                )
+              : set.items,
+          }))
+          .filter((set) => Array.isArray(set.items) && set.items.length > 0);
+      }
+
+      const deduped = dedupeSavedTestCaseSetNamesLocally(nextSets);
+      if (deduped.changed) nextSets = deduped.sets;
+
+      set({ savedTestCases: nextCases, savedTestCaseSets: nextSets });
+
+      const activeId = getActiveProfileId();
+      const profile = loadProfile(activeId);
+      if (profile) {
+        saveProfile(activeId, { ...profile, savedTestCases: nextCases, savedTestCaseSets: nextSets });
+      }
+
+      if (isBackendProfileId(activeId)) {
+        return putActiveProfileDataWithRecovery(
+          () => ({
+            savedTestCases: nextCases,
+            savedTestCaseSets: nextSets,
+            preferences: mergePreferencesForActiveProfilePut(),
+          }),
+          { failMessage: 'Save to server failed' }
+        ).finally(releasePending);
+      }
+      releasePending();
+      return Promise.resolve(true);
+    } catch (e) {
+      releasePending();
+      throw e;
+    }
+  },
+
   removeSavedTestCase: (id) => {
     if (id == null || id === '') return;
-    if (!beginTestCasePending(id, 'delete')) return;
-    try {
-      set((state) => {
-        const idStr = id == null ? '' : String(id);
-        const matchId = (t) => String(t.id) === idStr;
-        // ถ้ากำลังแก้ไข Set อยู่ ให้ลบเฉพาะจาก table ชั่วคราวของ Set นั้น
-        if (state.loadedSetId) {
-          const next = (state.loadedSetTable || []).filter((t) => !matchId(t));
-          return { loadedSetTable: next };
-        }
-
-        const target = (state.savedTestCases || []).find((t) => matchId(t));
-        const nextCases = (state.savedTestCases || []).filter((t) => !matchId(t));
-
-        // ลบ test case ที่มี content ตรงกันออกจากทุก Saved Set ด้วย
-        let nextSets = state.savedTestCaseSets || [];
-        if (target) {
-          const sameContent = (item) =>
-            (item.name || '').trim() === (target.name || '').trim() &&
-            (item.vcdName || '').trim() === (target.vcdName || '').trim() &&
-            (item.binName || '').trim() === (target.binName || '').trim() &&
-            (item.linName || '').trim() === (target.linName || '').trim();
-
-          nextSets = (state.savedTestCaseSets || [])
-            .map((set) => ({
-              ...set,
-              items: Array.isArray(set.items) ? set.items.filter((item) => !sameContent(item)) : set.items,
-            }))
-            // ถ้า source ใน set ถูกลบจนไม่เหลือ test case แล้ว ให้ลบ set นั้นออกเลย
-            .filter((set) => Array.isArray(set.items) && set.items.length > 0);
-          saveSavedTestCaseSets(nextSets);
-        }
-
-        saveSavedTestCases(nextCases);
-        return { savedTestCases: nextCases, savedTestCaseSets: nextSets };
-      });
-    } finally {
-      queueMicrotask(() => endTestCasePending(id));
-    }
+    void get().removeSavedTestCasesBulk([id]);
   },
   moveSavedTestCaseUp: (id) => {
     const stateBefore = get();
@@ -2333,12 +2416,12 @@ export const useTestStore = create((set, get) => {
     if (!beginSavedTestCaseSetPending(id, 'add')) return;
     try {
       set((state) => {
-        const setName = normalizeSetName(name || 'Unnamed Set') || 'Unnamed Set';
+        const setName = normalizeSetName(name || 'Unnamed Job') || 'Unnamed Job';
         const usedSetNames = buildGlobalSetNameSet(state, null);
         if (usedSetNames.has(setName.toLowerCase())) {
           get().addToast({
             type: 'warning',
-            message: `Set name "${setName}" already exists in the system. Please use a different name.`,
+            message: `Job name "${setName}" already exists in the system. Please use a different name.`,
           });
           return state;
         }
@@ -2371,12 +2454,12 @@ export const useTestStore = create((set, get) => {
         if (globalDup) {
           get().addToast({
             type: 'warning',
-            message: `Test case name "${globalDup.name}" already exists in the system. Please rename before saving set.`,
+            message: `Test case name "${globalDup.name}" already exists in the system. Please rename before saving job.`,
           });
           return state;
         }
         if (renamedInSet) {
-          get().addToast({ type: 'info', message: 'พบชื่อซ้ำใน set เดียวกัน — ปรับชื่ออัตโนมัติใน set นี้เท่านั้น' });
+          get().addToast({ type: 'info', message: 'พบชื่อซ้ำใน job เดียวกัน — ปรับชื่ออัตโนมัติใน job นี้เท่านั้น' });
         }
         const fileLibrarySnapshot = options.fileLibrarySnapshot || [];
         const entry = { id, name: setName, createdAt: now, updatedAt: now, items: normalizedItems, fileLibrarySnapshot };
@@ -2408,12 +2491,12 @@ export const useTestStore = create((set, get) => {
     if (updates.name !== undefined) {
       const setName = normalizeSetName(updates.name);
       if (!setName) {
-        get().addToast({ type: 'warning', message: 'Set name cannot be empty.' });
+        get().addToast({ type: 'warning', message: 'Job name cannot be empty.' });
         return state;
       }
       const usedSetNames = buildGlobalSetNameSet(state, id);
       if (usedSetNames.has(setName.toLowerCase())) {
-        get().addToast({ type: 'warning', message: `Set name "${setName}" already exists in the system.` });
+        get().addToast({ type: 'warning', message: `Job name "${setName}" already exists in the system.` });
         return state;
       }
     }
@@ -2424,7 +2507,7 @@ export const useTestStore = create((set, get) => {
         const n = normalizeTestCaseName(tc.name);
         if (!n) continue;
         if (namesSeen.has(n)) {
-          get().addToast({ type: 'warning', message: 'Test case name is duplicated in the same set — not saving' });
+          get().addToast({ type: 'warning', message: 'Test case name is duplicated in the same saved job — not saving' });
           return state;
         }
         namesSeen.add(n);
@@ -2453,7 +2536,7 @@ export const useTestStore = create((set, get) => {
       const sets = state.savedTestCaseSets || [];
       const idx = sets.findIndex((s) => s.id === setId);
       if (idx < 0) {
-        get().addToast({ type: 'error', message: 'ไม่พบ set' });
+        get().addToast({ type: 'error', message: 'ไม่พบ job' });
         return state;
       }
       const list = newItems || [];
@@ -2469,7 +2552,7 @@ export const useTestStore = create((set, get) => {
         const n = normalizeTestCaseName(tc.name);
         if (!n) continue;
         if (namesInSet.has(n)) {
-          get().addToast({ type: 'warning', message: 'Test case name is duplicated in the same set — not saving' });
+          get().addToast({ type: 'warning', message: 'Test case name is duplicated in the same saved job — not saving' });
           return state;
         }
         namesInSet.add(n);
@@ -2509,7 +2592,7 @@ export const useTestStore = create((set, get) => {
       const sets = state.savedTestCaseSets || [];
       const idx = sets.findIndex((s) => s.id === setId);
       if (idx < 0) {
-        get().addToast({ type: 'error', message: 'ไม่พบ set' });
+        get().addToast({ type: 'error', message: 'ไม่พบ job' });
         return state;
       }
       const rm = indicesSet instanceof Set ? indicesSet : new Set(indicesSet || []);
@@ -2617,7 +2700,7 @@ export const useTestStore = create((set, get) => {
     }
     const now = new Date().toISOString();
     const newId = `tcs-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-    const baseName = src.name || 'Set';
+    const baseName = src.name || 'Job';
     const newName = `${baseName} (copy)`;
     const copy = {
       ...src,
@@ -2633,7 +2716,7 @@ export const useTestStore = create((set, get) => {
       await saveSavedTestCaseSets(next, { suppressSyncErrorToast: true, rethrow: true });
       get().addToast({
         type: 'success',
-        message: `สำเนา set แล้ว — "${newName}"`,
+        message: `สำเนา job แล้ว — "${newName}"`,
         duration: 4000,
       });
       return { ok: true, newId };
@@ -2652,7 +2735,7 @@ export const useTestStore = create((set, get) => {
       }
       get().addToast({
         type: 'error',
-        message: `Duplicate set ไม่สำเร็จ — บันทึกไป server ไม่ได้ (${err?.message || err})`,
+        message: `Duplicate job ไม่สำเร็จ — บันทึกไป server ไม่ได้ (${err?.message || err})`,
         duration: 7000,
       });
       return { ok: false, newId, error: err };
@@ -4195,7 +4278,7 @@ export const useTestStore = create((set, get) => {
 
         state.addToast({
           type: 'success',
-          message: `Demo re-run started (${failedFiles.length} failed test case${failedFiles.length > 1 ? 's' : ''}) in this set.`,
+          message: `Demo re-run started (${failedFiles.length} failed test case${failedFiles.length > 1 ? 's' : ''}) in this job.`,
         });
         return updatedJob;
       }

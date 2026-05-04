@@ -1,7 +1,7 @@
 """File upload and management endpoints."""
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Header
 from fastapi.responses import Response
 from typing import Optional, Set
 from datetime import datetime
@@ -198,10 +198,24 @@ async def get_file(file_id: str):
 
 
 @router.delete("/{file_id}")
-async def delete_file(file_id: str):
+async def delete_file(
+    file_id: str,
+    x_acting_profile_id: Optional[str] = Header(default=None, alias="X-Acting-Profile-Id"),
+    x_acting_client_id: Optional[str] = Header(default=None, alias="X-Acting-Client-Id"),
+):
     record = await file_store.get_file(file_id)
     if not record:
         raise HTTPException(status_code=404, detail="File not found")
+    owner_id = (record.get("ownerId") or "").strip()
+    if owner_id:
+        actor_profile = (x_acting_profile_id or "").strip()
+        actor_client = (x_acting_client_id or "").strip()
+        if actor_profile or actor_client:
+            if owner_id != actor_profile and owner_id != actor_client:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Cannot delete a file owned by another profile.",
+                )
     in_use = await _file_names_in_use_by_active_jobs()
     if record.get("name") and record["name"] in in_use:
         raise HTTPException(

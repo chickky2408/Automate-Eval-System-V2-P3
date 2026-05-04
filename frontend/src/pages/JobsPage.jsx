@@ -136,16 +136,16 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
           <td class="result-${file.result === 'pass' ? 'pass' : file.result === 'fail' ? 'fail' : ''}">${file.result || 'N/A'}</td>
           <td>${file.errorMessage || file.error || '—'}</td>
         </tr>`).join('');
-  const htmlContent = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Test Report - Set #${jobId}</title>
+  const htmlContent = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Test Report - Job #${jobId}</title>
 <style>body{font-family:Arial,sans-serif;margin:20px;background:#f5f5f5}.container{max-width:900px;margin:0 auto;background:#fff;padding:24px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1)}h1{color:#1e293b;border-bottom:3px solid #3b82f6;padding-bottom:8px}.info{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin:16px 0}.info-item{padding:8px;background:#f8fafc;border-radius:4px}.info-label{font-weight:bold;color:#64748b;font-size:12px}.info-value{color:#1e293b;margin-top:4px}table{width:100%;border-collapse:collapse;margin-top:16px}th{background:#3b82f6;color:#fff;padding:10px;text-align:left}td{padding:8px;border-bottom:1px solid #e2e8f0}.status-completed{color:#10b981}.status-running{color:#3b82f6}.result-pass{color:#10b981}.result-fail{color:#ef4444}.footer{margin-top:24px;padding-top:16px;border-top:1px solid #e2e8f0;color:#64748b;font-size:12px}</style></head><body><div class="container">
-<h1>Test Report - Set #${jobId}</h1><div class="info"><div class="info-item"><div class="info-label">Set Name</div><div class="info-value">${job.name || 'N/A'}</div></div><div class="info-item"><div class="info-label">Tag</div><div class="info-value">${job.tag || '—'}</div></div><div class="info-item"><div class="info-label">Firmware</div><div class="info-value">${job.firmware || '—'}</div></div><div class="info-item"><div class="info-label">Test cases</div><div class="info-value">${toInclude.length}</div></div></div>
+<h1>Test Report - Job #${jobId}</h1><div class="info"><div class="info-item"><div class="info-label">Job name</div><div class="info-value">${job.name || 'N/A'}</div></div><div class="info-item"><div class="info-label">Tag</div><div class="info-value">${job.tag || '—'}</div></div><div class="info-item"><div class="info-label">Firmware</div><div class="info-value">${job.firmware || '—'}</div></div><div class="info-item"><div class="info-label">Test cases</div><div class="info-value">${toInclude.length}</div></div></div>
 <table><thead><tr><th>Order</th><th>Test Case</th><th>Status</th><th>Result</th><th>Error</th></tr></thead><tbody>${rows}</tbody></table>
 <div class="footer">Generated ${new Date().toLocaleString()}</div></div></body></html>`;
     const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `set_${jobId}_report_${toInclude.length === 1 ? getTestCaseDisplayNameForReport(toInclude[0]).replace(/[^a-z0-9]/gi, '_') : new Date().toISOString().split('T')[0]}.html`;
+    link.download = `job_${jobId}_report_${toInclude.length === 1 ? getTestCaseDisplayNameForReport(toInclude[0]).replace(/[^a-z0-9]/gi, '_') : new Date().toISOString().split('T')[0]}.html`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -433,22 +433,22 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
     }
     const success = await deleteJob(jobId);
     if (success) {
-      addToast({ type: 'success', message: `Deleted Set #${jobId} successfully` });
+      addToast({ type: 'success', message: `Deleted Job #${jobId} successfully` });
     } else {
-      addToast({ type: 'error', message: `Failed to delete Set #${jobId}` });
+      addToast({ type: 'error', message: `Failed to delete Job #${jobId}` });
     }
   };
 
   const handleDeleteSelectedJobs = async () => {
     if (selectedJobIds.length === 0) {
-      addToast({ type: 'warning', message: 'Please select at least one Set to delete' });
+      addToast({ type: 'warning', message: 'Please select at least one job to delete' });
       return;
     }
 
     const selectedJobs = jobs.filter(j => selectedJobIds.includes(j.id));
     const jobNames = selectedJobs.map(j => `#${j.id} (${j.name || 'N/A'})`).join('\n');
 
-    if (!window.confirm(`Are you sure you want to delete ${selectedJobIds.length} Sets?\n\n${jobNames}\n\nThis action cannot be undone`)) {
+    if (!window.confirm(`Are you sure you want to delete ${selectedJobIds.length} jobs?\n\n${jobNames}\n\nThis action cannot be undone`)) {
       return;
     }
 
@@ -464,11 +464,11 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
     upd('selectedJobIds', (prev) => prev.filter((id) => !deletedIds.includes(id)));
 
     if (failed === 0) {
-      addToast({ type: 'success', message: `Deleted ${ok} Sets successfully` });
+      addToast({ type: 'success', message: `Deleted ${ok} jobs successfully` });
     } else if (ok > 0) {
-      addToast({ type: 'warning', message: `Deleted ${ok} Sets, failed to delete ${failed} Sets` });
+      addToast({ type: 'warning', message: `Deleted ${ok} jobs, failed to delete ${failed} jobs` });
     } else {
-      addToast({ type: 'error', message: 'Failed to delete the selected Sets' });
+      addToast({ type: 'error', message: 'Failed to delete the selected jobs' });
     }
   };
   
@@ -483,7 +483,7 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
       (f) => f.result === 'fail' || (f.status || '').toLowerCase() === 'error'
     );
 
-  /** Kanban column: pending | running | error | completed (error = finished set with any TC fail) */
+  /** Kanban column: pending | running | error | completed (error = finished job with any TC fail) */
   const jobBoardColumn = (job) => {
     const s = (job.status || '').toLowerCase();
     if (s === 'pending') return 'pending';
@@ -601,7 +601,7 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
   // Simulated completed batches for demo when there are no real completed jobs
   const DEMO_COMPLETED_JOB = {
     id: 'demo-completed',
-    name: 'Completed set',
+    name: 'Completed job',
     status: 'completed',
     progress: 100,
     tag: 'Demo',
@@ -621,7 +621,7 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
   // อีกชุด demo completed สำหรับใช้พรีเซนต์เพิ่มเติม
   const DEMO_COMPLETED_JOB_2 = {
     id: 'demo-completed-2',
-    name: 'Completed set (ALT)',
+    name: 'Completed job (ALT)',
     status: 'completed',
     progress: 100,
     tag: 'Demo',
@@ -640,7 +640,7 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
   // Demo batch ที่มีบาง test case fail (สำหรับพรีเซนต์ - แสดงการ์ดสีแดง)
   const DEMO_FAILED_JOB = {
     id: 'demo-failed',
-    name: 'Demo failed set',
+    name: 'Demo failed job',
     status: 'completed',
     progress: 100,
     tag: 'Demo',
@@ -660,7 +660,7 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
   // ชุด demo failed เพิ่มอีกอันสำหรับพรีเซนต์ flow re-run failed
   const DEMO_FAILED_JOB_2 = {
     id: 'demo-failed-2',
-    name: 'Demo failed set (ALT)',
+    name: 'Demo failed job (ALT)',
     status: 'completed',
     progress: 100,
     tag: 'Demo',
@@ -882,10 +882,10 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
                         });
                       }}
                       className="min-w-0 text-left hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
-                      title="Open this set in Library → Sets"
+                      title="Open this job in Library → Jobs"
                     >
                       <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
-                        {(job.name || job.configName || '').trim() || `Set #${job.id}`}
+                        {(job.name || job.configName || '').trim() || `Job #${job.id}`}
                       </h3>
                     </button>
                     <span className={`px-2 py-0.5 rounded-full text-xs font-bold uppercase shrink-0 ${

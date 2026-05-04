@@ -127,6 +127,55 @@ export function jobHasAnyTagColor(job, selectedColorKey) {
   return colors.has(want);
 }
 
+/**
+ * Saved / draft test case row — true if any tag pill uses `selectedColorKey` (multi-tag via tagColorList).
+ * Rows with no tags match only `mint`.
+ */
+export function testCaseHasAnyTagColor(tc, selectedColorKey) {
+  if (!selectedColorKey || !TAG_PALETTE_MAP[selectedColorKey]) return true;
+  const want = normalizeTagColorKey(selectedColorKey);
+  const ex = tc?.extraColumns && typeof tc.extraColumns === 'object' ? tc.extraColumns : {};
+  const raw = String(ex.tag || ex.Tag || '').trim();
+  const parts = splitTagsComma(raw);
+  if (!parts.length) {
+    return want === normalizeTagColorKey('mint');
+  }
+  const colorList = normalizeTagColorList(ex, parts.length);
+  return colorList.some((k) => normalizeTagColorKey(k) === want);
+}
+
+/**
+ * Library file row (picker / filters) — matches when file tag styling uses the selected palette key.
+ * Uses `fileTagColors[id]`, optional `file.tagColor`, and optional per-tag `tagColorList` on the file row.
+ */
+export function libraryFileRowMatchesTagColorFilter(file, fileTags, fileTagColors, selectedColorKey) {
+  if (!selectedColorKey || !TAG_PALETTE_MAP[selectedColorKey]) return true;
+  const want = normalizeTagColorKey(selectedColorKey);
+  const fid = file?.id;
+  const tagVal = String((fileTags && fid != null && fileTags[fid]) || '').trim();
+  const parts = splitTagsComma(tagVal);
+  const fromMap =
+    fid != null ? fileTagColors?.[String(fid)] ?? fileTagColors?.[fid] : undefined;
+  const mapStr =
+    fromMap !== undefined && fromMap !== null && String(fromMap).trim() !== '' ? String(fromMap).trim() : null;
+  const fromRow = file?.tagColor ?? file?.tag_color;
+  const rowStr =
+    fromRow !== undefined && fromRow !== null && String(fromRow).trim() !== '' ? String(fromRow).trim() : null;
+  const list = Array.isArray(file?.tagColorList)
+    ? file.tagColorList
+    : Array.isArray(file?.tag_color_list)
+      ? file.tag_color_list
+      : null;
+  if (!parts.length) {
+    return want === normalizeTagColorKey(mapStr ?? rowStr ?? '');
+  }
+  if (list && list.length) {
+    const keys = parts.map((_, i) => normalizeTagColorKey(list[i] ?? mapStr ?? rowStr ?? 'mint'));
+    return keys.some((k) => k === want);
+  }
+  return normalizeTagColorKey(mapStr ?? rowStr ?? 'mint') === want;
+}
+
 export function splitTagsComma(raw) {
   return String(raw || '')
     .split(',')

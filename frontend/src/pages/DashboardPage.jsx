@@ -59,7 +59,7 @@ const BatchDetailsModal = ({ batch, onClose }) => (
       <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="p-6 border-b border-slate-200 flex justify-between items-center sticky top-0 bg-white">
           <div>
-            <h2 className="text-2xl font-bold">{batch.name || `Set #${batch.id}`}</h2>
+            <h2 className="text-2xl font-bold">{batch.name || `Job #${batch.id}`}</h2>
             <p className="text-sm text-slate-500 mt-1">
               ID: {batch.id} • {batch.completedFiles}/{batch.totalFiles} files completed • {batch.progress}%
             </p>
@@ -1071,7 +1071,7 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
                       <div className="flex flex-col">
                         <div className="flex items-center gap-2 mb-1">
                           <span className="font-bold text-slate-800 dark:text-slate-200 text-sm">
-                            {sys.jobName || `Set #${sys.jobId}`}
+                            {sys.jobName || `Job #${sys.jobId}`}
                           </span>
                         </div>
                         <div className="text-[11px] text-slate-500 dark:text-slate-400">ID: {sys.jobId}</div>
@@ -1141,7 +1141,7 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <h2 className="font-bold text-slate-900 dark:text-slate-100 text-sm sm:text-base">
-                      {systemModalJob.name || systemModalJob.configName || `Set #${systemModalJob.id}`}
+                      {systemModalJob.name || systemModalJob.configName || `Job #${systemModalJob.id}`}
                     </h2>
                   </div>
                   <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
@@ -1290,7 +1290,7 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
                       const displayName = rawName.replace(/^Batch\s*#/i, 'Set ');
                       return (
                         <div className="font-semibold text-slate-800 dark:text-slate-200">
-                          {displayName || `Set #${systemModalBoardRow.job.id}`}
+                          {displayName || `Job #${systemModalBoardRow.job.id}`}
                         </div>
                       );
                     })()}

@@ -157,7 +157,7 @@ const App = () => {
           <NavItem icon={<LayoutDashboard size={20}/>} label="Dashboard" active={activePage === 'dashboard'} isOpen={isSidebarOpen} onClick={() => setActivePage('dashboard')} />
           <NavItem icon={<Database size={20}/>} label="Library" active={activePage === 'fileLibrary'} isOpen={isSidebarOpen} onClick={() => setActivePage('fileLibrary')} />
           <NavItem icon={<FileCode size={20}/>} label="Create Test Case" active={activePage === 'testCases'} isOpen={isSidebarOpen} onClick={() => setActivePage('testCases')} />
-          <NavItem icon={<PlayCircle size={20}/>} label="Run Set" active={activePage === 'runSet'} isOpen={isSidebarOpen} onClick={() => setActivePage('runSet')} />
+          <NavItem icon={<PlayCircle size={20}/>} label="Run Job" active={activePage === 'runSet'} isOpen={isSidebarOpen} onClick={() => setActivePage('runSet')} />
           <NavItem icon={<Monitor size={20}/>} label="Jobs Manager" active={activePage === 'jobs'} isOpen={isSidebarOpen} onClick={() => setActivePage('jobs')} />
           <NavItem icon={<Cpu size={20}/>} label="Board Status" active={activePage === 'boards'} isOpen={isSidebarOpen} onClick={() => { setBoardsPageFocusBoardId(null); useTestStore.getState().setBoardsFleetStatusPreset(null); useTestStore.getState().setFleetFilter('status', null); setActivePage('boards'); }} />
           <NavItem icon={<History size={20}/>} label="Test History" active={activePage === 'history'} isOpen={isSidebarOpen} onClick={() => setActivePage('history')} />
@@ -260,7 +260,7 @@ const App = () => {
           </div>
         </header>
 
-        {/* CONTENT PAGES — full-bleed layout for Library / Create TC / Run Set */}
+        {/* CONTENT PAGES — full-bleed layout for Library / Create TC / Run Job */}
         <div
           className={`overflow-x-hidden overflow-y-auto min-w-0 ${
             activePage === 'testCases' ||
@@ -1361,7 +1361,7 @@ const DashboardPageInline = ({ onNavigateBoards, onNavigateJobs }) => {
       if (systemModalFailedFiles.length > 0) {
         systemModalSummaryText = `Completed with ${systemModalFailedFiles.length} failed test case(s)`;
       } else {
-        systemModalSummaryText = 'Set completed';
+        systemModalSummaryText = 'Job completed';
       }
     }
   }
@@ -1400,14 +1400,14 @@ const DashboardPageInline = ({ onNavigateBoards, onNavigateJobs }) => {
           icon={<AlertCircle className="text-red-500" />} 
           label="Job Errors" 
           value={jobErrorCount} 
-          sub="Set with failed tests" 
+          sub="Job with failed tests" 
           onClick={goToJobManager}
         />
         <StatCard 
           icon={<Activity className="text-purple-500" />} 
           label="Job Queue" 
           value={jobQueueCount} 
-          sub="Set waiting to run" 
+          sub="Job waiting to run" 
           onClick={goToJobManager}
         />
       <StatCard 
@@ -1554,7 +1554,7 @@ const DashboardPageInline = ({ onNavigateBoards, onNavigateJobs }) => {
                     <div className="flex flex-col">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="font-bold text-slate-800 dark:text-slate-200 text-sm">
-                          {sys.jobName || `Set #${sys.jobId}`}
+                          {sys.jobName || `Job #${sys.jobId}`}
                         </span>
                       </div>
                       <div className="text-[11px] text-slate-500 dark:text-slate-400">ID: {sys.jobId}</div>
@@ -1648,7 +1648,7 @@ const DashboardPageInline = ({ onNavigateBoards, onNavigateJobs }) => {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <h2 className="font-bold text-slate-900 dark:text-slate-100 text-sm sm:text-base">
-                      {systemModalJob.name || systemModalJob.configName || `Set #${systemModalJob.id}`}
+                      {systemModalJob.name || systemModalJob.configName || `Job #${systemModalJob.id}`}
                     </h2>
                   </div>
                   <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
@@ -1695,7 +1695,7 @@ const DashboardPageInline = ({ onNavigateBoards, onNavigateJobs }) => {
                 <div className="max-h-72 overflow-y-auto text-xs">
                       {(!systemModalJob.files || systemModalJob.files.length === 0) ? (
                     <div className="px-4 py-6 text-center text-slate-400">
-                      No test cases in this set.
+                      No test cases in this job.
                     </div>
                   ) : (
                     (systemModalJob.files || [])
@@ -1762,7 +1762,7 @@ const DashboardPageInline = ({ onNavigateBoards, onNavigateJobs }) => {
         </div>
       )}
 
-      {/* Board popup: คลิกที่ Device Progress card → แสดง board กำลัง run set ไหน ของใคร + ปุ่มไป Board Status */}
+      {/* Board popup: คลิกที่ Device Progress card → แสดง board กำลัง run job ไหน ของใคร + ปุ่มไป Board Status */}
       {systemModalBoardRow && (
         <div
           className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-4"
@@ -1791,13 +1791,13 @@ const DashboardPageInline = ({ onNavigateBoards, onNavigateJobs }) => {
               {systemModalBoardRow.job ? (
                 <>
                   <div className="text-sm">
-                    <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-0.5">Running set</div>
+                    <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-0.5">Running job</div>
                     {(() => {
                       const rawName = (systemModalBoardRow.job.name || systemModalBoardRow.job.configName || '').trim();
-                      const displayName = rawName.replace(/^Batch\\s*#/i, 'Set ');
+                      const displayName = rawName.replace(/^Batch\\s*#/i, 'Job ');
                       return (
                         <div className="font-semibold text-slate-800 dark:text-slate-200">
-                          {displayName || `Set #${systemModalBoardRow.job.id}`}
+                          {displayName || `Job #${systemModalBoardRow.job.id}`}
                         </div>
                       );
                     })()}
@@ -1888,8 +1888,8 @@ const DashboardPageInline = ({ onNavigateBoards, onNavigateJobs }) => {
                         {isBusy ? 'Busy' : isOnline ? 'Online' : (board.status || '—')}
                       </span>
                     </div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mb-1" title={job ? `${((job.configName || job.name || 'Set').trim()).replace(/^Batch\\s*#/i, 'Set ')} · set #${job.id}` : 'Idle'}>
-                      {job ? `${((job.configName || job.name || 'Set').trim()).replace(/^Batch\\s*#/i, 'Set ')} · #${job.id}` : 'Idle'}
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mb-1" title={job ? `${((job.configName || job.name || 'Job').trim()).replace(/^Batch\\s*#/i, 'Job ')} · job #${job.id}` : 'Idle'}>
+                      {job ? `${((job.configName || job.name || 'Job').trim()).replace(/^Batch\\s*#/i, 'Job ')} · #${job.id}` : 'Idle'}
                     </div>
                     {isBusy && (
                       <>

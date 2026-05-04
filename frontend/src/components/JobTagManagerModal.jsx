@@ -127,10 +127,10 @@ export default function JobTagManagerModal({ jobId, onClose }) {
         <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-700 flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
-              Manage tags {job ? `— ${job.name || `Set #${job.id}`}` : ''}
+              Manage tags {job ? `— ${job.name || `Job #${job.id}`}` : ''}
             </div>
             <div className="text-xs text-slate-500 dark:text-slate-400">
-              Add multiple tags to one set. The first tag is used as the “display tag”.
+              Add multiple tags to one job. The first tag is used as the “display tag”.
             </div>
           </div>
           <button type="button" className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500" onClick={() => onClose?.()}>

@@ -55,7 +55,7 @@ function rowMatchesOwnerFilter(rowOid, filterProfileId, ownerLabelCtx, activePro
   return false;
 }
 
-/** Limit Run Set library list by tag palette color on the row (multi-tag aware). */
+/** Limit Run Job library list by tag palette color on the row (multi-tag aware). */
 function tcMatchesRunLibraryTagColor(tc, filterColorRaw) {
   const wantTrim = String(filterColorRaw ?? '').trim();
   if (!wantTrim) return true;
@@ -879,7 +879,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
         addToast({
           type: 'warning',
           message:
-            'Cannot change Vis — this set is not editable here. Switch the owner filter to your local profile / sets.',
+            'Cannot change Vis — this saved job is not editable here. Switch the owner filter to your local profile / saved jobs.',
         });
         return;
       }
@@ -1207,7 +1207,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
   const saveCurrentRunSet = (options = { showToast: true }) => {
     if (runPreview.length === 0) {
       if (options.showToast) {
-        addToast({ type: 'warning', message: 'Add test cases to Set for run first (drag from left or Load a set)' });
+        addToast({ type: 'warning', message: 'Add test cases to the job queue first (drag from left or Load a saved job)' });
       }
       return null;
     }
@@ -1216,7 +1216,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
       if (options.showToast) addToast({ type: 'warning', message: 'No test cases to save' });
       return null;
     }
-    const name = (runSetName || '').trim() || `Set ${safeSets.length + 1}`;
+    const name = (runSetName || '').trim() || `Job ${safeSets.length + 1}`;
     const fileNames = new Set();
     items.forEach((t) => {
       if (t.vcdName) fileNames.add(t.vcdName);
@@ -1238,11 +1238,11 @@ const RunSetPage = ({ onNavigateJobs }) => {
     if (newSetId && safeFiles.length > 0) {
       const fileIds = safeFiles.filter((f) => fileNames.has(f.name)).map((f) => f.id);
       if (fileIds.length > 0) {
-        api.saveSetFiles(newSetId, fileIds).catch((err) => console.error('Save set files failed', err));
+        api.saveSetFiles(newSetId, fileIds).catch((err) => console.error('Save job files failed', err));
       }
     }
     if (options.showToast) {
-      addToast({ type: 'success', message: `Saved "${name}" (${items.length} case(s)) — see SAVED on Test Cases page` });
+      addToast({ type: 'success', message: `Saved "${name}" (${items.length} case(s)) — see Saved jobs on Test Cases page` });
     }
     return { id: newSetId, name, count: items.length };
   };
@@ -1253,7 +1253,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
     const setsToRun = usingPreview ? [] : selectedRunnableSets;
 
     if (!usingPreview && setsToRun.length === 0) {
-      addToast({ type: 'warning', message: 'Select at least one set to run or add test cases to the list first' });
+      addToast({ type: 'warning', message: 'Select at least one saved job to run or add test cases to the list first' });
       return;
     }
     if (usingPreview && runPreview.length === 0) {
@@ -1285,7 +1285,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
         const names = inUseSelected.map((s) => s.name || 'Unnamed').join(', ');
         addToast({
           type: 'info',
-          message: `sets that are running will not be sent again: ${names}`,
+          message: `Saved jobs that are running will not be sent again: ${names}`,
         });
       }
     } else {
@@ -1330,9 +1330,9 @@ const RunSetPage = ({ onNavigateJobs }) => {
         const { missing, filesPayload, firstBinName, pairsData } = buildJobFromSet(set, null);
         if (missing.length > 0) {
           const list = missing.slice(0, 5).join(', ') + (missing.length > 5 ? ` +${missing.length - 5} files` : '');
-          errorsPerSet.push(`Set "${set.name || set.id}": Files not found in Library — ${list}`);
+          errorsPerSet.push(`Job "${set.name || set.id}": Files not found in Library — ${list}`);
         } else if (filesPayload.length > 0) {
-          const jobName = (set.name || '').trim() || `Set ${setsToRun.indexOf(set) + 1}`;
+          const jobName = (set.name || '').trim() || `Job ${setsToRun.indexOf(set) + 1}`;
           const setTagRaw = (set?.tag || '').trim();
           const fallbackTagColor = TAG_PALETTE_MAP[set?.tagColor] ? set.tagColor : null;
           const fallbackRunColor = TAG_PALETTE_MAP[runSetTagColor] ? runSetTagColor : 'mint';
@@ -1352,7 +1352,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
         }
       });
       if (jobsToCreate.length === 0 && errorsPerSet.length === 0) {
-        errorsPerSet.push('No test cases with both VCD and ERoM in selected sets');
+        errorsPerSet.push('No test cases with both VCD and ERoM in selected saved jobs');
       }
     }
 
@@ -1394,7 +1394,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
         if (navigateToJobs && onNavigateJobs) onNavigateJobs();
       }
       if (created < jobsToCreate.length) {
-        addToast({ type: 'warning', message: `Created ${created}/${jobsToCreate.length} set(s)` });
+        addToast({ type: 'warning', message: `Created ${created}/${jobsToCreate.length} job(s)` });
       }
     } finally {
       setIsSubmitting(false);
@@ -1408,17 +1408,17 @@ const RunSetPage = ({ onNavigateJobs }) => {
       return;
     }
     if (selectedSetIds.length !== 1) {
-      addToast({ type: 'warning', message: 'Load test cases into “Set for run” or select one set and edit name/tag' });
+      addToast({ type: 'warning', message: 'Load test cases into the job queue or select one saved job and edit name/tag' });
       return;
     }
     const set = safeSets.find((s) => s.id === selectedSetIds[0]);
     if (!set) {
-      addToast({ type: 'error', message: 'Set not found' });
+      addToast({ type: 'error', message: 'Saved job not found' });
       return;
     }
     const name = (runSetName || '').trim();
     if (!name) {
-      addToast({ type: 'warning', message: 'Set name cannot be empty' });
+      addToast({ type: 'warning', message: 'Job name cannot be empty' });
       return;
     }
     if (!hasSingleSetMetadataDirty) {
@@ -1466,8 +1466,8 @@ const RunSetPage = ({ onNavigateJobs }) => {
   return (
     <div className="flex min-h-0 w-full max-w-none min-w-0 flex-1 flex-col space-y-4">
       <div className="shrink-0">
-        <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Run Set</h1>
-        <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm">Browse to select test cases, then run. Set for run is built on this page.</p>
+        <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Run Job</h1>
+        <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm">Browse to select test cases, then run. The job queue is built on this page.</p>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
@@ -1763,7 +1763,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
                           <div className="flex items-center gap-1 flex-wrap">
                             <span className="text-[11px] text-slate-400 truncate max-w-[200px]">
                               {ownerHint ? `${ownerHint} · ` : ''}
-                              {isFromCurrent ? 'From table' : `From set: ${row.set?.name || row.setId || 'Set'}`}
+                              {isFromCurrent ? 'From table' : `From saved job: ${row.set?.name || row.setId || 'Job'}`}
                             </span>
                           </div>
                           {tagVal ? (
@@ -1823,7 +1823,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
               } catch (_) {}
             }}
           >
-            <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">2. Set for run</h3>
+            <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">2. Job queue</h3>
             {runPreview.length === 0 ? (
               <div
                 className="flex-1 flex flex-col items-center justify-center gap-2 py-8 px-4 rounded-lg border-2 border-dashed border-slate-300 dark:border-slate-600 bg-slate-50/50 dark:bg-slate-800/30 min-h-[200px]"
@@ -1914,15 +1914,15 @@ const RunSetPage = ({ onNavigateJobs }) => {
           <div className="mt-4 border-t border-slate-100 dark:border-slate-700 pt-3">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
-                <h4 className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">Saved sets</h4>
+                <h4 className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">Saved jobs</h4>
                 <span className="text-[11px] text-slate-400 dark:text-slate-500">
-                  {safeSets.length} set(s)
+                  {safeSets.length} saved job(s)
                 </span>
               </div>
             </div>
             {safeSets.length === 0 ? (
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                No saved sets yet — create and save on the Test Cases page.
+                No saved jobs yet — create and save on the Test Cases page.
               </p>
             ) : (
             <div className="space-y-1 min-h-[120px] max-h-56 overflow-y-auto overflow-x-hidden pr-2">
@@ -1972,13 +1972,13 @@ const RunSetPage = ({ onNavigateJobs }) => {
                               onClick={() => {
                                 const trimmed = (editingSetName || '').trim();
                                 if (!trimmed) {
-                                  addToast({ type: 'warning', message: 'Set name cannot be empty' });
+                                  addToast({ type: 'warning', message: 'Job name cannot be empty' });
                                   return;
                                 }
                                 updateSavedTestCaseSet(set.id, { name: trimmed });
                                 setEditingSetId(null);
                                 setEditingSetName('');
-                                addToast({ type: 'success', message: `Renamed set to "${trimmed}"` });
+                                addToast({ type: 'success', message: `Renamed saved job to "${trimmed}"` });
                               }}
                               className="px-2 py-0.5 rounded bg-blue-600 text-white text-[10px] font-semibold hover:bg-blue-700"
                             >
@@ -2039,7 +2039,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
                           setRunPreview(items);
                           setRunSetName(set.name || '');
                           if (items.length === 0) {
-                            addToast({ type: 'warning', message: `Set "${set.name}" has no unique test cases to load` });
+                            addToast({ type: 'warning', message: `Saved job "${set.name}" has no unique test cases to load` });
                             return;
                           }
                           addToast({
@@ -2047,7 +2047,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
                             message:
                               skipped > 0
                                 ? `Loaded "${set.name}" (${items.length} unique, skipped ${skipped} duplicate TC)`
-                                : `Loaded set "${set.name}" for run`,
+                                : `Loaded saved job "${set.name}" for run`,
                           });
                         }}
                         className="px-2 py-1 rounded font-semibold bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-40 disabled:pointer-events-none"
@@ -2075,11 +2075,11 @@ const RunSetPage = ({ onNavigateJobs }) => {
                             message:
                               skipped > 0
                                 ? `Appended "${set.name}" (${items.length} added, skipped ${skipped} duplicate TC)`
-                                : `Appended set "${set.name}" to run list`,
+                                : `Appended saved job "${set.name}" to run list`,
                           });
                         }}
                         className="px-2 py-1 rounded font-semibold bg-slate-600 hover:bg-slate-700 text-white disabled:opacity-40 disabled:pointer-events-none"
-                        title="Append this set to run list (without replacing)"
+                        title="Append this saved job to the run list (without replacing)"
                       >
                         +Append
                       </button>
@@ -2090,7 +2090,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
                           if (inUse) {
                             addToast({
                               type: 'warning',
-                              message: 'Set นี้กำลังถูกใช้รันอยู่ แก้ไขชื่อไม่ได้ กรุณา duplicate แล้วแก้ในชุดใหม่แทน',
+                              message: 'Job นี้กำลังถูกใช้รันอยู่ แก้ไขชื่อไม่ได้ กรุณา duplicate แล้วแก้ใน saved job ใหม่แทน',
                             });
                             return;
                           }
@@ -2103,10 +2103,10 @@ const RunSetPage = ({ onNavigateJobs }) => {
                         }`}
                         title={
                           setBusy
-                            ? 'กำลังลบ/สำเนา/จัดเรียง set — รอสักครู่'
+                            ? 'กำลังลบ/สำเนา/จัดเรียง saved job — รอสักครู่'
                             : inUse
-                              ? 'Set นี้กำลังอยู่ใน process แก้ไขไม่ได้ (ให้ duplicate แล้วแก้ชื่อในชุดใหม่)'
-                              : 'Rename set'
+                              ? 'Job นี้กำลังอยู่ใน process แก้ไขไม่ได้ (ให้ duplicate แล้วแก้ชื่อใน saved job ใหม่)'
+                              : 'Rename saved job'
                         }
                       >
                         <Pencil size={14} />
@@ -2119,7 +2119,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
                           void duplicateSavedTestCaseSet(set.id);
                         }}
                         className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-300 disabled:opacity-40 disabled:pointer-events-none"
-                        title="Clone set"
+                        title="Clone saved job"
                       >
                         <Copy size={14} />
                       </button>
@@ -2128,17 +2128,17 @@ const RunSetPage = ({ onNavigateJobs }) => {
                         disabled={setBusy}
                         onClick={async () => {
                           if (setBusy) return;
-                          if (!window.confirm(`Delete set "${set.name}"? This will remove it from Saved sets only (test cases and files in Library will stay).`)) return;
+                          if (!window.confirm(`Delete saved job "${set.name}"? This removes it from Saved jobs only (test cases and files in Library will stay).`)) return;
                           try {
                             await api.deleteSet(set.id);
                           } catch (e) {
                             if (!String(e?.message || '').includes('404')) addToast({ type: 'warning', message: `Backend: ${e?.message || 'Delete failed'}` });
                           }
                           removeSavedTestCaseSet(set.id);
-                          addToast({ type: 'success', message: `Deleted set "${set.name}"` });
+                          addToast({ type: 'success', message: `Deleted saved job "${set.name}"` });
                         }}
                         className="p-1 rounded hover:bg-red-600/10 text-red-600 dark:text-red-400 disabled:opacity-40 disabled:pointer-events-none"
-                        title="Delete set from Saved (ไม่ลบ test cases หรือไฟล์ใน Library)"
+                        title="Delete saved job (ไม่ลบ test cases หรือไฟล์ใน Library)"
                       >
                         <Trash2 size={14} />
                       </button>
@@ -2154,14 +2154,14 @@ const RunSetPage = ({ onNavigateJobs }) => {
 
         {/* Alternative: Run by Set (whole set) — ติ๊กเลือก set ที่ต้องการรันได้เลย (แต่ละ set = 1 job). Set ที่กำลังรันอยู่จะถูกข้ามอัตโนมัติ. */}
         <div className="mb-4 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-600">
-          <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Sets</h3>
+          <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Run saved jobs</h3>
           <div className="flex items-center gap-2 mb-2">
-            <span className="text-xs font-bold text-blue-600">Use sets</span>
-            <span className="text-xs text-slate-500">{selectedSetIds.length} set(s) selected</span>
+            <span className="text-xs font-bold text-blue-600">Use saved jobs</span>
+            <span className="text-xs text-slate-500">{selectedSetIds.length} saved job(s) selected</span>
           </div>
           <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900">
             {safeSets.length === 0 ? (
-              <div className="p-3 text-center text-slate-400 text-xs">No sets yet — create on Test Cases page (Save Set)</div>
+              <div className="p-3 text-center text-slate-400 text-xs">No saved jobs yet — create on Test Cases page (Save job)</div>
             ) : (
               <ul className="divide-y divide-slate-100 dark:divide-slate-700">
                 {safeSets.map((set) => {
@@ -2211,14 +2211,14 @@ const RunSetPage = ({ onNavigateJobs }) => {
         <div className="mb-4 p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-600 space-y-4">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0">
-              <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300">3. Set name, Tag & Board selection</h3>
+              <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300">3. Job name, Tag & Board selection</h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">Configure after selecting test cases above.</p>
             </div>
             <button
               type="button"
               onClick={clearSection3RunConfig}
               className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border border-slate-300 dark:border-slate-500 text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-              title="ล้างชื่อ set, tag, สี, โหมด/รายการบอร์ด และ Prioritize — รีเซ็ตเป็นค่าเริ่มต้น (Auto assign, ไม่เลือกบอร์ด)"
+              title="ล้างชื่อ job, tag, สี, โหมด/รายการบอร์ด และ Prioritize — รีเซ็ตเป็นค่าเริ่มต้น (Auto assign, ไม่เลือกบอร์ด)"
             >
               <RotateCcw size={14} className="text-slate-500 dark:text-slate-400" aria-hidden />
               Clear config
@@ -2226,10 +2226,10 @@ const RunSetPage = ({ onNavigateJobs }) => {
           </div>
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Set name</label>
+              <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Job name</label>
               <input
                 type="text"
-                placeholder="Set name (optional)"
+                placeholder="Job name (optional)"
                 value={runSetName}
                 onChange={(e) => setRunSetName(e.target.value)}
                 className="px-3 py-2 border border-slate-300 dark:border-slate-500 rounded-lg bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 min-w-[200px]"
@@ -2435,14 +2435,14 @@ const RunSetPage = ({ onNavigateJobs }) => {
             className="inline-flex items-center gap-2 px-4 py-2 bg-slate-600 text-white rounded-lg text-sm font-bold hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
             title={
               runPreview.length > 0
-                ? 'Save “Set for run” as a new set (no run). Appears in SAVED on Test Cases page.'
-                : 'Save name / tag changes to the selected set (no run). Or add cases to “Set for run” to save a new set.'
+                ? 'Save the job queue as a new saved job (no run). Appears under Saved jobs on Test Cases page.'
+                : 'Save name / tag changes to the selected saved job (no run). Or add cases to the job queue to save a new job.'
             }
           >
             <Save size={16} />
             Save (not run)
           </button>
-          <p className="text-xs text-slate-500">After Run, see Jobs Manager → Running. Saved sets appear in SAVED on Test Cases page.</p>
+          <p className="text-xs text-slate-500">After Run, see Jobs Manager → Running. Saved jobs appear on the Test Cases page.</p>
         </div>
       </div>
 

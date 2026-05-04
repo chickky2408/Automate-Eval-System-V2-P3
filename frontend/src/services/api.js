@@ -483,9 +483,16 @@ export const getFileById = (id) => apiRequest(API_ENDPOINTS.FILE_BY_ID(id));
 /**
  * Delete a file
  * Expected Response: { success: true }
+ * @param {string} id - file id
+ * @param {{ actingProfileId?: string|null, actingClientId?: string|null }} [opts] - sent as headers so the server can reject deletes of another user's files
  */
-export const deleteFile = (id) => {
-  return apiRequest(API_ENDPOINTS.FILE_DELETE(id), { method: 'DELETE' });
+export const deleteFile = (id, opts = {}) => {
+  const headers = {};
+  const ap = opts.actingProfileId != null ? String(opts.actingProfileId).trim() : '';
+  const ac = opts.actingClientId != null ? String(opts.actingClientId).trim() : '';
+  if (ap) headers['X-Acting-Profile-Id'] = ap;
+  if (ac) headers['X-Acting-Client-Id'] = ac;
+  return apiRequest(API_ENDPOINTS.FILE_DELETE(id), { method: 'DELETE', headers });
 };
 
 /**

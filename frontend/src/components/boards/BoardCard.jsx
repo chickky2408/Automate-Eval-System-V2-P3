@@ -18,7 +18,7 @@ const BoardCard = ({
   const jobId = (board.currentJob || '').replace(/^(Batch|Set) #/, '');
   const currentJob = jobId ? (jobs || []).find(j => j.id === jobId) : null;
   const currentJobLabel = currentJob
-    ? `${(currentJob.configName || currentJob.name || 'Set').trim()} · ID #${currentJob.id}`
+    ? `${(currentJob.configName || currentJob.name || 'Job').trim()} · ID #${currentJob.id}`
     : (board.currentJob || 'Idle');
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
