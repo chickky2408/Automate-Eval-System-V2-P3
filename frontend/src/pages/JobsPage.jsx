@@ -86,6 +86,7 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
   const [runningColumnDropActive, setRunningColumnDropActive] = useState(false);
   const runningDropZoneRef = useRef(null);
   const [highlightJobId, setHighlightJobId] = useState(null);
+  const highlightTimerRef = useRef(null);
   const [testCaseErrorModal, setTestCaseErrorModal] = useState(null); // { file, job, index } when showing error modal per test case
   const [rerunFailedModal, setRerunFailedModal] = useState(null); // { job, failedFiles } when selecting VCD/ERoM/ULP per test case before re-run
   const [rerunSelections, setRerunSelections] = useState([]); // [{ vcd, erom, ulp }] per failed file for rerun modal
@@ -171,12 +172,15 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
   // to avoid re-running on every parent re-render.
   useEffect(() => {
     const valid = new Set(jobs.map((j) => j.id));
+    const keepIfDemo = (id) => typeof id === 'string' && id.startsWith('demo-');
     setJobsPageSession((prev) => {
       const selectedJobIds = prev.selectedJobIds.filter((id) => valid.has(id));
-      const expandedJobs = prev.expandedJobs.filter((id) => valid.has(id));
-      const expandedDetailsJobs = prev.expandedDetailsJobs.filter((id) => valid.has(id));
+      const expandedJobs = prev.expandedJobs.filter((id) => valid.has(id) || keepIfDemo(id));
+      const expandedDetailsJobs = prev.expandedDetailsJobs.filter((id) => valid.has(id) || keepIfDemo(id));
       const testCasesView =
-        prev.testCasesView != null && valid.has(prev.testCasesView) ? prev.testCasesView : null;
+        prev.testCasesView != null && (valid.has(prev.testCasesView) || keepIfDemo(prev.testCasesView))
+          ? prev.testCasesView
+          : null;
       if (
         selectedJobIds.length === prev.selectedJobIds.length &&
         expandedJobs.length === prev.expandedJobs.length &&
@@ -223,11 +227,21 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
     setHighlightJobId(idStr);
-    const t = window.setTimeout(() => setHighlightJobId(null), 3500);
+    if (highlightTimerRef.current) window.clearTimeout(highlightTimerRef.current);
+    highlightTimerRef.current = window.setTimeout(() => {
+      setHighlightJobId(null);
+      highlightTimerRef.current = null;
+    }, 5000);
     onExpandCompleteRef.current?.();
-    return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expandJobId]);
+
+  useEffect(
+    () => () => {
+      if (highlightTimerRef.current) window.clearTimeout(highlightTimerRef.current);
+    },
+    []
+  );
 
   useEffect(() => {
     if (!jobsTagColorDropdownOpen) return;

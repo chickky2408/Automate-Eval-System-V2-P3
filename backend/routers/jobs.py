@@ -160,6 +160,82 @@ async def _ensure_job_simulation(job_id: str):
     _job_sim_tasks[job_id] = task
 
 
+async def _start_job_internal(job_id: str):
+    job = await job_queue_service.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    job_state = _map_job_state(job.status.state)
+
+    meta = fe_job_store.ensure_meta(
+        job.id,
+        default_file_name=getattr(job, "vcd_filename", None),
+        pairs_data=getattr(job, "pairs_data", None),
+    )
+    job_files = fe_job_store.list_files(job.id)
+    file_names = set()
+    for f in job_files:
+        # Validate only files that are about to run now.
+        f_status = str(getattr(f, "status", "") or "").lower()
+        if f_status not in {"pending", "running"}:
+            continue
+        if getattr(f, "vcd", None):
+            file_names.add(f.vcd)
+        if getattr(f, "erom", None):
+            file_names.add(f.erom)
+        if getattr(f, "ulp", None):
+            file_names.add(f.ulp)
+
+    modified = []
+    should_verify_checksums = job_state != "stopped"
+    if file_names and should_verify_checksums:
+        library = await file_store.list_files(set_id=None)
+        name_to_id = _library_name_to_id_prefer_newest(library)
+        for name in file_names:
+            fid = name_to_id.get(name)
+            if fid and not await file_store.verify_file_checksum(fid):
+                modified.append(name)
+        if modified and STRICT_FILE_CHECKSUM_ON_START:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "FILE_MODIFIED",
+                    "message": "One or more files were modified after upload. Re-upload or restore files before running.",
+                    "files": modified,
+                },
+            )
+
+    assigned_board_id = None
+    boards_for_meta: List[str] = list(meta.get("boards") or [])
+    if not boards_for_meta:
+        b = await board_manager.get_available_board(target_board_id=getattr(job, "target_board_id", None))
+        if b is not None:
+            assigned_board_id = b.id
+            meta["boards"] = [b.name or b.id]
+            await board_manager.set_board_busy(b.id, job.id)
+
+    await job_queue_service.update_job_status(
+        job_id,
+        JobState.RUNNING,
+        progress=0,
+        started_at=datetime.utcnow(),
+        assigned_board_id=assigned_board_id,
+    )
+    fe_job_store.sync_files_for_status(job_id, "running")
+    await _ensure_job_simulation(job_id)
+    return {"success": True, "message": "Job started"}
+
+
+async def _autostart_next_pending():
+    jobs = await job_queue_service.get_all_jobs()
+    if any(_map_job_state(j.status.state) == "running" for j in jobs):
+        return False
+    next_pending = next((j for j in jobs if _map_job_state(j.status.state) == "pending"), None)
+    if not next_pending:
+        return False
+    await _start_job_internal(next_pending.id)
+    return True
+
+
 async def _simulate_job(job_id: str):
     try:
         while True:
@@ -208,6 +284,8 @@ async def _simulate_job(job_id: str):
                     current_step="Stopped" if end_state == JobState.CANCELLED else ("Completed with errors" if any_error else "Completed"),
                     completed_at=datetime.utcnow(),
                 )
+                if end_state == JobState.COMPLETED:
+                    await _autostart_next_pending()
                 break
 
             changed = False
@@ -523,84 +601,14 @@ async def update_job(job_id: str, payload: JobCreatePayload):
     )
     if payload.pairsData is not None:
         fe_job_store.save_pairs_data(job_id, payload.pairsData)
+    await _autostart_next_pending()
     return await _build_fe_job(await job_queue_service.get_job(job_id))
 
 
 @router.post("/{job_id}/start")
 async def start_job(job_id: str):
     """Start a job. Verifies that referenced files have not been modified on disk since upload."""
-    job = await job_queue_service.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-    job_state = _map_job_state(job.status.state)
-
-    meta = fe_job_store.ensure_meta(
-        job.id,
-        default_file_name=getattr(job, "vcd_filename", None),
-        pairs_data=getattr(job, "pairs_data", None),
-    )
-    job_files = fe_job_store.list_files(job.id)
-    file_names = set()
-    for f in job_files:
-        # Validate only files that are about to run now.
-        # This allows re-running only stopped/pending test cases in a partially completed job
-        # without blocking on completed files that are no longer part of this run.
-        f_status = str(getattr(f, "status", "") or "").lower()
-        if f_status not in {"pending", "running"}:
-            continue
-        if getattr(f, "vcd", None):
-            file_names.add(f.vcd)
-        if getattr(f, "erom", None):
-            file_names.add(f.erom)
-        if getattr(f, "ulp", None):
-            file_names.add(f.ulp)
-
-    modified = []
-    # Re-run from a stopped job should start only pending/running test cases
-    # without being blocked by checksum drift on previously finished files.
-    should_verify_checksums = job_state != "stopped"
-    if file_names and should_verify_checksums:
-        library = await file_store.list_files(set_id=None)
-        name_to_id = _library_name_to_id_prefer_newest(library)
-        for name in file_names:
-            fid = name_to_id.get(name)
-            if fid and not await file_store.verify_file_checksum(fid):
-                modified.append(name)
-        if modified and STRICT_FILE_CHECKSUM_ON_START:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "FILE_MODIFIED",
-                    "message": "One or more files were modified after upload. Re-upload or restore files before running.",
-                    "files": modified,
-                },
-            )
-
-    # If frontend did not specify boards (auto mode), pick an available board now so:
-    # - System Summary shows the board name (not "—")
-    # - Operators can see where the job is running
-    assigned_board_id = None
-    boards_for_meta: List[str] = list(meta.get("boards") or [])
-    if not boards_for_meta:
-        b = await board_manager.get_available_board(target_board_id=getattr(job, "target_board_id", None))
-        if b is not None:
-            assigned_board_id = b.id
-            boards_for_meta = [b.name or b.id]
-            # Keep FE meta in sync for list_jobs -> _resolve_boards.
-            meta["boards"] = boards_for_meta
-            # Also mark board busy immediately for accurate fleet view.
-            await board_manager.set_board_busy(b.id, job.id)
-
-    await job_queue_service.update_job_status(
-        job_id,
-        JobState.RUNNING,
-        progress=0,
-        started_at=datetime.utcnow(),
-        assigned_board_id=assigned_board_id,
-    )
-    fe_job_store.sync_files_for_status(job_id, "running")
-    await _ensure_job_simulation(job_id)
-    return {"success": True, "message": "Job started"}
+    return await _start_job_internal(job_id)
 
 
 @router.post("/{job_id}/stop")
@@ -614,6 +622,7 @@ async def stop_job(job_id: str):
     )
     await _cancel_job_simulation(job_id)
     fe_job_store.sync_files_for_status(job_id, "stopped")
+    await _autostart_next_pending()
     return {"success": True, "message": "Job stopped"}
 
 
@@ -753,7 +762,7 @@ async def stop_job_file(job_id: str, file_id: int):
 
 @router.post("/{job_id}/files/{file_id}/rerun")
 async def rerun_job_file(job_id: str, file_id: int):
-    """Set a stopped file back to pending so it can be run again."""
+    """Set a stopped/failed file back to pending so it can be run again."""
     job = await job_queue_service.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
@@ -762,8 +771,11 @@ async def rerun_job_file(job_id: str, file_id: int):
     file_before = next((f for f in files if f.id == file_id), None)
     if not file_before:
         raise HTTPException(status_code=404, detail="File not found")
-    if file_before.status != "stopped":
-        raise HTTPException(status_code=400, detail="Only stopped files can be re-run")
+    status_before = str(file_before.status or "").lower()
+    result_before = str(getattr(file_before, "result", "") or "").lower()
+    can_rerun = status_before == "stopped" or (status_before in {"completed", "error"} and result_before == "fail")
+    if not can_rerun:
+        raise HTTPException(status_code=400, detail="Only stopped or failed files can be re-run")
     file_item = fe_job_store.update_file(job.id, file_id, status="pending", result=None)
     return {"success": True, "file": {"id": file_item.id, "status": file_item.status}}
 
@@ -815,6 +827,7 @@ async def upload_files(
         timeout_seconds=timeout_seconds,
     )
     job = await job_queue_service.add_job(job_data)
+    await _autostart_next_pending()
     return await _build_fe_job(job)
 
 
@@ -825,6 +838,7 @@ async def delete_job(job_id: str):
     success = await job_queue_service.remove_job(job_id)
     if not success:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    await _autostart_next_pending()
     return {"message": f"Job {job_id} removed"}
 
 

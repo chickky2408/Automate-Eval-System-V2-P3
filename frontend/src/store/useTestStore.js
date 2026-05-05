@@ -3739,7 +3739,10 @@ export const useTestStore = create((set, get) => {
           });
           if (deltas.length) void get().silentRefreshNotifications();
         });
-        return { jobs, localNotifications: state.localNotifications };
+        const mergedLocal = deltas.length
+          ? [...deltas.map(stripAttentionFields), ...(state.localNotifications || [])].slice(0, 100)
+          : state.localNotifications;
+        return { jobs, localNotifications: mergedLocal };
       });
       return data;
     } catch (error) {
@@ -3798,7 +3801,10 @@ export const useTestStore = create((set, get) => {
           });
           if (deltas.length) void get().silentRefreshNotifications();
         });
-        return { jobs, localNotifications: state.localNotifications };
+        const mergedLocal = deltas.length
+          ? [...deltas.map(stripAttentionFields), ...(state.localNotifications || [])].slice(0, 100)
+          : state.localNotifications;
+        return { jobs, localNotifications: mergedLocal };
       });
       return data;
     } catch (error) {
@@ -4517,44 +4523,49 @@ export const useTestStore = create((set, get) => {
         state.addToast({ type: 'warning', message: 'No failed test cases to re-run.' });
         return null;
       }
-      const filesPayload = failedFiles.map((f, i) => {
-        const sel = Array.isArray(fileSelections) && fileSelections[i] ? fileSelections[i] : null;
-        const vcdVal = (sel?.vcd ?? f.vcd ?? f.name ?? `test_${i + 1}`).toString().trim() || f.name || `test_${i + 1}`;
-        return {
-          name: vcdVal,
-          order: i + 1,
-          vcd: vcdVal,
-          erom: (sel?.erom !== undefined && sel?.erom !== '' ? sel.erom : f.erom) ?? undefined,
-          ulp: (sel?.ulp !== undefined && sel?.ulp !== '' ? sel.ulp : f.ulp) ?? undefined,
-          try_count: f.try_count ?? f.try ?? 1,
-        };
-      });
-      const baseName = (job.configName || job.name || 'Batch').trim();
-      const profileId = get().activeProfileId || null;
-      const profileDisplayName = getActiveProfileDisplayNameForSnapshot(get);
-      const payload = {
-        name: `${baseName} (Re-run failed)`,
-        tag: job.tag || undefined,
-        firmware: job.firmware || '',
-        boards: job.boards || [],
-        files: filesPayload,
-        configName: job.configName || baseName,
-        clientId: getClientId(),
-        profileId,
-        profileDisplayName,
-      };
-      const created = await api.createJob(payload);
-      if (!created || !created.id) {
-        state.addToast({ type: 'error', message: 'Failed to create re-run batch.' });
+      const selectedIds = new Set(failedFiles.map((f) => f.id));
+      set((s) => ({
+        jobs: s.jobs.map((j) => {
+          if (j.id !== job.id) return j;
+          const nextFiles = (j.files || []).map((f) => {
+            if (!selectedIds.has(f.id)) return f;
+            const idx = failedFiles.findIndex((x) => x.id === f.id);
+            const sel = Array.isArray(fileSelections) && fileSelections[idx] ? fileSelections[idx] : null;
+            return {
+              ...f,
+              status: 'pending',
+              result: null,
+              vcd: (sel?.vcd !== undefined && sel?.vcd !== '' ? sel.vcd : f.vcd) ?? f.name,
+              erom: (sel?.erom !== undefined && sel?.erom !== '' ? sel.erom : f.erom) ?? undefined,
+              ulp: (sel?.ulp !== undefined && sel?.ulp !== '' ? sel.ulp : f.ulp) ?? undefined,
+            };
+          });
+          return {
+            ...j,
+            status: 'running',
+            progress: 0,
+            files: nextFiles,
+            completedFiles: nextFiles.filter((f) => (f.status || '').toLowerCase() === 'completed').length,
+          };
+        }),
+      }));
+
+      const rerunResults = await Promise.allSettled(
+        failedFiles.map((f) => api.rerunJobFile(job.id, f.id))
+      );
+      const rerunFailed = rerunResults.some((r) => r.status === 'rejected');
+      if (rerunFailed) {
+        await get().refreshJobs();
+        state.addToast({ type: 'error', message: 'Failed to re-run one or more selected test cases.' });
         return null;
       }
-      await api.startJob(created.id);
+      await api.startJob(job.id);
       await get().refreshJobs();
       state.addToast({
         type: 'success',
-        message: `Re-run batch created and started (${failedFiles.length} test case${failedFiles.length > 1 ? 's' : ''}).`,
+        message: `Re-run started in this job (${failedFiles.length} test case${failedFiles.length > 1 ? 's' : ''}).`,
       });
-      return created;
+      return get().jobs.find((j) => j.id === job.id) || null;
     } catch (error) {
       console.error('Failed to re-run failed files', error);
       const d = error?.detail;

@@ -142,6 +142,7 @@ const NotificationBell = ({ onOpenJob }) => {
                     onClick={() => {
                       if (notif.id != null) markNotificationRead(notif.id);
                       const jid = notif.jobId ?? notif.data?.jobId ?? notif.data?.job_id;
+                      setShowNotifications(false);
                       if (jid != null) onOpenJob?.(jid);
                     }}
                   />

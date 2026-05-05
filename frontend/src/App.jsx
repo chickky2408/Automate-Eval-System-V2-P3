@@ -261,6 +261,14 @@ const App = () => {
               <NotificationBell
                 onOpenJob={(jobId) => {
                   if (jobId == null) return;
+                  useTestStore.getState().setJobsPageSession((prev) => ({
+                    ...prev,
+                    jobsStatusFilter: 'all',
+                    jobsSearch: '',
+                    jobsTagFilter: '',
+                    jobsTagColorFilter: '',
+                    jobsTimeFilter: 'all',
+                  }));
                   setExpandJobId(jobId);
                   setActivePage('jobs');
                 }}
@@ -426,6 +434,14 @@ const App = () => {
       <JobAttentionBanner
         onOpenJob={(jobId) => {
           if (jobId == null) return;
+          useTestStore.getState().setJobsPageSession((prev) => ({
+            ...prev,
+            jobsStatusFilter: 'all',
+            jobsSearch: '',
+            jobsTagFilter: '',
+            jobsTagColorFilter: '',
+            jobsTimeFilter: 'all',
+          }));
           setExpandJobId(jobId);
           setActivePage('jobs');
         }}
