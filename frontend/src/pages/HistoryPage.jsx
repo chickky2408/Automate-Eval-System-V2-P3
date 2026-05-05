@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Menu, X, LayoutDashboard, Settings, PlayCircle, Cpu, 
   History, Bell, Upload, FileCode, Box, Search, 
@@ -17,7 +18,8 @@ const isDemoHistoryJob = (job) => typeof job?.id === 'string' && String(job.id).
 
 const HistoryPage = ({ onViewJob }) => {
   const { jobs, exportJobToJSON, exportAllFailedLogs, loading, errors, deleteJob, addToast } = useTestStore();
-  const [downloadMenuOpen, setDownloadMenuOpen] = useState({});
+  const [downloadMenuOpenJobId, setDownloadMenuOpenJobId] = useState(null);
+  const [downloadMenuAnchorRect, setDownloadMenuAnchorRect] = useState(null);
   const [statusFilter, setStatusFilter] = useState('all'); // all | passed | failed
   const [searchTerm, setSearchTerm] = useState('');
   const [groupByDate, setGroupByDate] = useState(true);
@@ -527,15 +529,19 @@ Summary:
   
   const toggleDownloadMenu = (e, jobId) => {
     e.stopPropagation();
-    setDownloadMenuOpen(prev => ({
-      ...prev,
-      [jobId]: !prev[jobId]
-    }));
+    if (downloadMenuOpenJobId === jobId) {
+      setDownloadMenuOpenJobId(null);
+      setDownloadMenuAnchorRect(null);
+      return;
+    }
+    setDownloadMenuOpenJobId(jobId);
+    setDownloadMenuAnchorRect(e.currentTarget.getBoundingClientRect());
   };
   
   const handleDownload = (e, jobId, format) => {
     e.stopPropagation();
-    setDownloadMenuOpen(prev => ({ ...prev, [jobId]: false }));
+    setDownloadMenuOpenJobId(null);
+    setDownloadMenuAnchorRect(null);
     
     switch(format) {
       case 'json':
@@ -564,19 +570,34 @@ Summary:
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (!event.target.closest('.download-menu-container')) {
-        setDownloadMenuOpen({});
+      if (!event.target.closest('.download-menu-container') && !event.target.closest('[data-history-download-menu-pop]')) {
+        setDownloadMenuOpenJobId(null);
+        setDownloadMenuAnchorRect(null);
       }
     };
     
-    if (Object.keys(downloadMenuOpen).length > 0) {
+    if (downloadMenuOpenJobId) {
       document.addEventListener('mousedown', handleClickOutside);
     }
     
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [downloadMenuOpen]);
+  }, [downloadMenuOpenJobId]);
+
+  useEffect(() => {
+    if (!downloadMenuOpenJobId) return;
+    const closeMenu = () => {
+      setDownloadMenuOpenJobId(null);
+      setDownloadMenuAnchorRect(null);
+    };
+    window.addEventListener('resize', closeMenu);
+    window.addEventListener('scroll', closeMenu, true);
+    return () => {
+      window.removeEventListener('resize', closeMenu);
+      window.removeEventListener('scroll', closeMenu, true);
+    };
+  }, [downloadMenuOpenJobId]);
 
   useEffect(() => {
     if (!expandedJobId) return;
@@ -621,65 +642,77 @@ Summary:
         <Download size={16} className="text-slate-400 dark:text-slate-300 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors" />
       </button>
 
-      {downloadMenuOpen[job.id] && (
-        <div className="absolute right-0 top-full mt-1 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 shadow-xl z-50 min-w-[200px]">
-          <div className="py-1">
-            <button
-              type="button"
-              onClick={(e) => handleDownload(e, job.id, 'json')}
-              className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
-            >
-              <FileJson size={16} className="text-blue-600 dark:text-blue-400" />
-              <span>Download JSON</span>
-            </button>
-            <button
-              type="button"
-              onClick={(e) => handleDownload(e, job.id, 'csv')}
-              className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
-            >
-              <FileCode size={16} className="text-green-600 dark:text-green-400" />
-              <span>Download CSV</span>
-            </button>
-            <button
-              type="button"
-              onClick={(e) => handleDownload(e, job.id, 'html')}
-              className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
-            >
-              <FileCode size={16} className="text-purple-600 dark:text-purple-400" />
-              <span>Download HTML Report</span>
-            </button>
-            <button
-              type="button"
-              onClick={(e) => handleDownload(e, job.id, 'pdf')}
-              className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
-            >
-              <FileCode size={16} className="text-red-600 dark:text-red-400" />
-              <span>Download PDF Report</span>
-            </button>
-            <button
-              type="button"
-              onClick={(e) => handleDownload(e, job.id, 'log')}
-              className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
-            >
-              <FileCode size={16} className="text-orange-600 dark:text-orange-400" />
-              <span>Download Logs</span>
-            </button>
-            {hasFailedFiles(job) && (
-              <>
-                <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
-                <button
-                  type="button"
-                  onClick={(e) => handleDownload(e, job.id, 'failed')}
-                  className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-red-50 dark:hover:bg-red-900/40 flex items-center gap-2 text-red-600 dark:text-red-400 font-semibold"
-                >
-                  <AlertCircle size={16} className="text-red-600" />
-                  <span>Download Failed Files ({getFailedFilesCount(job)})</span>
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      {downloadMenuOpenJobId === job.id && downloadMenuAnchorRect && typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            data-history-download-menu-pop
+            className="fixed z-[220] bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 shadow-xl min-w-[220px]"
+            style={{
+              top:
+                downloadMenuAnchorRect.bottom + 8 + 260 > window.innerHeight
+                  ? Math.max(8, downloadMenuAnchorRect.top - 8 - 260)
+                  : downloadMenuAnchorRect.bottom + 8,
+              left: Math.max(8, Math.min(downloadMenuAnchorRect.right - 220, window.innerWidth - 228)),
+            }}
+          >
+            <div className="py-1">
+              <button
+                type="button"
+                onClick={(e) => handleDownload(e, job.id, 'json')}
+                className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
+              >
+                <FileJson size={16} className="text-blue-600 dark:text-blue-400" />
+                <span>Download JSON</span>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => handleDownload(e, job.id, 'csv')}
+                className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
+              >
+                <FileCode size={16} className="text-green-600 dark:text-green-400" />
+                <span>Download CSV</span>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => handleDownload(e, job.id, 'html')}
+                className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
+              >
+                <FileCode size={16} className="text-purple-600 dark:text-purple-400" />
+                <span>Download HTML Report</span>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => handleDownload(e, job.id, 'pdf')}
+                className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
+              >
+                <FileCode size={16} className="text-red-600 dark:text-red-400" />
+                <span>Download PDF Report</span>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => handleDownload(e, job.id, 'log')}
+                className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
+              >
+                <FileCode size={16} className="text-orange-600 dark:text-orange-400" />
+                <span>Download Logs</span>
+              </button>
+              {hasFailedFiles(job) && (
+                <>
+                  <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
+                  <button
+                    type="button"
+                    onClick={(e) => handleDownload(e, job.id, 'failed')}
+                    className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-red-50 dark:hover:bg-red-900/40 flex items-center gap-2 text-red-600 dark:text-red-400 font-semibold"
+                  >
+                    <AlertCircle size={16} className="text-red-600" />
+                    <span>Download Failed Files ({getFailedFilesCount(job)})</span>
+                  </button>
+                </>
+              )}
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 

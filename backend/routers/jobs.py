@@ -1,6 +1,10 @@
 """Job queue API endpoints."""
 from __future__ import annotations
 
+import asyncio
+import random
+import time
+
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query
 from pydantic import BaseModel
 from typing import Dict, List, Optional
@@ -16,6 +20,9 @@ from services.file_store import file_store
 from services.profile_lookup import batch_profile_names_by_ids
 
 router = APIRouter()
+_job_sim_tasks: Dict[str, asyncio.Task] = {}
+_job_sim_runtime: Dict[str, dict] = {}
+STRICT_FILE_CHECKSUM_ON_START = os.getenv("STRICT_FILE_CHECKSUM_ON_START", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -119,6 +126,132 @@ def _to_iso(dt: Optional[datetime]) -> Optional[str]:
     if not dt:
         return None
     return dt.isoformat() + "Z"
+
+
+def _file_is_error(file_item) -> bool:
+    status = str(getattr(file_item, "status", "") or "").lower()
+    result = str(getattr(file_item, "result", "") or "").lower()
+    return status == "error" or result == "fail"
+
+
+def _pick_file_duration_seconds(total_files: int) -> float:
+    # Roughly target ~30s total run with jitter, clamped for UX.
+    per_file = 30.0 / max(1, total_files)
+    jitter = random.uniform(0.75, 1.35)
+    return max(2.5, min(12.0, per_file * jitter))
+
+
+async def _cancel_job_simulation(job_id: str):
+    task = _job_sim_tasks.pop(job_id, None)
+    _job_sim_runtime.pop(job_id, None)
+    if task and not task.done():
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
+async def _ensure_job_simulation(job_id: str):
+    existing = _job_sim_tasks.get(job_id)
+    if existing and not existing.done():
+        return
+    task = asyncio.create_task(_simulate_job(job_id))
+    _job_sim_tasks[job_id] = task
+
+
+async def _simulate_job(job_id: str):
+    try:
+        while True:
+            job = await job_queue_service.get_job(job_id)
+            if not job:
+                break
+            if _map_job_state(job.status.state) != "running":
+                break
+
+            files = sorted(fe_job_store.list_files(job_id), key=lambda f: f.order)
+            if not files:
+                break
+
+            runtime = _job_sim_runtime.setdefault(job_id, {"running": {}})
+            running_meta: Dict[int, dict] = runtime["running"]
+
+            # Clean stale runtime slots (e.g. file stopped/deleted while ticking).
+            for fid in list(running_meta.keys()):
+                file_item = next((f for f in files if f.id == fid), None)
+                if not file_item or str(file_item.status).lower() != "running":
+                    running_meta.pop(fid, None)
+
+            running_files = [f for f in files if str(f.status).lower() == "running"]
+            pending_files = [f for f in files if str(f.status).lower() == "pending"]
+
+            if not running_files and pending_files:
+                next_file = pending_files[0]
+                fe_job_store.update_file(job_id, next_file.id, status="running")
+                running_files = [next_file]
+                running_meta[next_file.id] = {
+                    "started_at": time.monotonic(),
+                    "duration": _pick_file_duration_seconds(len(files)),
+                }
+
+            # Finalize job if no remaining executable files.
+            if not running_files and not pending_files:
+                any_error = any(_file_is_error(f) for f in files)
+                any_stopped = any(str(f.status).lower() == "stopped" for f in files)
+                done_count = sum(1 for f in files if str(f.status).lower() == "completed")
+                progress = 100 if files else 0
+                end_state = JobState.CANCELLED if any_stopped and done_count == 0 else JobState.COMPLETED
+                await job_queue_service.update_job_status(
+                    job_id,
+                    end_state,
+                    progress=progress,
+                    current_step="Stopped" if end_state == JobState.CANCELLED else ("Completed with errors" if any_error else "Completed"),
+                    completed_at=datetime.utcnow(),
+                )
+                break
+
+            changed = False
+            now_mono = time.monotonic()
+
+            for file_item in list(running_files):
+                slot = running_meta.get(file_item.id)
+                if not slot:
+                    slot = {
+                        "started_at": now_mono,
+                        "duration": _pick_file_duration_seconds(len(files)),
+                    }
+                    running_meta[file_item.id] = slot
+                if now_mono - slot["started_at"] < float(slot["duration"]):
+                    continue
+
+                # Randomize pass/fail to mimic real-world execution variance.
+                failed = random.random() < 0.2
+                fe_job_store.update_file(
+                    job_id,
+                    file_item.id,
+                    status="completed",
+                    result="fail" if failed else "pass",
+                )
+                running_meta.pop(file_item.id, None)
+                changed = True
+
+            if changed:
+                files_after = fe_job_store.list_files(job_id)
+                completed_count = sum(1 for f in files_after if str(f.status).lower() == "completed")
+                progress = int((completed_count / max(1, len(files_after))) * 100)
+                await job_queue_service.update_job_status(
+                    job_id,
+                    JobState.RUNNING,
+                    progress=progress,
+                    current_step=f"Executing {completed_count}/{len(files_after)}",
+                )
+
+            await asyncio.sleep(0.5)
+    except asyncio.CancelledError:
+        raise
+    finally:
+        _job_sim_tasks.pop(job_id, None)
+        _job_sim_runtime.pop(job_id, None)
 
 
 def _collect_job_board_ids(job) -> List[str]:
@@ -399,6 +532,7 @@ async def start_job(job_id: str):
     job = await job_queue_service.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    job_state = _map_job_state(job.status.state)
 
     meta = fe_job_store.ensure_meta(
         job.id,
@@ -408,6 +542,12 @@ async def start_job(job_id: str):
     job_files = fe_job_store.list_files(job.id)
     file_names = set()
     for f in job_files:
+        # Validate only files that are about to run now.
+        # This allows re-running only stopped/pending test cases in a partially completed job
+        # without blocking on completed files that are no longer part of this run.
+        f_status = str(getattr(f, "status", "") or "").lower()
+        if f_status not in {"pending", "running"}:
+            continue
         if getattr(f, "vcd", None):
             file_names.add(f.vcd)
         if getattr(f, "erom", None):
@@ -416,14 +556,17 @@ async def start_job(job_id: str):
             file_names.add(f.ulp)
 
     modified = []
-    if file_names:
+    # Re-run from a stopped job should start only pending/running test cases
+    # without being blocked by checksum drift on previously finished files.
+    should_verify_checksums = job_state != "stopped"
+    if file_names and should_verify_checksums:
         library = await file_store.list_files(set_id=None)
         name_to_id = _library_name_to_id_prefer_newest(library)
         for name in file_names:
             fid = name_to_id.get(name)
             if fid and not await file_store.verify_file_checksum(fid):
                 modified.append(name)
-        if modified:
+        if modified and STRICT_FILE_CHECKSUM_ON_START:
             raise HTTPException(
                 status_code=409,
                 detail={
@@ -456,6 +599,7 @@ async def start_job(job_id: str):
         assigned_board_id=assigned_board_id,
     )
     fe_job_store.sync_files_for_status(job_id, "running")
+    await _ensure_job_simulation(job_id)
     return {"success": True, "message": "Job started"}
 
 
@@ -468,6 +612,7 @@ async def stop_job(job_id: str):
     await job_queue_service.update_job_status(
         job_id, JobState.CANCELLED, progress=job.status.progress, completed_at=datetime.utcnow()
     )
+    await _cancel_job_simulation(job_id)
     fe_job_store.sync_files_for_status(job_id, "stopped")
     return {"success": True, "message": "Job stopped"}
 
@@ -482,6 +627,7 @@ async def stop_all_jobs():
             await job_queue_service.update_job_status(
                 job.id, JobState.CANCELLED, progress=job.status.progress, completed_at=datetime.utcnow()
             )
+            await _cancel_job_simulation(job.id)
             fe_job_store.sync_files_for_status(job.id, "stopped")
             stopped += 1
     return {"success": True, "stoppedCount": stopped}
@@ -675,6 +821,7 @@ async def upload_files(
 @router.delete("/{job_id}")
 async def delete_job(job_id: str):
     """Remove a job from the queue and delete related results, job_files rows, and FE cache."""
+    await _cancel_job_simulation(job_id)
     success = await job_queue_service.remove_job(job_id)
     if not success:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")

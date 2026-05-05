@@ -18,10 +18,10 @@ const TestCasesProgressView = ({
   onStopFile,
   onRerunFile,
   onRerunFailedFile,
-  onReorderFile, // optional: (fromFileId, toFileId). Parent should omit while job.status !== 'pending' (no queue reorder during run).
+  onReorderFile, // optional: (fromFileId, toFileId). Parent controls allowed statuses (typically pending TCs in pending/running jobs).
   onOpenInLibrary, // open in File Library (legacy)
   onOpenInTestCasesLibrary, // Jobs → TC Library tab: pulse + scroll to matching saved test case row
-  onDeleteFile, // remove a pending test case from this batch only
+  onDeleteFile, // remove pending/stopped test cases from this batch only
   // Report: Download report in list header (per-row report checkboxes still drive "selected" count)
   onReportDownload,
   reportSelectedCount = 0,
@@ -267,7 +267,7 @@ const TestCasesProgressView = ({
             ) : compactKanbanDetails ? (
             <div
               className="shrink-0 min-w-[8.5rem] px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-100/90 dark:bg-slate-800/90 text-xs font-bold text-slate-500 dark:text-slate-400 text-center select-none"
-              title="Batch not started — all test cases are pending"
+              title="Job not started — all test cases are pending"
             >
               Pending only
             </div>
@@ -294,21 +294,21 @@ const TestCasesProgressView = ({
                   Stop Selected ({selectedFileIds.length})
                 </button>
 
-                {/* Delete from batch (pending only) */}
+                {/* Delete from batch (pending or stopped) */}
                 <button
                   onClick={async () => {
-                    const pendingSelected = filteredFiles.filter(f =>
-                      selectedFileIds.includes(f.id) && f.status === 'pending'
+                    const removableSelected = filteredFiles.filter(f =>
+                      selectedFileIds.includes(f.id) && (f.status === 'pending' || f.status === 'stopped')
                     );
-                    if (pendingSelected.length === 0) return;
-                    if (!window.confirm(`Remove ${pendingSelected.length} pending test case(s) from this batch? (Will not delete files or library data)`)) {
+                    if (removableSelected.length === 0) return;
+                    if (!window.confirm(`Remove ${removableSelected.length} pending/stopped test case(s) from this job? (Will not delete files or library data)`)) {
                       return;
                     }
-                    await Promise.all(pendingSelected.map(file => onDeleteFile?.(file.id)));
+                    await Promise.all(removableSelected.map(file => onDeleteFile?.(file.id)));
                     setSelectedFileIds([]);
                   }}
                   className="px-4 py-2 bg-slate-200 text-slate-800 rounded-lg text-sm font-bold hover:bg-slate-300 transition-all flex items-center gap-2"
-                  title="Remove selected pending test cases from this batch (does not delete from Library)"
+                  title="Remove selected pending/stopped test cases from this job (does not delete from Library)"
                 >
                   Remove from set
                 </button>
@@ -674,7 +674,7 @@ const TestCasesProgressView = ({
                           <button
                             onClick={() => onRerunFailedFile([file.id])}
                             className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 transition-all flex items-center gap-1"
-                            title="Re-run this failed test case (new batch in Running)"
+                            title="Re-run this failed test case (new job in Running)"
                           >
                             <Play size={14} />
                             Re-run
@@ -810,7 +810,7 @@ ${file.notes || 'No additional notes available.'}
             onChange={(e) => { e.stopPropagation(); onToggleReport(); }}
             onClick={(e) => e.stopPropagation()}
             className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-            title="Select for batch report download"
+            title="Select for job report download"
           />
         </div>
       )}
@@ -908,7 +908,7 @@ ${file.notes || 'No additional notes available.'}
               <button
                 onClick={(e) => { e.stopPropagation(); onRerunFailed(); }}
                 className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 transition-all flex items-center gap-1"
-                title="Re-run this failed test case (new batch in Running)"
+                title="Re-run this failed test case (new job in Running)"
               >
                 <Play size={14} />
                 Re-run

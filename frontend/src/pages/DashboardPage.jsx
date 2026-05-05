@@ -903,6 +903,7 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
               {(() => {
                 const tagColorDotKey = systemTagColorFilter ? normalizeTagColorKey(systemTagColorFilter) : 'mint';
                 const isAll = !systemTagColorFilter;
+                const selectedTagColorLabel = isAll ? 'All tag colors' : tagColorDotKey;
                 return (
                   <div className="relative" data-tagcolor-dropdown-root>
                     <button
@@ -915,10 +916,11 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
                         className={`inline-flex w-2.5 h-2.5 rounded-full ${isAll ? 'bg-slate-400 dark:bg-slate-600' : (TAG_SWATCH_DOT_CLASS[tagColorDotKey] || TAG_SWATCH_DOT_CLASS.mint)}`}
                         aria-hidden
                       />
+                      <span className="capitalize">{selectedTagColorLabel}</span>
                       <span className="sr-only">{isAll ? 'All tag colors' : systemTagColorFilter}</span>
                     </button>
                     {tagColorDropdownOpen && (
-                      <div className="absolute left-0 top-full mt-2 z-50 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg w-[140px] max-h-[320px] overflow-y-auto">
+                      <div className="absolute left-0 top-full mt-2 z-50 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg w-[200px] max-h-[320px] overflow-y-auto">
                         <div className="px-3 py-2 text-[11px] font-semibold text-slate-500 dark:text-slate-400">Tag color</div>
                         <div className="p-2 space-y-1">
                           <button
@@ -927,11 +929,11 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
                               setDashboardSystemSummary({ systemTagColorFilter: '' });
                               setTagColorDropdownOpen(false);
                             }}
-                            className={`w-full flex items-center justify-start px-2 py-2 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 ${isAll ? 'bg-slate-100 dark:bg-slate-700' : ''}`}
+                            className={`w-full flex items-center justify-start gap-2 px-2 py-2 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 ${isAll ? 'bg-slate-100 dark:bg-slate-700' : ''}`}
                             title="All tag colors"
                           >
                             <span className="inline-flex w-2.5 h-2.5 rounded-full bg-slate-400 dark:bg-slate-600" aria-hidden />
-                            <span className="sr-only">All tag colors</span>
+                            <span className="text-xs text-slate-700 dark:text-slate-200">All</span>
                           </button>
                           {TAG_PALETTE_KEYS.map((k) => {
                             const isSelected = systemTagColorFilter === k;
@@ -943,11 +945,11 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
                                   setDashboardSystemSummary({ systemTagColorFilter: k });
                                   setTagColorDropdownOpen(false);
                                 }}
-                                className={`w-full flex items-center justify-start px-2 py-2 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 ${isSelected ? 'bg-slate-100 dark:bg-slate-700' : ''}`}
+                                className={`w-full flex items-center justify-start gap-2 px-2 py-2 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 ${isSelected ? 'bg-slate-100 dark:bg-slate-700' : ''}`}
                                 title={k}
                               >
                                 <span className={`inline-flex w-2.5 h-2.5 rounded-full ${TAG_SWATCH_DOT_CLASS[k] || TAG_SWATCH_DOT_CLASS.mint}`} aria-hidden />
-                                <span className="sr-only">{k}</span>
+                                <span className="text-xs text-slate-700 dark:text-slate-200 capitalize">{k}</span>
                               </button>
                             );
                           })}

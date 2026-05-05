@@ -807,6 +807,17 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     if (importDrafts.length > 0) setIsImportModalOpen(true);
   }, [importDrafts.length]);
 
+  const ALLOWED_LIBRARY_IMPORT_EXTENSIONS = useMemo(
+    () => new Set(['vcd', 'erom', 'ulp', 'txt']),
+    []
+  );
+  const getFileExtension = (filename) => {
+    const parts = String(filename || '').split('.');
+    return parts.length > 1 ? String(parts.pop() || '').toLowerCase() : '';
+  };
+  const isAllowedLibraryImportFile = (file) =>
+    ALLOWED_LIBRARY_IMPORT_EXTENSIONS.has(getFileExtension(file?.name));
+
   const collectFilesFromDataTransfer = useCallback(async (dt) => {
     try {
       if (!dt) return [];
@@ -855,7 +866,15 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
   }, []);
 
   const enqueueImportDrafts = useCallback((fileList) => {
-    const arr = Array.from(fileList || []).filter(Boolean).filter((f) => f?.name);
+    const raw = Array.from(fileList || []).filter(Boolean).filter((f) => f?.name);
+    const arr = raw.filter(isAllowedLibraryImportFile);
+    const blockedCount = raw.length - arr.length;
+    if (blockedCount > 0) {
+      addToast({
+        type: 'warning',
+        message: `Skipped ${blockedCount} file(s): only .vcd, .erom, .ulp, .txt are allowed.`,
+      });
+    }
     if (arr.length === 0) return;
     setImportDrafts((prev) => {
       const existing = new Set(prev.map((d) => `${d.name}::${d.file?.size || 0}`));
@@ -875,7 +894,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
       });
       return next;
     });
-  }, []);
+  }, [addToast, isAllowedLibraryImportFile]);
 
   const [libraryView, setLibraryView] = useState('files'); // 'files' | 'rawTestCases' | 'testCases'
   useEffect(() => {
@@ -3620,6 +3639,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                     ref={fileImportInputRef}
                     type="file"
                     multiple
+                    accept=".vcd,.erom,.ulp,.txt"
                     className="hidden"
                     onChange={(e) => {
                       const files = e.target.files;
@@ -8723,6 +8743,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                         ref={inlineFileImportInputRef}
                         type="file"
                         multiple
+                        accept=".vcd,.erom,.ulp,.txt"
                         className="hidden"
                         onChange={(e) => {
                           const files = e.target.files;
@@ -8811,6 +8832,25 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                       ))}
                     </datalist>
                     <div className="flex shrink-0 items-center gap-1.5">
+                    <select
+                      value={libraryFileFilter === 'mine' ? '__active__' : libraryFileFilter}
+                      onChange={(e) => setLibraryFileFilter(e.target.value)}
+                      className="shrink-0 h-8 pl-1.5 pr-6 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 min-w-[112px] max-w-[min(180px,32vw)]"
+                      title="Filter files by owner (profile)"
+                    >
+                      <option value="all">All owners</option>
+                      <option value="__active__">
+                        {resolveOwnerDisplayName(activeProfileId, ownerLabelCtx) || activeProfile?.name || 'My profile'}
+                      </option>
+                      {allOwnerProfiles
+                        .filter((p) => String(p?.id) !== String(activeProfileId))
+                        .map((p) => (
+                          <option key={`file-owner-${p.id}`} value={String(p.id)}>
+                            {p.name || p.id}
+                          </option>
+                        ))}
+                      <option value="shared">Shared with me</option>
+                    </select>
                     <div className="relative shrink-0 min-w-[136px] w-[154px]" data-lib-filter-pick-root>
                       <input
                         type="text"
@@ -9060,26 +9100,6 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                         <ChevronDown className="w-3.5 h-3.5 pointer-events-none" strokeWidth={2} />
                       </button>
                     </div>
-                    <select
-                      value={libraryFileFilter === 'mine' ? '__active__' : libraryFileFilter}
-                      onChange={(e) => setLibraryFileFilter(e.target.value)}
-                      className="shrink-0 h-8 pl-1.5 pr-6 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 min-w-[112px] max-w-[min(180px,32vw)]"
-                      title="Filter files by owner (profile)"
-                    >
-                      <option value="all">All owners</option>
-                      <option value="__active__">
-                        {resolveOwnerDisplayName(activeProfileId, ownerLabelCtx) || activeProfile?.name || 'My profile'}
-                      </option>
-                      {allOwnerProfiles
-                        .filter((p) => String(p?.id) !== String(activeProfileId))
-                        .map((p) => (
-                          <option key={`file-owner-${p.id}`} value={String(p.id)}>
-                            {p.name || p.id}
-                          </option>
-                        ))}
-                      <option value="shared">Shared with me</option>
-                    </select>
-
                     </div>
 
                     {libraryToolbarFilterPickField && libraryToolbarFilterPickAnchorRect && typeof document !== 'undefined' &&

@@ -4594,6 +4594,8 @@ export const useTestStore = create((set, get) => {
   },
 
   rerunFile: (jobId, fileId) => {
+    const beforeJob = get().jobs.find((j) => String(j.id) === String(jobId));
+    const shouldAutoStartJob = ((beforeJob?.status || '').toLowerCase() === 'stopped');
     set((state) => ({
       jobs: state.jobs.map(job =>
         job.id === jobId
@@ -4609,11 +4611,30 @@ export const useTestStore = create((set, get) => {
       )
     }));
     void api.rerunJobFile(jobId, fileId)
-      .then(() => get().refreshJobs())
-      .then(() => get().addToast({ type: 'success', message: 'sent re-run for this test case' }))
+      .then(async () => {
+        if (shouldAutoStartJob) {
+          await api.startJob(jobId);
+        }
+        await get().refreshJobs();
+      })
+      .then(() =>
+        get().addToast({
+          type: 'success',
+          message: shouldAutoStartJob
+            ? 'Re-run sent. Job moved to Running.'
+            : 'Re-run sent for this test case.',
+        })
+      )
       .catch((error) => {
         console.error('Failed to re-run job file', error);
-        get().addToast({ type: 'error', message: 're-run test case failed' });
+        const detail = error?.detail;
+        const message =
+          (typeof detail === 'object' && detail !== null && typeof detail.message === 'string' && detail.message) ||
+          (typeof detail === 'string' && detail) ||
+          error?.message ||
+          'Failed to re-run test case.';
+        void get().refreshJobs();
+        get().addToast({ type: 'error', message });
       });
   },
   
