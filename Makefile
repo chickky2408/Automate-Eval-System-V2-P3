@@ -1,5 +1,5 @@
 # Eval System — quick commands (see .env.example for prod DB / APP_PORT)
-.PHONY: help dev-local up down compose logs db prod-up prod-down prod-logs prod-build prod-tunnel-up prod-tunnel-logs prod-tunnel-url
+.PHONY: help dev-local up down compose logs db prod-up prod-down prod-logs prod-build prod-tunnel-up prod-tunnel-logs prod-tunnel-url db-cleanup-default-profiles db-cleanup-default-profiles-dry
 
 help:
 	@echo "One command local dev (DB in Docker + backend + frontend):"
@@ -24,6 +24,10 @@ help:
 	@echo ""
 	@echo "Feature parity: same app code everywhere. localStorage is per browser URL;"
 	@echo "use backend profiles or Profile Export/Import when switching 5173 <-> :8000."
+	@echo ""
+	@echo "Database housekeeping:"
+	@echo "  make db-cleanup-default-profiles-dry   preview deleting profiles named Default*"
+	@echo "  make db-cleanup-default-profiles       delete those profiles + sync normalized TC tables"
 
 up:
 	docker compose up -d
@@ -66,3 +70,10 @@ prod-tunnel-logs:
 
 prod-tunnel-url:
 	@bash scripts/tunnel-url.sh
+
+## Remove profiles whose name starts with "Default" (see backend/scripts/cleanup_default_profiles.sql)
+db-cleanup-default-profiles-dry:
+	cd backend && pipenv run python scripts/cleanup_default_profiles.py --dry-run
+
+db-cleanup-default-profiles:
+	cd backend && pipenv run python scripts/cleanup_default_profiles.py
