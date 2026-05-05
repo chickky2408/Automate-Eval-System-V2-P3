@@ -21,6 +21,7 @@ help:
 	@echo "  make prod-tunnel-up   prod stack + tunnel (needs Docker + outbound HTTPS)"
 	@echo "  make prod-tunnel-url  print https://....trycloudflare.com (share with team)"
 	@echo "  make prod-tunnel-logs follow tunnel logs if URL not found yet"
+	@echo "  (Tunnel hostname changes when tunnel container restarts — run tunnel-url again.)"
 	@echo ""
 	@echo "Feature parity: same app code everywhere. localStorage is per browser URL;"
 	@echo "use backend profiles or Profile Export/Import when switching 5173 <-> :8000."

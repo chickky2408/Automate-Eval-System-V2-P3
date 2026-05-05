@@ -88,6 +88,8 @@ services:
   #   ./scripts/eval.sh tunnel
   #
   # The public URL appears in this container's logs (look for trycloudflare.com).
+  # Quick Tunnel URLs change whenever this container restarts; old *.trycloudflare.com
+  # hostnames stop resolving — always run `make prod-tunnel-url` again after restart.
   # ----------------------------------------------------------------------
   tunnel:
     image: cloudflare/cloudflared:latest
