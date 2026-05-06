@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Activity, AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Clock, Copy, Eye, MoreVertical, Pause, Play, RefreshCw, Search, Settings, Square, Tag, Terminal, Trash2, Wifi, WifiOff, X, XCircle } from 'lucide-react';
+import { useTestStore } from '../../store/useTestStore';
 
 const BoardCard = ({
   board,
@@ -15,6 +16,7 @@ const BoardCard = ({
   onShutdown,
   pulseHighlight = false,
 }) => {
+  const updateBoardTag = useTestStore((s) => s.updateBoardTag);
   const jobId = (board.currentJob || '').replace(/^(Batch|Set) #/, '');
   const currentJob = jobId ? (jobs || []).find(j => j.id === jobId) : null;
   const currentJobLabel = currentJob
@@ -22,6 +24,12 @@ const BoardCard = ({
     : (board.currentJob || 'Idle');
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
+  const [isEditingTag, setIsEditingTag] = useState(false);
+  const [tagDraft, setTagDraft] = useState(board.tag || '');
+
+  useEffect(() => {
+    if (!isEditingTag) setTagDraft(board.tag || '');
+  }, [board.tag, isEditingTag]);
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -123,10 +131,55 @@ const BoardCard = ({
       <div className="flex justify-between items-center mb-4 min-w-0">
         <div className="min-w-0 flex items-center gap-2">
           <span className="font-bold text-slate-800 dark:text-slate-100 text-base">#{board.id}</span>
-          {board.tag && (
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 shrink-0">
-              {board.tag}
-            </span>
+          {isEditingTag ? (
+            <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 shrink-0">
+                Board tag
+              </span>
+              <input
+                autoFocus
+                value={tagDraft}
+                onChange={(e) => setTagDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    setTagDraft(board.tag || '');
+                    setIsEditingTag(false);
+                    return;
+                  }
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const next = tagDraft.trim();
+                    updateBoardTag?.(board.id, next);
+                    setIsEditingTag(false);
+                  }
+                }}
+                onBlur={() => {
+                  const next = tagDraft.trim();
+                  updateBoardTag?.(board.id, next);
+                  setIsEditingTag(false);
+                }}
+                placeholder="Add a tag..."
+                className="w-28 sm:w-32 md:w-36 px-2 py-0.5 text-[11px] font-semibold rounded-md border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-400/40"
+              />
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsEditingTag(true);
+              }}
+              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 transition-colors ${
+                board.tag
+                  ? 'bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 hover:bg-purple-200/70 dark:hover:bg-purple-900/70'
+                  : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-600/60'
+              }`}
+              title="Edit board tag"
+            >
+              <Tag size={12} />
+              {board.tag ? board.tag : 'Add tag'}
+            </button>
           )}
         </div>
       </div>

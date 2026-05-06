@@ -1283,6 +1283,8 @@ export const useTestStore = create((set, get) => {
   
   // Boards/Devices
   boards: [],
+  /** Prevent tag "snap back" during polling by overlaying user edits until server confirms. */
+  boardTagOverrides: {}, // { [boardId]: string } (can be empty string to clear)
   boardQueuePaused: {},
   /** When set, Boards page scrolls/highlights this board id (Dashboard → Board Status). Cleared after apply. */
   boardsPageFocusBoardId: null,
@@ -1793,7 +1795,26 @@ export const useTestStore = create((set, get) => {
     }
   },
   updateBoardTag: (boardId, tag) => {
-    void get().updateBoard(boardId, { tag });
+    const id = boardId != null ? String(boardId) : '';
+    if (!id) return;
+    const next = tag != null ? String(tag) : '';
+    set((state) => ({
+      boardTagOverrides: { ...(state.boardTagOverrides || {}), [id]: next },
+    }));
+    void get()
+      .updateBoard(id, { tag: next })
+      .then((updated) => {
+        if (updated) {
+          set((state) => {
+            const cur = { ...(state.boardTagOverrides || {}) };
+            delete cur[id];
+            return { boardTagOverrides: cur };
+          });
+        }
+      })
+      .catch(() => {
+        // Keep override to avoid snap-back; polling overlays it until server is reachable.
+      });
   },
   updateBoardConnections: (boardId, connections) => {
     void get().updateBoard(boardId, { connections });
@@ -3576,10 +3597,17 @@ export const useTestStore = create((set, get) => {
       }));
       const data = await api.getBoards();
       set((state) => {
+        const overrides = state.boardTagOverrides || {};
+        const mergedBoards = (data || []).map((b) => {
+          if (b && Object.prototype.hasOwnProperty.call(overrides, b.id)) {
+            return { ...b, tag: overrides[b.id] };
+          }
+          return b;
+        });
         const prevBoards = state.boards || [];
         const now = new Date().toISOString();
         const newLocal = [];
-        (data || []).forEach((b) => {
+        (mergedBoards || []).forEach((b) => {
           const prev = prevBoards.find((p) => p.id === b.id);
           const prevStatus = (prev?.status || '').toLowerCase();
           const newStatus = (b.status || '').toLowerCase();
@@ -3609,7 +3637,7 @@ export const useTestStore = create((set, get) => {
           }
         });
         const localNotifications = [...newLocal, ...(state.localNotifications || [])];
-        return { boards: data, localNotifications };
+        return { boards: mergedBoards, localNotifications };
       });
       return data;
     } catch (error) {
@@ -3626,10 +3654,17 @@ export const useTestStore = create((set, get) => {
     try {
       const data = await api.getBoards();
       set((state) => {
+        const overrides = state.boardTagOverrides || {};
+        const mergedBoards = (data || []).map((b) => {
+          if (b && Object.prototype.hasOwnProperty.call(overrides, b.id)) {
+            return { ...b, tag: overrides[b.id] };
+          }
+          return b;
+        });
         const prevBoards = state.boards || [];
         const now = new Date().toISOString();
         const newLocal = [];
-        (data || []).forEach((b) => {
+        (mergedBoards || []).forEach((b) => {
           const prev = prevBoards.find((p) => p.id === b.id);
           const prevStatus = (prev?.status || '').toLowerCase();
           const newStatus = (b.status || '').toLowerCase();
@@ -3660,7 +3695,7 @@ export const useTestStore = create((set, get) => {
         });
         const localNotifications = [...newLocal, ...(state.localNotifications || [])];
         return {
-          boards: data,
+          boards: mergedBoards,
           localNotifications,
           errors: { ...state.errors, boards: null },
         };

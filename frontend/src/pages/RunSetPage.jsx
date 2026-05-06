@@ -443,6 +443,53 @@ const RunSetPage = ({ onNavigateJobs }) => {
   const [editingSetId, setEditingSetId] = useState(null);
   const [editingSetName, setEditingSetName] = useState('');
   const runSetRightRef = useRef(null);
+  const runQueueScrollRef = useRef(null);
+
+  const handleRunQueueListDragOverScroll = useCallback((e) => {
+    e.preventDefault();
+    try {
+      const allowed = e.dataTransfer?.effectAllowed;
+      if (allowed === 'copy' || allowed === 'copyMove') {
+        e.dataTransfer.dropEffect = 'copy';
+      } else {
+        e.dataTransfer.dropEffect = 'move';
+      }
+    } catch (_) {}
+    const el = runQueueScrollRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const margin = 48;
+    const step = 14;
+    if (e.clientY < r.top + margin) {
+      el.scrollTop -= step;
+    } else if (e.clientY > r.bottom - margin) {
+      el.scrollTop += step;
+    }
+  }, []);
+
+  /** Browsers cannot move the OS mouse pointer; keep the reordered row under the cursor by nudging list scroll. */
+  const nudgeRunQueueScrollAfterReorder = useCallback((clientY, itemKey) => {
+    if (clientY == null || itemKey == null || String(itemKey) === '') return;
+    const run = () => {
+      const scrollEl = runQueueScrollRef.current;
+      if (!scrollEl) return;
+      const esc =
+        typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+          ? CSS.escape(String(itemKey))
+          : String(itemKey).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      const row = scrollEl.querySelector(`[data-run-queue-key="${esc}"]`);
+      if (!row) return;
+      const prevBehavior = scrollEl.style.scrollBehavior;
+      scrollEl.style.scrollBehavior = 'auto';
+      const rect = row.getBoundingClientRect();
+      const rowMidY = rect.top + rect.height / 2;
+      scrollEl.scrollTop += rowMidY - clientY;
+      scrollEl.style.scrollBehavior = prevBehavior;
+    };
+    requestAnimationFrame(() => {
+      requestAnimationFrame(run);
+    });
+  }, []);
 
   useEffect(() => {
     if (!runSetImportContext || !Array.isArray(runSetImportContext.items)) return;
@@ -1116,6 +1163,27 @@ const RunSetPage = ({ onNavigateJobs }) => {
     });
   }, []);
 
+  const handleRunQueueRowDrop = useCallback(
+    (e, toIndex) => {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        const raw = e.dataTransfer.getData('application/json');
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        if (data.type === 'library') {
+          const rows = Array.isArray(data.rows) && data.rows.length ? data.rows : data.row ? [data.row] : [];
+          if (rows.length === 0) return;
+          const insertAt = typeof toIndex === 'number' && toIndex >= 0 ? toIndex : null;
+          addLibraryRowsToRunPreview(rows, insertAt);
+        } else if (data.type === 'run' && typeof data.fromIndex === 'number' && data.fromIndex !== toIndex) {
+          reorderRunPreview(data.fromIndex, toIndex);
+        }
+      } catch (_) {}
+    },
+    [addLibraryRowsToRunPreview, reorderRunPreview],
+  );
+
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.target.closest('input, textarea, [contenteditable="true"]')) return;
@@ -1481,9 +1549,9 @@ const RunSetPage = ({ onNavigateJobs }) => {
 
       <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
         {/* Two columns: left = Browse test cases, right = Set for run (larger — important process) */}
-        <div className="mb-4 grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[1fr_1.25fr] lg:min-h-[min(680px,calc(100dvh-17rem))]">
+        <div className="mb-4 grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[1fr_1.25fr] lg:h-[min(680px,calc(100dvh-17rem))] lg:overflow-hidden">
           {/* Left — Library list (filter + scroll, draggable) */}
-          <div className="flex min-h-[420px] flex-col rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-600 dark:bg-slate-800/50 lg:min-h-0 lg:h-full">
+          <div className="flex min-h-0 max-lg:min-h-[420px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-600 dark:bg-slate-800/50 lg:h-full">
             <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">1. Test cases in library</h3>
             <div className="flex flex-col gap-2 mb-2 shrink-0">
               <div className="relative w-full">
@@ -1807,7 +1875,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
           <div
             ref={runSetRightRef}
             tabIndex={0}
-            className="flex min-h-[420px] flex-col rounded-xl border-2 border-slate-200 bg-white p-4 outline-none dark:border-slate-600 dark:bg-slate-900 lg:min-h-0 lg:h-full"
+            className="flex min-h-0 max-lg:min-h-[420px] flex-col overflow-hidden rounded-xl border-2 border-slate-200 bg-white p-4 outline-none dark:border-slate-600 dark:bg-slate-900 lg:h-full"
             onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; e.currentTarget.classList.add('ring-2', 'ring-blue-400'); }}
             onDragLeave={(e) => { e.currentTarget.classList.remove('ring-2', 'ring-blue-400'); }}
             onDrop={(e) => {
@@ -1846,74 +1914,112 @@ const RunSetPage = ({ onNavigateJobs }) => {
                   <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{runPreview.length} test case(s)</span>
                   <button type="button" onClick={() => { setRunPreview([]); setSelectedRunIndex(null); }} className="text-xs font-bold text-slate-600 hover:text-slate-800 dark:hover:text-slate-200">Clear all</button>
                 </div>
-                <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 shadow-inner scroll-smooth" style={{ scrollBehavior: 'smooth' }}>
+                <div
+                  ref={runQueueScrollRef}
+                  className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 shadow-inner scroll-smooth touch-pan-y"
+                  style={{ scrollBehavior: 'smooth' }}
+                  onDragOver={handleRunQueueListDragOverScroll}
+                >
                   <div className="divide-y divide-slate-200 dark:divide-slate-600">
                     {runPreview.map((item, idx) => (
-                      <div
-                        key={item.key}
-                        draggable
-                        data-drop-index={idx}
-                        onDragStart={(e) => {
-                          e.dataTransfer.setData('application/json', JSON.stringify({ type: 'run', fromIndex: idx }));
-                          e.dataTransfer.effectAllowed = 'move';
-                        }}
-                        onDragOver={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          e.dataTransfer.dropEffect = 'move';
-                        }}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          try {
-                            const raw = e.dataTransfer.getData('application/json');
-                            if (!raw) return;
-                            const data = JSON.parse(raw);
-                            if (data.type === 'run' && typeof data.fromIndex === 'number' && data.fromIndex !== idx) {
-                              reorderRunPreview(data.fromIndex, idx);
-                            }
-                          } catch (_) {}
-                        }}
-                        onClick={() => setSelectedRunIndex(idx)}
-                    className={`flex items-center gap-3 px-3 min-h-[56px] bg-white dark:bg-slate-900 cursor-grab active:cursor-grabbing hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors ${selectedRunIndex === idx ? 'ring-inset ring-1 ring-blue-400 dark:ring-blue-500' : ''}`}
-                      >
-                        <GripVertical size={16} className="text-slate-400 shrink-0 flex-shrink-0" />
-                    <div className="w-6 text-xs font-bold text-slate-500 shrink-0 text-center">{idx + 1}</div>
-                        <div className="flex-1 min-w-0 flex flex-col justify-center py-1.5">
-                          <div className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{item.tc.name || item.tc.vcdName || '—'}</div>
-                          <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{item.tc.vcdName || '—'}{item.tc.binName ? ` · ${item.tc.binName}` : ''}</div>
-                        </div>
-                    <div className="flex flex-col items-center gap-0.5 mr-1 shrink-0">
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); if (idx > 0) reorderRunPreview(idx, idx - 1); }}
-                        disabled={idx === 0}
-                        className="p-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40"
-                        title="Move up"
-                      >
-                        <ArrowUp size={12} className="text-slate-400" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); if (idx < runPreview.length - 1) reorderRunPreview(idx, idx + 1); }}
-                        disabled={idx === runPreview.length - 1}
-                        className="p-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40"
-                        title="Move down"
-                      >
-                        <ArrowDown size={12} className="text-slate-400" />
-                      </button>
-                    </div>
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); removeFromRunPreview(idx); }}
-                          className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 shrink-0 transition-colors"
-                          title="Remove"
+                      <div key={item.key}>
+                        <div
+                          data-run-queue-key={item.key}
+                          data-drop-index={idx}
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleRunQueueListDragOverScroll(e);
+                          }}
+                          onDrop={(e) => handleRunQueueRowDrop(e, idx)}
+                          onClick={() => setSelectedRunIndex(idx)}
+                          className={`flex items-center gap-3 px-3 min-h-[56px] bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors ${selectedRunIndex === idx ? 'ring-inset ring-1 ring-blue-400 dark:ring-blue-500' : ''}`}
                         >
-                          <X size={14} />
-                        </button>
+                          <div
+                            role="button"
+                            tabIndex={-1}
+                            draggable
+                            aria-label={`Drag to reorder row ${idx + 1}`}
+                            className="cursor-grab active:cursor-grabbing rounded p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') e.preventDefault();
+                            }}
+                            onDragStart={(e) => {
+                              e.stopPropagation();
+                              e.dataTransfer.setData('application/json', JSON.stringify({ type: 'run', fromIndex: idx }));
+                              e.dataTransfer.effectAllowed = 'move';
+                            }}
+                          >
+                            <GripVertical size={16} className="pointer-events-none" aria-hidden />
+                          </div>
+                          <div className="w-6 text-xs font-bold text-slate-500 shrink-0 text-center">{idx + 1}</div>
+                          <div className="flex-1 min-w-0 flex flex-col justify-center py-1.5">
+                            <div className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{item.tc.name || item.tc.vcdName || '—'}</div>
+                            <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{item.tc.vcdName || '—'}{item.tc.binName ? ` · ${item.tc.binName}` : ''}</div>
+                          </div>
+                          <div className="flex flex-col items-center gap-0.5 mr-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (idx <= 0) return;
+                                const cy = e.clientY;
+                                const k = item.key;
+                                reorderRunPreview(idx, idx - 1);
+                                nudgeRunQueueScrollAfterReorder(cy, k);
+                              }}
+                              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'move'; }}
+                              onDrop={(e) => handleRunQueueRowDrop(e, idx)}
+                              disabled={idx === 0}
+                              className="p-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40"
+                              title="Move up"
+                            >
+                              <ArrowUp size={12} className="text-slate-400" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (idx >= runPreview.length - 1) return;
+                                const cy = e.clientY;
+                                const k = item.key;
+                                reorderRunPreview(idx, idx + 1);
+                                nudgeRunQueueScrollAfterReorder(cy, k);
+                              }}
+                              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'move'; }}
+                              onDrop={(e) => handleRunQueueRowDrop(e, idx)}
+                              disabled={idx === runPreview.length - 1}
+                              className="p-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40"
+                              title="Move down"
+                            >
+                              <ArrowDown size={12} className="text-slate-400" />
+                            </button>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); removeFromRunPreview(idx); }}
+                            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'move'; }}
+                            onDrop={(e) => handleRunQueueRowDrop(e, idx)}
+                            className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 shrink-0 transition-colors"
+                            title="Remove"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
                       </div>
                     ))}
-                    <div data-drop-index={runPreview.length} className="min-h-[12px]" aria-hidden="true" />
+                    <div
+                      data-drop-index={runPreview.length}
+                      className="min-h-8 shrink-0"
+                      aria-hidden="true"
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleRunQueueListDragOverScroll(e);
+                      }}
+                      onDrop={(e) => handleRunQueueRowDrop(e, runPreview.length)}
+                    />
                   </div>
                 </div>
                 <p className="text-xs text-slate-500 mt-2 shrink-0">Drag to reorder. Copy/Paste: ⌘/Ctrl+C then ⌘/Ctrl+V.</p>

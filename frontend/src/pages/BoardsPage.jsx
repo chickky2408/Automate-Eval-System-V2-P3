@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { 
   Menu, X, LayoutDashboard, Settings, PlayCircle, Cpu, 
   History, Bell, Upload, FileCode, Box, Search, 
@@ -17,6 +17,85 @@ import WebSSHTerminal from '../components/boards/WebSSHTerminal';
 import TestCommandsManagerModal from '../components/boards/TestCommandsManagerModal';
 import AddBoardModal from '../components/boards/AddBoardModal';
 import { useTestStore } from '../store/useTestStore';
+import api from '../services/api';
+
+const normToken = (v) => String(v ?? '').trim().toLowerCase();
+
+const boardMatchesJobBoards = (board, job) => {
+  const rawBoards = job?.boards;
+  if (!Array.isArray(rawBoards) || rawBoards.length === 0) return false;
+  const id = normToken(board?.id);
+  const name = normToken(board?.name);
+  return rawBoards.some((entry) => {
+    const t = normToken(entry);
+    if (!t) return false;
+    if (id && (t === id || (id.length >= 3 && t.includes(id)) || (t.length >= 3 && id.includes(t)))) return true;
+    if (name && (t === name || (name.length >= 3 && t.includes(name)) || (t.length >= 3 && name.includes(t)))) {
+      return true;
+    }
+    return false;
+  });
+};
+
+const extractBoardCurrentJobId = (board) => {
+  const raw = String(board?.currentJob || '').trim();
+  if (!raw || /^idle$/i.test(raw)) return '';
+  const m = raw.match(/#\s*([A-Za-z0-9_-]+)/);
+  return m ? String(m[1]).trim() : '';
+};
+
+const findJobByIdLoose = (jobs, id) => {
+  const want = String(id ?? '').trim();
+  if (!want) return null;
+  return (jobs || []).find((j) => String(j?.id ?? '').trim() === want) || null;
+};
+
+const jobTitle = (job) => {
+  if (!job) return '';
+  const t = (job.configName || job.name || 'Job').trim();
+  return t || 'Job';
+};
+
+const buildRestartBoardSummary = (board, jobs) => {
+  const list = jobs || [];
+  const currentJobId = extractBoardCurrentJobId(board);
+  const currentJob = currentJobId ? findJobByIdLoose(list, currentJobId) : null;
+  const currentJobLabel = currentJob
+    ? `${jobTitle(currentJob)} · ID #${currentJob.id}`
+    : String(board?.currentJob || '').trim() || '—';
+
+  const queueJobs = list.filter(
+    (j) =>
+      boardMatchesJobBoards(board, j) &&
+      j &&
+      ['pending', 'running'].includes(String(j.status || '').toLowerCase()),
+  );
+
+  const mergedQueue = [...queueJobs];
+  const pushIfActive = (j) => {
+    if (!j) return;
+    const st = String(j.status || '').toLowerCase();
+    if (st !== 'pending' && st !== 'running') return;
+    if (mergedQueue.some((x) => String(x.id) === String(j.id))) return;
+    mergedQueue.push(j);
+  };
+  pushIfActive(currentJob);
+
+  const rank = (st) => {
+    const s = String(st || '').toLowerCase();
+    if (s === 'pending') return 0;
+    if (s === 'running') return 1;
+    return 2;
+  };
+  const orderedQueue = [...mergedQueue].sort((a, b) => rank(a.status) - rank(b.status));
+
+  return {
+    currentJobId,
+    currentJob,
+    currentJobLabel,
+    queueJobs: orderedQueue,
+  };
+};
 
 // 4. FLEET MANAGER PAGE (Enhanced)
 const BoardsPage = () => {
@@ -34,6 +113,7 @@ const BoardsPage = () => {
     runBoardBatchAction,
     deleteBoards,
     refreshBoards,
+    refreshJobs,
     loading,
     errors
   } = useTestStore();
@@ -163,13 +243,32 @@ const BoardsPage = () => {
     }
   };
 
-  const handleRestartBoard = async (board) => {
+  const [restartConfirmBoard, setRestartConfirmBoard] = useState(null);
+  const [restartSubmitting, setRestartSubmitting] = useState(false);
+
+  const restartSummary = useMemo(
+    () => (restartConfirmBoard ? buildRestartBoardSummary(restartConfirmBoard, jobs || []) : null),
+    [restartConfirmBoard, jobs],
+  );
+
+  const requestRestartBoard = (board) => {
+    setRestartConfirmBoard(board);
+    void refreshJobs();
+  };
+
+  const confirmRestartBoard = async () => {
+    const board = restartConfirmBoard;
+    if (!board) return;
+    setRestartSubmitting(true);
     try {
       await api.rebootBoard(board.id);
       await refreshBoards();
       addToast({ type: 'success', message: `Restart sent: ${board.name || board.id}` });
+      setRestartConfirmBoard(null);
     } catch (e) {
       addToast({ type: 'error', message: 'Restart failed' });
+    } finally {
+      setRestartSubmitting(false);
     }
   };
 
@@ -532,7 +631,7 @@ const BoardsPage = () => {
               onViewDetails={handleViewDetails}
               onPauseQueue={handlePauseQueue}
               onResumeQueue={handleResumeQueue}
-              onRestart={handleRestartBoard}
+              onRestart={requestRestartBoard}
               onShutdown={handleShutdownBoard}
               pulseHighlight={pulseBoardId != null && String(pulseBoardId) === String(board.id)}
             />
@@ -670,6 +769,124 @@ const BoardsPage = () => {
 
       {showAddBoard && (
         <AddBoardModal onClose={() => setShowAddBoard(false)} />
+      )}
+
+      {restartConfirmBoard && restartSummary && (
+        <>
+          <div
+            className="fixed inset-0 z-[60] bg-slate-950/60"
+            aria-hidden
+            onClick={() => !restartSubmitting && setRestartConfirmBoard(null)}
+          />
+          <div
+            className="fixed z-[70] left-1/2 top-1/2 w-[min(100vw-1.5rem,28rem)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl p-5"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="restart-board-title"
+          >
+            <h2 id="restart-board-title" className="text-lg font-bold text-slate-900 dark:text-slate-100">
+              Restart board?
+            </h2>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+              Rebooting can interrupt work on this board. Review activity and queued jobs before confirming.
+            </p>
+
+            <div className="mt-4 space-y-3 text-sm">
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 px-3 py-2">
+                <div className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Board
+                </div>
+                <div className="font-semibold text-slate-900 dark:text-slate-100">
+                  {restartConfirmBoard.name || restartConfirmBoard.id}{' '}
+                  <span className="text-slate-500 dark:text-slate-400 font-mono text-xs">#{restartConfirmBoard.id}</span>
+                </div>
+                <div className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                  Status:{' '}
+                  <span className="font-bold capitalize">{restartConfirmBoard.status || 'unknown'}</span>
+                  {restartConfirmBoard.queuePaused ? (
+                    <span className="text-amber-700 dark:text-amber-300 font-semibold"> · queue paused</span>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2">
+                <div className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Current activity
+                </div>
+                <div className="mt-1 text-slate-800 dark:text-slate-200">
+                  {restartSummary.currentJob ? (
+                    <>
+                      <span className="font-semibold">{restartSummary.currentJobLabel}</span>
+                      <span className="text-slate-500 dark:text-slate-400">
+                        {' '}
+                        ({String(restartSummary.currentJob.status || 'unknown')})
+                      </span>
+                    </>
+                  ) : /^idle$/i.test(String(restartConfirmBoard.currentJob || '').trim()) ||
+                    !String(restartConfirmBoard.currentJob || '').trim() ? (
+                    <span className="text-slate-600 dark:text-slate-400">No active job reported for this board.</span>
+                  ) : (
+                    <span className="text-slate-800 dark:text-slate-200">{restartSummary.currentJobLabel}</span>
+                  )}
+                </div>
+                {String(restartConfirmBoard.status || '').toLowerCase() === 'busy' &&
+                !restartSummary.currentJob &&
+                !/^idle$/i.test(String(restartConfirmBoard.currentJob || '').trim()) ? (
+                  <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                    This board is marked busy, but no matching job was found in the current job list. The board may still
+                    be running something not reflected here.
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2">
+                <div className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Job queue (this board)
+                </div>
+                {restartSummary.queueJobs.length === 0 ? (
+                  <p className="mt-1 text-slate-600 dark:text-slate-400">No pending or running jobs list this board.</p>
+                ) : (
+                  <ul className="mt-2 space-y-2 max-h-40 overflow-y-auto pr-1">
+                    {restartSummary.queueJobs.map((j) => (
+                      <li
+                        key={String(j.id)}
+                        className="text-xs sm:text-sm border-b border-slate-100 dark:border-slate-800 pb-2 last:border-0 last:pb-0"
+                      >
+                        <div className="font-semibold text-slate-900 dark:text-slate-100">
+                          {jobTitle(j)}{' '}
+                          <span className="text-slate-500 dark:text-slate-400 font-mono text-xs">#{j.id}</span>
+                        </div>
+                        <div className="text-slate-600 dark:text-slate-400">
+                          Status: <span className="font-bold capitalize">{j.status || 'unknown'}</span>
+                          {typeof j.progress === 'number' ? ` · ${j.progress}%` : ''}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+              <button
+                type="button"
+                disabled={restartSubmitting}
+                onClick={() => setRestartConfirmBoard(null)}
+                className="w-full sm:w-auto px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-600 text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={restartSubmitting}
+                onClick={confirmRestartBoard}
+                className="w-full sm:w-auto px-4 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 text-white text-sm font-bold disabled:opacity-50"
+              >
+                {restartSubmitting ? 'Restarting…' : 'Restart board'}
+              </button>
+            </div>
+          </div>
+        </>
       )}
   </div>
 );
