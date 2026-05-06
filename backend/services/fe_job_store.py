@@ -9,6 +9,8 @@ from typing import Dict, List, Optional
 import itertools
 import uuid
 
+from utils.tag_text import clamp_tag_label, normalize_comma_separated_tags
+
 
 @dataclass
 class JobFile:
@@ -93,16 +95,19 @@ class FEJobStore:
             for t in tags:
                 if not isinstance(t, dict):
                     continue
-                name = (t.get("tag") or t.get("name") or "").strip()
+                name = clamp_tag_label(t.get("tag") or t.get("name") or "")
                 if not name:
                     continue
                 color = (t.get("tagColor") or t.get("color") or "").strip() or None
                 normalized_tags.append({"tag": name, "tagColor": color})
         if not normalized_tags and tag:
-            normalized_tags = [{"tag": tag, "tagColor": tag_color or None}]
+            tag_one = normalize_comma_separated_tags(str(tag).strip())
+            if tag_one:
+                normalized_tags = [{"tag": tag_one, "tagColor": tag_color or None}]
 
+        tag_meta = normalize_comma_separated_tags(str(tag).strip()) if tag else None
         meta = {
-            "tag": tag,
+            "tag": tag_meta,
             "clientId": client_id or f"client_{uuid.uuid4().hex[:6]}",
             "firmware": firmware or "",
             "boards": boards or [],
@@ -205,7 +210,7 @@ class FEJobStore:
         meta = self._meta.get(job_id)
         if not meta:
             return False
-        meta["tag"] = tag
+        meta["tag"] = normalize_comma_separated_tags(str(tag).strip()) if tag else None
         return True
 
     def apply_tag_patch(self, job_id: str, patch: dict) -> bool:
@@ -214,7 +219,10 @@ class FEJobStore:
         if not meta:
             return False
         if "tag" in patch:
-            meta["tag"] = patch["tag"]
+            raw_t = patch.get("tag")
+            meta["tag"] = (
+                normalize_comma_separated_tags(str(raw_t).strip()) if raw_t else None
+            )
         if "tagColor" in patch:
             meta["tagColor"] = patch["tagColor"] or None
         if "tags" in patch:
@@ -224,7 +232,7 @@ class FEJobStore:
                 for t in tags:
                     if not isinstance(t, dict):
                         continue
-                    name = (t.get("tag") or t.get("name") or "").strip()
+                    name = clamp_tag_label(t.get("tag") or t.get("name") or "")
                     if not name:
                         continue
                     color = (t.get("tagColor") or t.get("color") or "").strip() or None

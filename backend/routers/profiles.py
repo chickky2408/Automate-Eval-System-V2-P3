@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.database import async_session
 from db.orm_models import FileORM, ProfileORM, TestCaseORM, TestSetORM, TestSetItemORM
+from utils.tag_text import normalize_comma_separated_tags
 
 router = APIRouter()
 
@@ -283,11 +284,14 @@ def _stable_id(kind: str, profile_id: str, raw_id: str, fallback: str) -> str:
     return hashlib.md5(seed.encode("utf-8")).hexdigest()[:32]
 
 
-def _extract_tc_tags(tc: Dict[str, Any]) -> str:
+def _extract_tc_tags(tc: Dict[str, Any]) -> Optional[str]:
     extra = tc.get("extraColumns") if isinstance(tc.get("extraColumns"), dict) else {}
     from_extra = (extra.get("tag") or extra.get("Tag") or "").strip() if isinstance(extra, dict) else ""
     from_root = str(tc.get("tags") or "").strip()
-    return from_extra or from_root or None
+    raw = (from_extra or from_root or "").strip()
+    if not raw:
+        return None
+    return normalize_comma_separated_tags(raw)
 
 
 async def _sync_normalized_test_tables(session: AsyncSession, all_profiles: List[ProfileORM]) -> None:
@@ -362,7 +366,9 @@ async def _sync_normalized_test_tables(session: AsyncSession, all_profiles: List
                 TestSetORM(
                     id=set_id,
                     name=str(s.get("name") or f"Set {s_idx + 1}").strip() or f"Set {s_idx + 1}",
-                    tags=str(s.get("tag") or s.get("tags") or "").strip() or None,
+                    tags=normalize_comma_separated_tags(
+                        str(s.get("tag") or s.get("tags") or "").strip() or None
+                    ),
                     owner_id=p.id,
                     owner_display_name=profile_display_name,
                     visibility=_pick_visibility(s),

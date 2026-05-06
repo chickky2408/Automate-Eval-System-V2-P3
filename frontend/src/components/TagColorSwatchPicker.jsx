@@ -60,8 +60,8 @@ export default function TagColorSwatchPicker({
             ? 'inline-flex items-center justify-center w-7 h-7 rounded-md border border-amber-400/50 bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 disabled:opacity-40 disabled:pointer-events-none shrink-0'
             : 'inline-flex items-center justify-center w-9 h-9 rounded-lg border border-amber-400/50 bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 disabled:opacity-40 disabled:pointer-events-none shrink-0'
         }
-        title="สุ่มสี"
-        aria-label="สุ่มสี"
+        title="Random color"
+        aria-label="Random color"
       >
         <PaintBucket size={sm ? 14 : 18} strokeWidth={2} />
       </button>
@@ -77,7 +77,7 @@ export default function TagColorSwatchPicker({
             ? 'inline-flex items-center gap-1 rounded-md border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 px-1.5 py-1 hover:bg-slate-50 dark:hover:bg-slate-700/80 disabled:opacity-40 disabled:pointer-events-none min-w-0'
             : 'inline-flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-700/80 disabled:opacity-40 disabled:pointer-events-none min-w-0'
         }
-        title="เลือกสี"
+        title="Pick color"
         aria-expanded={open}
         aria-haspopup="listbox"
       >

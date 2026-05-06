@@ -68,7 +68,7 @@ const BoardCard = ({
           type="button"
           onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
           className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-colors"
-          title="เมนูบอร์ด"
+          title="Board menu"
           aria-label="Board menu"
         >
           <Settings size={16} />

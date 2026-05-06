@@ -24,6 +24,8 @@ import {
   splitTagsComma,
   jobTagPillClasses,
   normalizeTagColorKey,
+  libraryFileRowMatchesTagColorFilter,
+  normalizeCommaTagString,
 } from '../utils/tagPalette';
 import TagColorSwatchPicker from '../components/TagColorSwatchPicker';
 import UploadChoiceModal from '../components/UploadChoiceModal';
@@ -210,7 +212,7 @@ function buildMergedLibraryTcTags(tc, overlay) {
   };
 }
 
-/** สร้าง id สำหรับแถว extra file ใน editor */
+/** Generate an id for an extra-file row in the editor */
 const newRawTcSlotId = () => `slot-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
 /**
@@ -236,7 +238,7 @@ function formatModifiedBangkok(value) {
 }
 
 /**
- * รวบรวมไฟล์เสริม (VCD2+, ERoM2+, ULP2+, MDI) จาก commands ก่อน แล้วเติมจาก extraColumns ถ้ายังไม่มีใน commands
+ * Collect supplementary files (VCD2+, ERoM2+, ULP2+, MDI) from commands first, then fill from extraColumns if missing from commands.
  */
 function collectExtraSlotsFromTc(tc) {
   const slots = [];
@@ -302,9 +304,9 @@ function isRawTcEditorDraftFileEmpty(d) {
 }
 
 /**
- * ป้ายชื่อคอลัมน์ในตาราง Raw Test Cases สำหรับแถว extra (ลำดับตามแถวใน editor)
- * VCD/ERoM/ULP: ไฟล์หลัก = คอลัมน์หลัก — ไฟล์เสริมเริ่มที่ *2 (VCD2, ERoM2, ULP2)
- * MDI: ไม่มีช่องหลักใน extraSlots — ใช้ MDI1, MDI2, …
+ * Column labels in the Raw Test Cases table for extra rows (order follows the editor row).
+ * VCD/ERoM/ULP: primary file = main column — extras start at *2 (VCD2, ERoM2, ULP2).
+ * MDI: no primary slot in extraSlots — use MDI1, MDI2, …
  */
 function getExtraSlotColumnLabel(kind, ordinalAmongKind) {
   const n = Math.max(1, ordinalAmongKind);
@@ -482,7 +484,7 @@ const resolveFileLibraryRowTagColorKey = (file, colorsMap) => {
 /** Order of Library sub-tabs: Files → Test Cases → Sets (for prev/next navigation). */
 const LIBRARY_TAB_ORDER = ['files', 'rawTestCases', 'testCases'];
 
-// FILE LIBRARY PAGE — default: Test Case Library (เรียง set ลงมา แต่ละ set มีตารางแนวนอน + แสดงไฟล์); ปุ่มสลับView files in Library
+// FILE LIBRARY PAGE — default: Test Case Library (sets stacked; each set has a horizontal table + files); toolbar toggles Library file view
 const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigateToJob }) => {
   const {
     uploadedFiles,
@@ -1149,7 +1151,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
   // kind: 'bin'(ERoM) | 'vcd' | 'lin'(ULP) | 'mdi'(text)
   // target: which field to fill when a row is clicked
   const [rawTcFilePicker, setRawTcFilePicker] = useState(null); // { kind, q, target?: { type: 'main'|'slot', field?: 'binName'|'vcdName'|'linName', slotId?: string } }
-  /** Library "Edit Test Case": ห้ามพิมพ์ชื่อไฟล์ในกล่อง — เลือกได้จากเมนู Library / browse / drop เท่านั้น */
+  /** Library "Edit Test Case": do not type filenames in the box — pick from Library menu / browse / drop only */
   const rawTcLibraryFilePathReadOnly = Boolean(rawTcEditorDraft) && rawTcEditorMode === 'edit';
   /** Edit TC panel: … opens tag color tools (same picker as TC column Tags modal). */
   const [rawTcEditorTagToolsOpen, setRawTcEditorTagToolsOpen] = useState(false);
@@ -1161,6 +1163,8 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
   const [libraryRawTcTagModalAddDraft, setLibraryRawTcTagModalAddDraft] = useState('');
   const [libraryRawTcTagModalEditIndex, setLibraryRawTcTagModalEditIndex] = useState(null);
   const [libraryRawTcTagModalEditDraft, setLibraryRawTcTagModalEditDraft] = useState('');
+  /** Raw TC Status cell: multiple sets — compact row + list popover */
+  const [rawTcSetsListPopover, setRawTcSetsListPopover] = useState(null);
 
   useEffect(() => {
     if (!pointerLibraryTcKey && !pointerLibrarySetId) return;
@@ -1170,6 +1174,15 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     }, 1600);
     return () => clearTimeout(t);
   }, [pointerLibraryTcKey, pointerLibrarySetId]);
+
+  useEffect(() => {
+    if (!rawTcSetsListPopover) return;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setRawTcSetsListPopover(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [rawTcSetsListPopover]);
 
   const openTcTagEditorFromAnywhere = useCallback((tcLike) => {
     const nm = String(tcLike?.name || '').trim();
@@ -1443,11 +1456,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     };
   }, [libraryRawTcInsertMenuOpen]);
 
-  const splitTags = (raw) =>
-    String(raw || '')
-      .split(',')
-      .map((t) => t.trim())
-      .filter(Boolean);
+  const splitTags = splitTagsComma;
 
   // Global tag history for files (per-profile, but scoped only to file tags).
   const fileTagHistory = useMemo(() => {
@@ -1571,7 +1580,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     return `tc:${tc._source || 'unknown'}:${tc._setId || ''}:${tc._itemIndex || ''}:${tc._key || ''}`;
   };
 
-  /** Enter ระหว่าง IME (CJK/ไทย) ไม่ควร commit tag — มิฉะนั้นจะไม่เพิ่ม tag */
+  /** During IME composition (CJK/Thai), Enter should not commit a tag — otherwise the tag won't be added */
   const tagEnterShouldIgnoreIme = (e) =>
     e.key === 'Enter' && (e.nativeEvent?.isComposing === true || e.keyCode === 229);
 
@@ -1839,11 +1848,8 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
         const q = fileTagSearch.trim().toLowerCase();
         if (!tags.some((t) => t.toLowerCase().includes(q))) return false;
       }
-      if (fileTagColorFilter) {
-        const want = normalizeTagColorKey(fileTagColorFilter);
-        const have = resolveFileLibraryRowTagColorKey(f, fileTagColors);
-        /** Match TC-style: same normalized palette key (strict equality after normalize). */
-        if (String(have) !== String(want)) return false;
+      if (!libraryFileRowMatchesTagColorFilter(f, fileTags, fileTagColors, fileTagColorFilter)) {
+        return false;
       }
       if (fileSizeSearch.trim()) {
         const q = fileSizeSearch.trim().toLowerCase();
@@ -1901,7 +1907,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
       return tb - ta;
     });
 
-  // ชื่อไฟล์ที่ Set ใช้ (จาก snapshot หรือ items)
+  // Filenames used by this set (from snapshot or items)
   const getFileNamesForSet = (set) => {
     const names = new Set();
     (set.fileLibrarySnapshot || []).forEach((s) => s.name && names.add(s.name));
@@ -2447,24 +2453,27 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
 
   const patchLibraryTcExtraColumns = useCallback(
     (tc, patch) => {
+      const patchNorm = Object.prototype.hasOwnProperty.call(patch || {}, 'tag')
+        ? { ...patch, tag: normalizeCommaTagString(String(patch.tag ?? '')) }
+        : patch;
       const isOther =
         tc._ownerId != null && String(tc._ownerId) !== String(activeProfileId);
       if (isOther) {
         if (tc._source === 'set' && tc._setId != null) {
-          addToast({ type: 'warning', message: 'แก้ tag รายส่วนของเทสต์ในชุด — ใช้ที่ Library หลัก' });
+          addToast({ type: 'warning', message: 'Edit per-row tags in the main Library view.' });
           return;
         }
         if (!tc.id) {
-          addToast({ type: 'warning', message: 'ไม่พบ id ของเทสต์เคส — ไม่สามารถบันทึก tag ส่วนตัว' });
+          addToast({ type: 'warning', message: 'Test case id not found — cannot save private tag.' });
           return;
         }
         const sid = String(tc.id);
         const o = (tcViewerTagOverlays && tcViewerTagOverlays[sid]) || null;
 
-        if (Object.prototype.hasOwnProperty.call(patch, 'tag')) {
+        if (Object.prototype.hasOwnProperty.call(patchNorm, 'tag')) {
           const nextO = o && typeof o === 'object' ? { ...o } : { tag: '', tagColor: 'mint' };
           delete nextO.Tag;
-          const nextRaw = String(patch.tag ?? '');
+          const nextRaw = String(patchNorm.tag ?? '');
           const prevRaw = (o && (o.tag || o.Tag)) || '';
           const prevLower = new Set(splitTags(prevRaw).map((t) => String(t).toLowerCase()));
           const added = splitTags(nextRaw).filter((t) => !prevLower.has(String(t).toLowerCase()));
@@ -2480,24 +2489,24 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
         }
         if (!o || !String(o.tag || o.Tag || '').trim()) return;
         const nextO = { ...o };
-        if (patch.tagColor) nextO.tagColor = patch.tagColor;
-        if (patch.tagColorList) nextO.tagColorList = patch.tagColorList;
+        if (patchNorm.tagColor) nextO.tagColor = patchNorm.tagColor;
+        if (patchNorm.tagColorList) nextO.tagColorList = patchNorm.tagColorList;
         syncTagColorListAfterTagChange(nextO, String(nextO.tag || ''));
         patchViewerTcTagOverlay(sid, nextO);
         return;
       }
 
-      const nextExtra = { ...(tc.extraColumns || {}), ...patch };
-      if (Object.prototype.hasOwnProperty.call(patch, 'tag')) delete nextExtra.Tag;
-      if (Object.prototype.hasOwnProperty.call(patch, 'tag')) {
+      const nextExtra = { ...(tc.extraColumns || {}), ...patchNorm };
+      if (Object.prototype.hasOwnProperty.call(patchNorm, 'tag')) delete nextExtra.Tag;
+      if (Object.prototype.hasOwnProperty.call(patchNorm, 'tag')) {
         // Track tags we add ourselves (for tag chip ordering).
         const prevRaw = (tc?.extraColumns && (tc.extraColumns.tag || tc.extraColumns.Tag)) || '';
-        const nextRaw = String(patch.tag ?? '');
+        const nextRaw = String(patchNorm.tag ?? '');
         const prevLower = new Set(splitTags(prevRaw).map((t) => String(t).toLowerCase()));
         const added = splitTags(nextRaw).filter((t) => !prevLower.has(String(t).toLowerCase()));
         if (added.length) recordMyAddedTagsForEntity(activeProfileId, getTcEntityKey(tc), added);
 
-        syncTagColorListAfterTagChange(nextExtra, String(patch.tag ?? ''));
+        syncTagColorListAfterTagChange(nextExtra, String(patchNorm.tag ?? ''));
       }
 
       if (tc._source === 'current' && tc.id) {
@@ -2505,7 +2514,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
         if (!hasLocal) {
           addToast({
             type: 'warning',
-            message: 'ไม่พบเทสต์เคสในโปรไฟล์นี้ — ไม่สามารถบันทึก tag ได้ (ลองรีเฟรชหน้า)',
+            message: 'Test case not found in this profile — cannot save tag (try refreshing the page).',
           });
           return;
         }
@@ -2517,7 +2526,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
         if (!set || !Array.isArray(set.items)) {
           addToast({
             type: 'warning',
-            message: 'ไม่พบชุดเทสต์เคสในโปรไฟล์นี้ — ไม่สามารถบันทึก tag ได้',
+            message: 'Test case set not found in this profile — cannot save tag.',
           });
           return;
         }
@@ -2525,7 +2534,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
         if (!items[tc._itemIndex]) {
           addToast({
             type: 'warning',
-            message: 'ไม่พบรายการในเซ็ต — ไม่สามารถบันทึก tag ได้',
+            message: 'Set item not found — cannot save tag.',
           });
           return;
         }
@@ -2616,8 +2625,8 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
           type: 'warning',
           message:
             tc._ownerId != null && tc._ownerId !== activeProfileId
-              ? 'แก้ได้เฉพาะเทสต์เคสในโปรไฟล์ของคุณ'
-              : 'เทสต์เคสกำลัง Running/Pending — แก้ไม่ได้จนกว่า process จะจบ',
+              ? 'You can only edit test cases owned by your profile.'
+              : 'Test case is running/pending — cannot edit until the process finishes.',
         });
         return;
       }
@@ -2752,7 +2761,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
       const setName = (set?.name || '').trim() || 'Job';
       const items = Array.isArray(set?.items) ? set.items : [];
       if (items.length === 0) {
-        addToast({ type: 'warning', message: 'Set นี้ไม่มี test case ให้รัน' });
+        addToast({ type: 'warning', message: 'This set has no test cases to run.' });
         return;
       }
       const mode =
@@ -2769,7 +2778,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
       if (mode === 'manual' && boardIds.length === 0) {
         addToast({
           type: 'warning',
-          message: 'ไม่มีบอร์ดที่เลือกไว้ (manual) — เปิด Edit saved job แล้วเลือกบอร์ด หรือไปที่ Run Job',
+          message: 'No boards selected (manual) — open Edit saved job to pick boards, or use Run Job.',
         });
         return;
       }
@@ -2831,18 +2840,18 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
         if (miss.length > 0) {
           addToast({
             type: 'error',
-            message: `Run ไม่ได้ — ไฟล์ไม่ครบใน Library: ${miss.slice(0, 5).join(', ')}${miss.length > 5 ? ` +${miss.length - 5}` : ''}`,
+            message: `Cannot run — files missing from Library: ${miss.slice(0, 5).join(', ')}${miss.length > 5 ? ` +${miss.length - 5}` : ''}`,
             duration: 8000,
           });
         } else {
-          addToast({ type: 'warning', message: 'Run ไม่ได้ — ไม่มี test case ที่มีทั้ง VCD และ ERoM' });
+          addToast({ type: 'warning', message: 'Cannot run — no test case has both VCD and ERoM.' });
         }
         return;
       }
       if (missingNames.size > 0) {
         addToast({
           type: 'warning',
-          message: `ข้ามไฟล์ที่ไม่ครบใน Library: ${[...missingNames].slice(0, 4).join(', ')}${missingNames.size > 4 ? ` +${missingNames.size - 4}` : ''}`,
+          message: `Skipping files missing from Library: ${[...missingNames].slice(0, 4).join(', ')}${missingNames.size > 4 ? ` +${missingNames.size - 4}` : ''}`,
         });
       }
 
@@ -3015,24 +3024,24 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     if (!setId) return;
     const trimmed = (addTcsToSetNameDraft || '').trim();
     if (!trimmed) {
-      addToast({ type: 'warning', message: 'ชื่อ set ต้องไม่ว่าง' });
+      addToast({ type: 'warning', message: 'Set name cannot be empty.' });
       return;
     }
     const existing = (savedTestCaseSets || []).find((s) => s.id === setId);
     if (!existing) {
-      addToast({ type: 'error', message: 'ไม่พบ set' });
+      addToast({ type: 'error', message: 'Set not found.' });
       closeAddTcsToSetModal();
       return;
     }
     if (addTcsModalBoardMode === 'manual' && addTcsModalBoardIds.length === 0) {
       addToast({
         type: 'warning',
-        message: 'Manual: เลือกบอร์ดอย่างน้อย 1 รายการ หรือเปลี่ยนเป็น Auto assign',
+        message: 'Manual: select at least one board, or switch to Auto assign.',
       });
       return;
     }
     const colorKey = TAG_PALETTE_MAP[addTcsModalTagColor] ? addTcsModalTagColor : 'mint';
-    const tagTrim = (addTcsModalTag || '').trim();
+    const tagTrim = normalizeCommaTagString(addTcsModalTag || '');
     const patch = {
       name: trimmed,
       runBoardMode: addTcsModalBoardMode,
@@ -3052,7 +3061,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
       patch.tagColorList = [];
     }
     updateSavedTestCaseSet(setId, patch);
-    addToast({ type: 'success', message: `บันทึกการตั้งค่า set "${trimmed}" แล้ว` });
+    addToast({ type: 'success', message: `Saved settings for set "${trimmed}"` });
     closeAddTcsToSetModal();
   }, [
     addTcsToSetModalSetId,
@@ -3073,7 +3082,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     if (!setId) return;
     const set = (savedTestCaseSets || []).find((s) => s.id === setId);
     if (!set) {
-      addToast({ type: 'error', message: 'ไม่พบ set' });
+      addToast({ type: 'error', message: 'Set not found.' });
       closeAddTcsToSetModal();
       return;
     }
@@ -3082,7 +3091,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     const byId = new Map((fileReferenceTestCases || []).map((t) => [String(t.id), t]));
     const selected = addTcsToSetSelectedIds.map((id) => byId.get(String(id))).filter(Boolean);
     if (selected.length === 0) {
-      addToast({ type: 'warning', message: 'เลือก test case จาก Library อย่างน้อย 1 รายการ' });
+      addToast({ type: 'warning', message: 'Select at least one test case from Library.' });
       return;
     }
     const usedNamesInSet = new Set(
@@ -3105,7 +3114,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
       existingKeys.add(k);
     }
     if (newItems.length === 0) {
-      addToast({ type: 'info', message: 'Test case ที่เลือกมีชุดไฟล์เดียวกับที่อยู่ใน set แล้ว — ไม่มีรายการใหม่' });
+      addToast({ type: 'info', message: 'Selected test cases already match items in this set — nothing new to add.' });
       closeAddTcsToSetModal();
       return;
     }
@@ -3126,9 +3135,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
       api.saveSetFiles(setId, fileIds).catch((err) => console.error('Save set files failed', err));
     }
     const setDisplayName = (set.name || '').trim() || 'Job';
-    addToast({ type: 'success', message: `เพิ่ม ${newItems.length} test case(s) ใน "${setDisplayName}"` });
+    addToast({ type: 'success', message: `Added ${newItems.length} test case(s) to "${setDisplayName}"` });
     if (skippedDup > 0) {
-      addToast({ type: 'info', message: `ข้าม ${skippedDup} รายการที่มีชุดไฟล์ซ้ำกับที่อยู่ใน set แล้ว` });
+      addToast({ type: 'info', message: `Skipped ${skippedDup} row(s) with the same file set already in this set` });
     }
     closeAddTcsToSetModal();
   }, [
@@ -3243,16 +3252,16 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     if (!rawTcEditorKey || !rawTcEditorDraft) return;
     const row = libraryRawRows.find((r) => r._key === rawTcEditorKey) || rawTcEditorSourceRow;
     if (!row) {
-      addToast({ type: 'warning', message: 'ไม่สามารถบันทึกรายการนี้ได้' });
+      addToast({ type: 'warning', message: 'Cannot save this row.' });
       return;
     }
     if (rawTcEditorMode !== 'duplicate' && !canEditRawTcRow(row)) {
-      addToast({ type: 'warning', message: 'ไม่สามารถบันทึกรายการนี้ได้' });
+      addToast({ type: 'warning', message: 'Cannot save this row.' });
       return;
     }
     const name = (rawTcEditorDraft.name || '').trim();
     if (!name) {
-      addToast({ type: 'warning', message: 'กรุณากรอกชื่อเทสต์เคส' });
+      addToast({ type: 'warning', message: 'Please enter a test case name.' });
       return;
     }
     const tryCount = Math.min(100, Math.max(1, parseInt(String(rawTcEditorDraft.tryCount), 10) || 1));
@@ -3261,7 +3270,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     const binName = (rawTcEditorDraft.binName || '').trim();
     const linName = (rawTcEditorDraft.linName || '').trim();
     if (!isTestCasePrimaryFileSetComplete({ vcdName, binName, linName })) {
-      addToast({ type: 'warning', message: 'กรุณาเลือก VCD, ERoM และ ULP ให้ครบก่อนบันทึก' });
+      addToast({ type: 'warning', message: 'Please select VCD, ERoM, and ULP before saving.' });
       return;
     }
 
@@ -3397,19 +3406,19 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     if (row._source === 'current' && row.id) {
       const ok = updateSavedTestCase(row.id, payload);
       if (!ok) return;
-      addToast({ type: 'success', message: 'บันทึกเทสต์เคสแล้ว' });
+      addToast({ type: 'success', message: 'Test case saved.' });
       closeRawTcEditor();
       return;
     }
     if (row._source === 'set' && row._setId != null && row._itemIndex != null) {
       const set = (savedTestCaseSets || []).find((s) => s.id === row._setId);
       if (!set || !Array.isArray(set.items)) {
-        addToast({ type: 'error', message: 'ไม่พบชุดเทสต์เคส' });
+        addToast({ type: 'error', message: 'Test case set not found.' });
         return;
       }
       const prevItem = set.items[row._itemIndex];
       if (!prevItem) {
-        addToast({ type: 'error', message: 'ไม่พบรายการใน set' });
+        addToast({ type: 'error', message: 'Row not found in set.' });
         return;
       }
       const updatedItem = {
@@ -3425,11 +3434,11 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
       });
       const fileLibrarySnapshot = [...allNames].map((n) => ({ name: n }));
       updateSavedTestCaseSet(row._setId, { items: newItems, fileLibrarySnapshot });
-      addToast({ type: 'success', message: 'บันทึกเทสต์เคสใน set แล้ว' });
+      addToast({ type: 'success', message: 'Test case saved in set.' });
       closeRawTcEditor();
       return;
     }
-    addToast({ type: 'warning', message: 'บันทึกไม่สำเร็จ — ไม่รู้จักแหล่งข้อมูล' });
+    addToast({ type: 'warning', message: 'Save failed — unknown data source.' });
   }, [
     rawTcEditorKey,
     rawTcEditorDraft,
@@ -3500,14 +3509,14 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
         addToast({
           type: 'warning',
           message:
-            'ลบได้เฉพาะไฟล์ที่อัปโหลดจากโปรไฟล์ของคุณ — ไฟล์ที่ Owner เป็นโปรไฟล์อื่นจะไม่ถูกลบ',
+            'Only files uploaded from your profile can be deleted — files owned by another profile will not be removed.',
         });
         return;
       }
-      addToast({ type: 'warning', message: 'ไฟล์ทั้งหมดถูกอ้างอิงโดย Test Case / Set ที่บันทึกไว้ หรือกำลัง running/pending — ลบไม่ได้จนกว่าจะไม่ถูกใช้' });
+      addToast({ type: 'warning', message: 'All files are referenced by a saved Test Case / Set or a running/pending job — they cannot be deleted until unused.' });
       return;
     }
-    if (!window.confirm(`Delete ${toDelete.length} file(s) from Library?${inUseCount > 0 ? `\n\n${inUseCount} file(s) ถูกอ้างอิง (saved / running/pending) จะไม่ถูกลบ` : ''}${notMineCount > 0 ? `\n\n${notMineCount} file(s) owned by another profile will be skipped` : ''}`)) return;
+    if (!window.confirm(`Delete ${toDelete.length} file(s) from Library?${inUseCount > 0 ? `\n\n${inUseCount} file(s) are referenced (saved / running/pending) and will not be deleted` : ''}${notMineCount > 0 ? `\n\n${notMineCount} file(s) owned by another profile will be skipped` : ''}`)) return;
     setIsDeleting(true);
     let deleted = 0;
     for (const f of toDelete) {
@@ -3516,8 +3525,8 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     }
     setIsDeleting(false);
     if (deleted > 0) addToast({ type: 'success', message: `Deleted ${deleted} file(s)` });
-    if (inUseCount > 0) addToast({ type: 'info', message: `${inUseCount} file(s) ไม่ถูกลบ (ถูกอ้างอิงโดย saved Test Case / Set หรือ process)` });
-    if (notMineCount > 0) addToast({ type: 'info', message: `${notMineCount} file(s) ไม่ถูกลบ (Owner เป็นโปรไฟล์อื่น)` });
+    if (inUseCount > 0) addToast({ type: 'info', message: `${inUseCount} file(s) were not deleted (referenced by a saved Test Case / Set or an active process)` });
+    if (notMineCount > 0) addToast({ type: 'info', message: `${notMineCount} file(s) were not deleted (owned by another profile)` });
   };
 
   const handleDeleteBox = async (setId, files) => {
@@ -3531,14 +3540,14 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
       if (notMineInBox > 0) {
         addToast({
           type: 'warning',
-          message: 'ไฟล์ในกล่องนี้เป็นของ Owner อื่นทั้งหมด — ลบได้เฉพาะไฟล์ที่อัปโหลดจากโปรไฟล์ของคุณ',
+          message: 'All files in this box belong to another owner — only files uploaded from your profile can be deleted.',
         });
         return;
       }
-      addToast({ type: 'warning', message: 'ไฟล์ในกล่องนี้ทั้งหมดถูกอ้างอิง (saved / running/pending) — ไม่สามารถลบได้' });
+      addToast({ type: 'warning', message: 'All files in this box are referenced (saved / running/pending) — cannot delete.' });
       return;
     }
-    if (!window.confirm(`Delete ${toDelete.length} file(s) in this box from Library?${inUseCount > 0 ? `\n\n${inUseCount} file(s) กำลังถูกใช้ จะไม่ถูกลบ` : ''}${notMineInBox > 0 ? `\n\n${notMineInBox} file(s) owned by another profile will be skipped` : ''}`)) return;
+    if (!window.confirm(`Delete ${toDelete.length} file(s) in this box from Library?${inUseCount > 0 ? `\n\n${inUseCount} file(s) are in use and will not be deleted` : ''}${notMineInBox > 0 ? `\n\n${notMineInBox} file(s) owned by another profile will be skipped` : ''}`)) return;
     setDeletingBoxId(setId);
     let deleted = 0;
     for (const f of toDelete) {
@@ -3547,8 +3556,8 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     }
     setDeletingBoxId(null);
     if (deleted > 0) addToast({ type: 'success', message: `Deleted ${deleted} file(s) from box` });
-    if (inUseCount > 0) addToast({ type: 'info', message: `${inUseCount} file(s) ไม่ถูกลบ (กำลังถูกใช้)` });
-    if (notMineInBox > 0) addToast({ type: 'info', message: `${notMineInBox} file(s) ไม่ถูกลบ (Owner เป็นโปรไฟล์อื่น)` });
+    if (inUseCount > 0) addToast({ type: 'info', message: `${inUseCount} file(s) were not deleted (in use)` });
+    if (notMineInBox > 0) addToast({ type: 'info', message: `${notMineInBox} file(s) were not deleted (owned by another profile)` });
   };
 
   return (
@@ -3559,6 +3568,56 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
         onConfirm={handleFileLibraryUploadChoiceConfirm}
         onCancel={handleFileLibraryUploadChoiceCancel}
       />
+      {rawTcSetsListPopover &&
+        createPortal(
+          <>
+            <div
+              className="fixed inset-0 z-[100]"
+              aria-hidden
+              onMouseDown={() => setRawTcSetsListPopover(null)}
+            />
+            <div
+              data-raw-tc-sets-popover
+              role="dialog"
+              aria-label="All sets for this test case"
+              className="fixed z-[101] w-[min(280px,calc(100vw-1rem))] max-h-[min(280px,45vh)] overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 shadow-xl py-2 px-1"
+              style={{
+                top: rawTcSetsListPopover.top,
+                left: rawTcSetsListPopover.left,
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <div className="px-2 pb-1.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700 mb-1">
+                Sets ({rawTcSetsListPopover.setNames.length})
+              </div>
+              <ul className="space-y-0.5">
+                {rawTcSetsListPopover.setNames.map((sn, si) => (
+                  <li key={`${sn}-${si}`}>
+                    <button
+                      type="button"
+                      className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left text-[11px] font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 min-w-0"
+                      title={`Go to set “${sn}” in the Sets tab`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const rowTc = rawTcSetsListPopover.tc;
+                        if (rowTc?._source === 'set' && rowTc?._setId != null) {
+                          navigateLibraryToSetByIdOrName({ setId: rowTc._setId });
+                        } else {
+                          navigateLibraryToSetByIdOrName({ setName: sn });
+                        }
+                        setRawTcSetsListPopover(null);
+                      }}
+                    >
+                      <Layers size={12} className="shrink-0 opacity-70" aria-hidden />
+                      <span className="truncate min-w-0">{sn}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </>,
+          document.body,
+        )}
       {isImportModalOpen && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center">
           <div
@@ -3821,7 +3880,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                       }
                     }}
                     className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
-                    placeholder="ชื่อ job"
+                    placeholder="Job name"
                     autoComplete="off"
                     aria-label="Job name"
                   />
@@ -4588,7 +4647,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                   setFileTagsModalEditDraft(t);
                                 }}
                                 className="max-w-[260px] truncate text-left font-medium hover:underline disabled:opacity-50 disabled:pointer-events-none"
-                                title="คลิกเพื่อแก้ไขชื่อ"
+                                title="Click to edit name"
                               >
                                 {t}
                               </button>
@@ -4915,7 +4974,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                       setLibraryRawTcTagModalEditDraft(t);
                                     }}
                                     className="max-w-[200px] truncate text-left font-medium hover:underline disabled:cursor-default disabled:no-underline"
-                                    title={canEditPill ? 'คลิกเพื่อแก้ไขชื่อ' : t}
+                                    title={canEditPill ? 'Click to edit name' : t}
                                   >
                                     {t}
                                   </button>
@@ -5692,14 +5751,14 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                               if (jid == null) {
                                 addToast({
                                   type: 'info',
-                                  message: `ยังไม่มี job ใน Job Manager ที่ตรงชื่อชุด "${setName}" (รันชุดจาก Library ก่อนเพื่อให้ปรากฏในคิว)`,
+                                  message: `No Job Manager job matches set name "${setName}" yet (run the set from Library so it appears in the queue).`,
                                 });
                                 return;
                               }
                               onNavigateToJob(jid);
                             }}
                             className="group text-sm font-bold text-slate-700 dark:text-slate-200 truncate text-left max-w-[min(340px,62vw)] px-0 py-0 bg-transparent border-0 cursor-pointer hover:underline hover:text-blue-600 dark:hover:text-blue-400 outline-offset-2 rounded-sm"
-                            title={`เปิด Job Manager — job ล่าสุดที่ชื่อชุดตรงกับ "${setName}"`}
+                            title={`Open Job Manager — latest job matching set name "${setName}"`}
                           >
                             {setName}
                           </button>
@@ -6474,7 +6533,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                 updatedAt: row.updatedAt || row.createdAt || new Date().toISOString(),
               }));
             if (!rows.length) {
-              addToast({ type: 'warning', message: 'ไม่พบ test case ที่เลือก' });
+              addToast({ type: 'warning', message: 'No test case selected.' });
               return;
             }
             const runIncomplete = rows.filter((r) => !isTestCasePrimaryFileSetComplete(r));
@@ -6484,7 +6543,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                 .slice(0, 5);
               addToast({
                 type: 'warning',
-                message: `ส่ง Run Job ได้เฉพาะเคสที่มี VCD, ERoM และ ULP ครบ — ${runIncomplete.length} รายการยังไม่ครบ: ${names.join(', ')}${runIncomplete.length > 5 ? '…' : ''}`,
+                message: `Run Job requires VCD, ERoM, and ULP — ${runIncomplete.length} row(s) incomplete: ${names.join(', ')}${runIncomplete.length > 5 ? '…' : ''}`,
               });
               return;
             }
@@ -6500,13 +6559,13 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
             e?.stopPropagation?.();
             e?.preventDefault?.();
             if (String(tc._ownerId || '') !== String(activeProfileId || '')) {
-              addToast({ type: 'info', message: 'เพิ่มแถวได้เฉพาะเทสต์เคสของโปรไฟล์ปัจจุบัน' });
+              addToast({ type: 'info', message: 'You can only add rows for test cases in the current profile.' });
               return;
             }
             if (tc._source === 'current' && tc.id) {
               const ix = (savedTestCases || []).findIndex((t) => String(t.id) === String(tc.id));
               if (ix < 0) {
-                addToast({ type: 'warning', message: 'ไม่พบรายการใน Library' });
+                addToast({ type: 'warning', message: 'Row not found in Library.' });
                 return;
               }
               const prevLen = useTestStore.getState().savedTestCases?.length ?? 0;
@@ -6524,7 +6583,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                 { insertAt: ix + 1 }
               );
               openRawTcEditorAfterInsertCurrentTc(newId, prevLen);
-              addToast({ type: 'success', message: 'เพิ่มแถวใหม่ใต้รายการนี้แล้ว' });
+              addToast({ type: 'success', message: 'New row added below this item.' });
               return;
             }
             if (tc._source === 'set' && tc._setId != null && tc._itemIndex != null) {
@@ -6533,16 +6592,16 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
               const setName = (set.name || '').trim() || 'Job';
               const st = (setStatusByName.get(setName) || '').toLowerCase();
               if (st === 'running' || st === 'pending') {
-                addToast({ type: 'warning', message: 'Set กำลังรัน/รอ — เพิ่มแถวใน set ไม่ได้' });
+                addToast({ type: 'warning', message: 'Set is running/pending — cannot add rows to this set.' });
                 return;
               }
               if (savedTestCaseSetPendingById?.[String(tc._setId)]) {
-                addToast({ type: 'info', message: 'กำลังบันทึก set — รอสักครู่' });
+                addToast({ type: 'info', message: 'Saving set — please wait.' });
                 return;
               }
               const canEdit = set._ownerId == null || String(set._ownerId) === String(activeProfileId);
               if (!canEdit) {
-                addToast({ type: 'warning', message: 'ไม่ใช่ set ของโปรไฟล์นี้' });
+                addToast({ type: 'warning', message: 'This set does not belong to this profile.' });
                 return;
               }
               const items = [...set.items];
@@ -6556,7 +6615,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
               items.splice(insertIdx, 0, newItem);
               updateSavedTestCaseSet(tc._setId, { items });
               openRawTcEditorAfterInsertSetItem(tc._setId, insertIdx);
-              addToast({ type: 'success', message: 'เพิ่มแถวใน set ใต้รายการนี้แล้ว' });
+              addToast({ type: 'success', message: 'Row added to set below this item.' });
             }
           };
 
@@ -6564,13 +6623,13 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
             e?.stopPropagation?.();
             e?.preventDefault?.();
             if (String(tc._ownerId || '') !== String(activeProfileId || '')) {
-              addToast({ type: 'info', message: 'เพิ่มแถวได้เฉพาะเทสต์เคสของโปรไฟล์ปัจจุบัน' });
+              addToast({ type: 'info', message: 'You can only add rows for test cases in the current profile.' });
               return;
             }
             if (tc._source === 'current' && tc.id) {
               const ix = (savedTestCases || []).findIndex((t) => String(t.id) === String(tc.id));
               if (ix < 0) {
-                addToast({ type: 'warning', message: 'ไม่พบรายการใน Library' });
+                addToast({ type: 'warning', message: 'Row not found in Library.' });
                 return;
               }
               const prevLen = useTestStore.getState().savedTestCases?.length ?? 0;
@@ -6588,7 +6647,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                 { insertAt: ix }
               );
               openRawTcEditorAfterInsertCurrentTc(newId, prevLen);
-              addToast({ type: 'success', message: 'เพิ่มแถวใหม่เหนือรายการนี้แล้ว' });
+              addToast({ type: 'success', message: 'New row added above this item.' });
               return;
             }
             if (tc._source === 'set' && tc._setId != null && tc._itemIndex != null) {
@@ -6597,16 +6656,16 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
               const setName = (set.name || '').trim() || 'Job';
               const st = (setStatusByName.get(setName) || '').toLowerCase();
               if (st === 'running' || st === 'pending') {
-                addToast({ type: 'warning', message: 'Set กำลังรัน/รอ — เพิ่มแถวใน set ไม่ได้' });
+                addToast({ type: 'warning', message: 'Set is running/pending — cannot add rows to this set.' });
                 return;
               }
               if (savedTestCaseSetPendingById?.[String(tc._setId)]) {
-                addToast({ type: 'info', message: 'กำลังบันทึก set — รอสักครู่' });
+                addToast({ type: 'info', message: 'Saving set — please wait.' });
                 return;
               }
               const canEdit = set._ownerId == null || String(set._ownerId) === String(activeProfileId);
               if (!canEdit) {
-                addToast({ type: 'warning', message: 'ไม่ใช่ set ของโปรไฟล์นี้' });
+                addToast({ type: 'warning', message: 'This set does not belong to this profile.' });
                 return;
               }
               const items = [...set.items];
@@ -6620,7 +6679,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
               items.splice(insertIdx, 0, newItem);
               updateSavedTestCaseSet(tc._setId, { items });
               openRawTcEditorAfterInsertSetItem(tc._setId, insertIdx);
-              addToast({ type: 'success', message: 'เพิ่มแถวใน set เหนือรายการนี้แล้ว' });
+              addToast({ type: 'success', message: 'Row added to set above this item.' });
             }
           };
 
@@ -6649,7 +6708,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
             if (selectedRowsForInsert.length === 0) {
               addToast({
                 type: 'info',
-                message: 'เลือกแถวในตารางก่อน แล้วค่อย Insert row (เหมือน Excel — เลือกแถว แล้วใช้เมนู Insert)',
+                message: 'Select a row in the table first, then Insert row (like Excel — select a row, then use the Insert menu).',
               });
               return;
             }
@@ -6685,15 +6744,15 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
           const applyBulkLibraryRawTcTags = () => {
             const raw = libraryRawTcBulkTagInput.trim();
             if (!raw) {
-              addToast({ type: 'info', message: 'พิมพ์ tag ก่อน' });
+              addToast({ type: 'info', message: 'Enter a tag first.' });
               return;
             }
             if (bulkTcInputsLocked) {
-              addToast({ type: 'info', message: 'รอให้ action กับ test case ที่เลือกจบก่อน' });
+              addToast({ type: 'info', message: 'Wait for the pending action on the selected test case(s) to finish.' });
               return;
             }
             if (selectedSet.size === 0) {
-              addToast({ type: 'info', message: 'เลือก test case อย่างน้อยหนึ่งแถว' });
+              addToast({ type: 'info', message: 'Select at least one test case row.' });
               return;
             }
             let n = 0;
@@ -6718,12 +6777,12 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
               n += 1;
             });
             if (n > 0) {
-              addToast({ type: 'success', message: `เพิ่ม tag ให้ ${n} test case` });
+              addToast({ type: 'success', message: `Added tag to ${n} test case(s)` });
               setLibraryRawTcBulkTagInput('');
             } else {
               addToast({
                 type: 'warning',
-                message: 'ไม่มีแถวที่แก้ได้ (ล็อก, set กำลังรัน, หรือไม่ตรงกับที่เลือก)',
+                message: 'No rows can be updated (locked, set running, or not in selection).',
               });
             }
           };
@@ -6731,15 +6790,15 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
           const applyBulkLibraryRawTcTry = () => {
             const rawTrim = libraryRawTcBulkTryInput.trim();
             if (rawTrim === '') {
-              addToast({ type: 'info', message: 'พิมพ์เลข Try (1–100)' });
+              addToast({ type: 'info', message: 'Enter Try count (1–100).' });
               return;
             }
             if (bulkTcInputsLocked) {
-              addToast({ type: 'info', message: 'รอให้ action กับ test case ที่เลือกจบก่อน' });
+              addToast({ type: 'info', message: 'Wait for the pending action on the selected test case(s) to finish.' });
               return;
             }
             if (selectedSet.size === 0) {
-              addToast({ type: 'info', message: 'เลือก test case อย่างน้อยหนึ่งแถว' });
+              addToast({ type: 'info', message: 'Select at least one test case row.' });
               return;
             }
             const num = Math.min(100, Math.max(1, parseInt(rawTrim, 10) || 1));
@@ -6766,12 +6825,12 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
               }
             });
             if (n > 0) {
-              addToast({ type: 'success', message: `ตั้งค่า Try = ${num} สำหรับ ${n} test case` });
+              addToast({ type: 'success', message: `Set Try = ${num} for ${n} test case(s)` });
               setLibraryRawTcBulkTryInput('');
             } else {
               addToast({
                 type: 'warning',
-                message: 'ไม่มีแถวที่แก้ Try ได้ (เจ้าของอื่น, ล็อก, set กำลังรัน)',
+                message: 'No rows can update Try (other owner, locked, or set running).',
               });
             }
           };
@@ -6813,7 +6872,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                   <button
                     type="button"
                     aria-label="Choose name filter"
-                    title="เลือกชื่อจากรายการ (หรือพิมพ์ในช่อง)"
+                    title="Pick a name from the list (or type in the field)"
                     className="absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/90 dark:hover:bg-slate-800/80"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -6833,7 +6892,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                         if (opts.length === 0) {
                           return (
                             <div className="px-3 py-2 text-[11px] text-slate-400 dark:text-slate-500">
-                              {libraryTcToolbarNamePickOptions.length === 0 ? 'ยังไม่มีชื่อในรายการ' : 'ไม่พบชื่อที่ตรงกับคำค้น'}
+                              {libraryTcToolbarNamePickOptions.length === 0 ? 'No names in list yet' : 'No name matches your search'}
                             </div>
                           );
                         }
@@ -6866,7 +6925,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                   <button
                     type="button"
                     aria-label="Choose tag filter"
-                    title="เลือกแท็กจากรายการ (หรือพิมพ์ในช่อง)"
+                    title="Pick a tag from the list (or type in the field)"
                     className="absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/90 dark:hover:bg-slate-800/80"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -6879,7 +6938,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                   {libraryTcTagSuggestOpen && (
                     <div className="absolute left-0 top-full mt-1 z-[60] min-w-[200px] max-w-[min(280px,calc(100vw-2rem))] max-h-[min(240px,50vh)] overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-lg py-1 [scrollbar-width:thin]">
                       {libraryTcToolbarTagPickOptions.length === 0 ? (
-                        <div className="px-3 py-2 text-[11px] text-slate-400 dark:text-slate-500">ยังไม่มีแท็กในรายการ</div>
+                        <div className="px-3 py-2 text-[11px] text-slate-400 dark:text-slate-500">No tags in list yet</div>
                       ) : (
                         libraryTcToolbarTagPickOptions.map((opt) => (
                           <button
@@ -7015,7 +7074,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                     title={
                       insertToolbarCanInsert && insertAnchorTc
                         ? 'Insert row above/below selected row (Excel-style)'
-                        : 'เลือกแถวเดียวในกริดก่อน — แล้วแทรกเหนือหรือใต้แถวนั้น'
+                        : 'Select a single row in the grid first — then insert above or below it'
                     }
                   >
                     <Plus size={14} strokeWidth={2.5} className="shrink-0 opacity-80" />
@@ -7058,7 +7117,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                   onClick={handleDeleteSelected}
                   disabled={selectedSet.size === 0 || hasRunningOrPendingInSelection || hasStorePendingInSelection}
                   className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-40 disabled:pointer-events-none transition-colors"
-                  title={hasStorePendingInSelection ? 'รอให้ action กับ test case ที่เลือกจบก่อน' : hasRunningOrPendingInSelection ? 'Cannot delete — running/pending test cases' : selectedSet.size > 0 ? `Delete ${selectedSet.size} selected` : 'Select test cases to delete'}
+                  title={hasStorePendingInSelection ? 'Wait for the pending action on the selected test case(s) to finish' : hasRunningOrPendingInSelection ? 'Cannot delete — running/pending test cases' : selectedSet.size > 0 ? `Delete ${selectedSet.size} selected` : 'Select test cases to delete'}
                 >
                   <Trash2 size={18} strokeWidth={2} />
                 </button>
@@ -7074,7 +7133,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                   </button>
                 )}
                 {selectedSet.size > 0 && (
-                  <span className="text-xs text-slate-500">{selectedSet.size} selected{hasRunningOrPendingInSelection ? ' (มีรายการที่ล็อก)' : ''}</span>
+                  <span className="text-xs text-slate-500">{selectedSet.size} selected{hasRunningOrPendingInSelection ?  ' (includes locked rows)' : ''}</span>
                 )}
               </div>
               {selectedSet.size > 0 && (
@@ -7089,7 +7148,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                       ? 'bg-slate-100 dark:bg-slate-700 ring-2 ring-slate-300/50 dark:ring-slate-600'
                       : 'hover:bg-slate-50 dark:hover:bg-slate-700/80'
                   }`}
-                  title="Bulk tag / Try — แก้หลายแถวพร้อมกัน"
+                  title="Bulk tag / Try — edit multiple rows at once"
                 >
                   <Pencil size={16} strokeWidth={2} />
                 </button>
@@ -7112,8 +7171,8 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                         placeholder="Bulk add tag… (Enter)"
                         title={
                           bulkTcInputsLocked
-                            ? 'รอให้ action กับ test case ที่เลือกจบก่อน'
-                            : 'เพิ่ม tag ให้ทุกแถวที่เลือก'
+                            ? 'Wait for the pending action on the selected test case(s) to finish'
+                            : 'Add tag to all selected rows'
                         }
                         disabled={bulkTcInputsLocked}
                       />
@@ -7122,7 +7181,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                         disabled={bulkTcInputsLocked}
                         onClick={applyBulkLibraryRawTcTags}
                         className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-200 text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600 disabled:opacity-40 disabled:pointer-events-none"
-                        title="ใส่ tag ให้แถวที่เลือกทั้งหมด"
+                        title="Apply tag to all selected rows"
                       >
                         Apply
                       </button>
@@ -7146,8 +7205,8 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                         placeholder="Try 1–100"
                         title={
                           bulkTcInputsLocked
-                            ? 'รอให้ action กับ test case ที่เลือกจบก่อน'
-                            : 'ตั้ง Try ให้เคสของคุณที่เลือก (เจ้าของอื่นถูกข้าม)'
+                            ? 'Wait for the current action on the selected test case(s) to finish'
+                            : 'Set Try for your selected cases (other owners skipped)'
                         }
                         disabled={bulkTcInputsLocked}
                       />
@@ -7156,7 +7215,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                         disabled={bulkTcInputsLocked}
                         onClick={applyBulkLibraryRawTcTry}
                         className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-200 text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600 disabled:opacity-40 disabled:pointer-events-none"
-                        title="ตั้ง Try ให้แถวของคุณที่เลือก"
+                        title="Set Try for your selected rows"
                       >
                         Apply
                       </button>
@@ -7236,7 +7295,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                               isErrorRow
                                 ? 'Last run of this test case failed — open Job Management to inspect / re-run'
                                 : dimProcessRow
-                                ? 'Running / Pending — แถวสีเทาเพื่อให้เห็นว่ามี process อยู่ (ยังเลือกได้)'
+                                ? 'Running / Pending — grayed rows show an active process (still selectable)'
                                 : isRowEditingLocked
                                   ? 'Test case is locked (running/pending or Vis=close)'
                                   : 'Double click to edit in this page'
@@ -7292,7 +7351,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                 disabled={isRowSelectionDisabled || tcRowBusy}
                                 onChange={() => { if (!isRowSelectionDisabled && !tcRowBusy) toggleSelect(key, idx, { shiftKey: false, ctrlKey: false, metaKey: false }); }}
                                 className={`w-4 h-4 rounded ${isRowSelectionDisabled || tcRowBusy ? 'cursor-not-allowed opacity-50' : 'cursor-pointer opacity-100'}`}
-                                title={tcRowBusy ? 'กำลังลบ/สำเนา/จัดเรียง — รอสักครู่' : isRowSelectionDisabled ? 'ไม่สามารถเลือก — Vis=close' : undefined}
+                                title={tcRowBusy ? 'Deleting / duplicating / reordering — please wait' : isRowSelectionDisabled ? 'Cannot select — Vis=closed' : undefined}
                               />
                             </td>
                             <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-slate-500">
@@ -7325,7 +7384,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                 }`}
                                 title={
                                   isTcSystemLocked(tc)
-                                    ? 'ล็อกอัตโนมัติ — TC อยู่ใน process (running/pending)'
+                                    ? 'Auto-locked — test case is in a running/pending job'
                                     : isTcManuallyClosed(tc)
                                       ? 'Closed — click to open/selectable'
                                       : 'Open — click to close/lock from select all'
@@ -7408,17 +7467,17 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                   setLibraryRawTcTagModalEditIndex(null);
                                   setLibraryRawTcTagModalEditDraft('');
                                 };
-                                /** … = จัดการ tag ทั้งหมด — pill คลิกสลับสีอย่างเดียว */
+                                /** … = manage all tags — pill click only cycles color */
                                 const showEllipsis = tagSystemLocked
                                   ? orderedTags.length > 1
                                   : orderedTags.length >= 1;
 
                                 if (orderedTags.length === 0) {
                                   const lockedTagHint = isTcSystemLocked(tc)
-                                    ? 'ไม่สามารถเพิ่ม tag ขณะ Running/Pending'
+                                    ? 'Cannot add tag while Running/Pending'
                                     : isTcManuallyClosed(tc)
-                                      ? 'ไม่สามารถเพิ่ม tag ขณะปิด Vis (Closed)'
-                                      : 'ไม่สามารถเพิ่ม tag';
+                                      ? 'Cannot add tag while Vis is Closed'
+                                      : 'Cannot add tag';
                                   return (
                                     <div className="flex flex-wrap items-center gap-1 min-w-0">
                                       {tagSystemLocked ? (
@@ -7581,7 +7640,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                           cycleColor(e);
                                         }}
                                         className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-medium max-w-[130px] ${firstPillClass} hover:brightness-95 transition-colors`}
-                                        title="คลิกเพื่อเปลี่ยนสี tag — ใช้ … เพื่อแก้ไขรายการ tag"
+                                        title="Click to cycle tag color — use … to edit the full tag list"
                                       >
                                         <span className="w-2 h-2 rounded-full shrink-0 bg-current/70" />
                                         <span className="truncate">{orderedTags[0]}</span>
@@ -7826,37 +7885,61 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                   setNamesForRow = tc._inSetNames;
                                 }
                                 if (setNamesForRow.length) {
-                                  const showSets = setNamesForRow.slice(0, 4);
-                                  const rest = setNamesForRow.length - showSets.length;
+                                  const goSet = (e, sn) => {
+                                    e.stopPropagation();
+                                    if (tc._source === 'set' && tc._setId != null) {
+                                      navigateLibraryToSetByIdOrName({ setId: tc._setId });
+                                    } else {
+                                      navigateLibraryToSetByIdOrName({ setName: sn });
+                                    }
+                                  };
+                                  if (setNamesForRow.length === 1) {
+                                    const sn = setNamesForRow[0];
+                                    return (
+                                      <button
+                                        key={`${key}-setstat-${sn}`}
+                                        type="button"
+                                        onClick={(e) => goSet(e, sn)}
+                                        className="inline-flex items-center max-w-[180px] min-w-0 px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 text-[10px] font-medium hover:bg-slate-200/90 dark:hover:bg-slate-600 cursor-pointer"
+                                        title={`Go to set “${sn}” in the Sets tab`}
+                                      >
+                                        <Layers size={10} className="shrink-0 mr-1 opacity-70" aria-hidden />
+                                        <span className="truncate">{sn}</span>
+                                      </button>
+                                    );
+                                  }
+                                  const firstSn = setNamesForRow[0];
                                   return (
-                                    <div className="inline-flex flex-wrap items-center justify-center gap-1 max-w-[220px]">
-                                      {showSets.map((sn) => (
-                                        <button
-                                          key={`${key}-setstat-${sn}`}
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            if (tc._source === 'set' && tc._setId != null) {
-                                              navigateLibraryToSetByIdOrName({ setId: tc._setId });
-                                            } else {
-                                              navigateLibraryToSetByIdOrName({ setName: sn });
-                                            }
-                                          }}
-                                          className="inline-flex items-center max-w-[160px] px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 text-[10px] font-medium hover:bg-slate-200/90 dark:hover:bg-slate-600 cursor-pointer"
-                                          title={`ไปที่ set “${sn}” ในแท็บ Sets${setNamesForRow.length > 1 ? ` (${setNamesForRow.length} sets)` : ''}`}
-                                        >
-                                          <Layers size={10} className="shrink-0 mr-1 opacity-70" aria-hidden />
-                                          <span className="truncate">{sn}</span>
-                                        </button>
-                                      ))}
-                                      {rest > 0 ? (
-                                        <span
-                                          className="text-[10px] text-slate-500 dark:text-slate-400 max-w-[5rem] truncate"
-                                          title={setNamesForRow.join(', ')}
-                                        >
-                                          +{rest}
-                                        </span>
-                                      ) : null}
+                                    <div className="flex flex-nowrap items-center justify-center gap-1 min-w-0 max-w-[220px]">
+                                      <button
+                                        type="button"
+                                        onClick={(e) => goSet(e, firstSn)}
+                                        className="inline-flex items-center min-w-0 max-w-[130px] px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 text-[10px] font-medium hover:bg-slate-200/90 dark:hover:bg-slate-600 cursor-pointer shrink"
+                                        title={`Go to set “${firstSn}” in the Sets tab (${setNamesForRow.length} sets total)`}
+                                      >
+                                        <Layers size={10} className="shrink-0 mr-1 opacity-70" aria-hidden />
+                                        <span className="truncate">{firstSn}</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const r = e.currentTarget.getBoundingClientRect();
+                                          const w = 280;
+                                          setRawTcSetsListPopover({
+                                            top: r.bottom + 4,
+                                            left: Math.max(8, Math.min(r.left, window.innerWidth - w - 8)),
+                                            setNames: [...setNamesForRow],
+                                            tc,
+                                          });
+                                        }}
+                                        className="inline-flex items-center justify-center gap-0.5 shrink-0 h-6 px-1.5 rounded-full border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 text-[10px] font-semibold"
+                                        title={`${setNamesForRow.length} sets — view all`}
+                                        aria-label={`View all ${setNamesForRow.length} sets`}
+                                      >
+                                        <List size={12} strokeWidth={2.5} className="shrink-0 opacity-80" aria-hidden />
+                                        <span>{setNamesForRow.length}</span>
+                                      </button>
                                     </div>
                                   );
                                 }
@@ -7886,10 +7969,10 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                 }`}
                                 title={
                                   canEditRawTcRow(tc)
-                                    ? 'แก้ไขในหน้านี้'
+                                    ? 'Edit on this page'
                                     : isTcSystemLocked(tc)
-                                      ? 'Running/Pending — Duplicate เพื่อแก้ไขได้'
-                                      : 'แก้ไม่ได้ (ล็อกหรือไม่ใช่โปรไฟล์คุณ)'
+                                      ? 'Running/Pending — duplicate to edit'
+                                      : 'Cannot edit (locked or not your profile)'
                                 }
                               >
                                 {isTcSystemLocked(tc) ? <Copy size={16} /> : <Pencil size={16} />}
@@ -7923,7 +8006,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                         type="button"
                         onClick={closeRawTcEditor}
                         className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700"
-                        title="ปิด"
+                        title="Close"
                       >
                         <X size={18} />
                       </button>
@@ -7990,7 +8073,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                               type="button"
                               onClick={() => setRawTcEditorTagToolsOpen((o) => !o)}
                               className="inline-flex items-center justify-center w-7 h-7 rounded-full text-[12px] font-semibold border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700"
-                              title="สี tag — เหมือนคอลัมน์ TC"
+                              title="Tag colors — same as TC column"
                             >
                               …
                             </button>
@@ -8630,7 +8713,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
               lastClickedFileIndexRef.current = index;
               return;
             }
-            // Click ปกติ: toggle ได้หลายไฟล์ (ไม่บังคับ single select)
+            // Normal click: toggle multiple files (single-select not forced)
             setSelectedLibraryFileIds((prev) =>
               prev.includes(fileId) ? prev.filter((id) => id !== fileId) : [...prev, fileId],
             );
@@ -8657,7 +8740,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
               addToast({
                 type: 'warning',
                 message:
-                  'ไฟล์ที่ถูกอ้างอิงโดย Test Case / Set ที่บันทึกไว้ หรือกำลัง running/pending — ลบจาก Library ไม่ได้จนกว่าจะไม่ถูกใช้',
+                  'Files referenced by a saved Test Case / Set or a running/pending job cannot be removed from the Library until they are no longer in use.',
               });
               return;
             }
@@ -8665,7 +8748,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
               addToast({
                 type: 'warning',
                 message:
-                  'ลบได้เฉพาะไฟล์ที่อัปโหลดจากโปรไฟล์ของคุณ — ถอนการเลือกไฟล์ที่ Owner เป็นโปรไฟล์อื่นก่อน (Cannot delete files owned by another profile.)',
+                  'You can only delete files uploaded under your profile — deselect files owned by another profile first.',
               });
               return;
             }
@@ -8688,11 +8771,22 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
               <div className="p-3 flex flex-wrap items-center gap-2 border-b border-slate-200 dark:border-slate-600">
                 {/* Removed label pill (visual clutter) */}
                 <div
-                  className={`w-full mt-2 rounded-xl border-2 border-dashed p-4 flex flex-col sm:flex-row sm:items-center gap-3 ${
+                  className={`w-full mt-2 rounded-xl border-2 border-dashed p-4 flex flex-col sm:flex-row sm:items-center gap-3 cursor-pointer ${
                     isImportDragging
                       ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
                       : 'border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/30'
-                  }`}
+                  } ${isImporting ? 'pointer-events-none opacity-70' : ''}`}
+                    onClick={(e) => {
+                      if (isImporting) return;
+                      if (e.target.closest('button')) return;
+                      inlineFileImportInputRef.current?.click();
+                    }}
+                    onKeyDown={(e) => {
+                      if (isImporting) return;
+                      if (e.key !== 'Enter' && e.key !== ' ') return;
+                      e.preventDefault();
+                      inlineFileImportInputRef.current?.click();
+                    }}
                     onDragOver={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
@@ -8722,7 +8816,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                       if (files.length) enqueueImportDrafts(files);
                     }}
                     tabIndex={0}
-                    title="Drop files, paste files, or browse"
+                    role="button"
+                    aria-label="Import files: click to browse, or drop and paste here"
+                    title="Click anywhere to browse, or drop files, or paste (Cmd+V)"
                 >
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0">
@@ -8753,7 +8849,10 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                       />
                       <button
                         type="button"
-                        onClick={() => inlineFileImportInputRef.current?.click()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          inlineFileImportInputRef.current?.click();
+                        }}
                         disabled={isImporting}
                         className="px-3 py-2 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
                       >
@@ -9164,13 +9263,13 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                         type="button"
                         onClick={clearFileLibraryToolbarFilters}
                         className="shrink-0 h-8 px-2.5 rounded-lg text-[11px] font-medium border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/80 transition-colors whitespace-nowrap"
-                        title="ล้างตัวกรองทั้งหมดในแถบด้านบน"
+                        title="Clear all filters in the toolbar above"
                       >
                         Clear filters
                       </button>
                       {selectedFileSet.size > 0 && (
                         <span className="text-xs text-slate-500">
-                          {selectedFileSet.size} selected{selectedInUse > 0 ? ' (มีรายการที่ล็อก)' : ''}
+                          {selectedFileSet.size} selected{selectedInUse > 0 ?  ' (includes locked rows)' : ''}
                         </span>
                       )}
                     </div>
@@ -9202,7 +9301,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                             }}
                             className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 w-44"
                             placeholder="Bulk add tag… (Enter)"
-                            title={selectedFilesPending ? 'รอให้ action กับไฟล์ที่เลือกจบก่อน' : 'Add tags to selected files (comma supported)'}
+                            title={selectedFilesPending ? 'Wait for the current action on the selected file(s) to finish' : 'Add tags to selected files (comma supported)'}
                           />
                           <button
                             type="button"
@@ -9248,11 +9347,11 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                         className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-40 disabled:pointer-events-none transition-colors"
                         title={
                           selectedFilesPending
-                            ? 'รอให้ action กับไฟล์ที่เลือกจบก่อน'
+                            ? 'Wait for the current action on the selected file(s) to finish'
                             : selectedInUse > 0
-                              ? 'มีไฟล์ที่กำลังถูกใช้ (running/pending) — ไม่สามารถลบได้'
+                              ? 'Some files are in use (running/pending) — cannot delete'
                               : selectedNotOwned > 0
-                                ? 'มีไฟล์ที่ Owner เป็นโปรไฟล์อื่น — ลบไม่ได้'
+                                ? 'Some files are owned by another profile — cannot delete'
                                 : selectedFileSet.size > 0
                                   ? `Delete ${selectedFileSet.size} selected`
                                   : 'Select files to delete'
@@ -9405,7 +9504,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                   className={`w-4 h-4 rounded shrink-0 border-slate-300 text-blue-600 ${isFileClosed || fpBusy ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
                                   title={
                                     fpBusy
-                                      ? 'กำลังบันทึก/ลบ — รอสักครู่'
+                                      ? 'Saving/deleting — please wait'
                                       : isFileClosed
                                         ? 'Vis=close — not selectable'
                                         : inUseByBatch
@@ -9507,7 +9606,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                           setFileTagColor?.(f.id, keys[(idx + 1) % keys.length]);
                                         }}
                                         className={`px-1.5 py-0.5 rounded-full text-[10px] border font-medium ${palette} hover:brightness-95 disabled:opacity-40 disabled:pointer-events-none`}
-                                        title={`${t} — คลิกเพื่อเปลี่ยนสี`}
+                                        title={`${t} — click to change color`}
                                       >
                                         {t}
                                       </button>
@@ -9690,7 +9789,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                   }`}
                                   title={
                                     fpBusy
-                                      ? 'กำลังบันทึก/ลบ — รอสักครู่'
+                                      ? 'Saving/deleting — please wait'
                                       : inUseByBatch
                                         ? 'Locked — referenced by saved content or active job'
                                         : isFileClosed
@@ -9743,7 +9842,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                             <div key={boxId} className="rounded-lg border border-slate-200 dark:border-slate-600 overflow-hidden bg-slate-50/50 dark:bg-slate-800/30">
                               <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800/50 flex items-center justify-between gap-2">
                                 <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">{title} <span className="text-xs font-normal text-slate-500">({files.length})</span></span>
-                                <button type="button" onClick={() => handleDeleteBox(boxId, files)} disabled={isDeletingBox || boxAllInUse} className={`p-1.5 rounded ${boxAllInUse ? 'opacity-50 cursor-not-allowed text-slate-400' : 'text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20'} disabled:opacity-60`} title={boxAllInUse ? 'ไม่มีไฟล์ที่ลบได้ในกล่องนี้ (ถูกอ้างอิง / หรือ Owner เป็นโปรไฟล์อื่น)' : 'Delete all files in this box (yours only, not in use)'}><Trash2 size={16} strokeWidth={2} /></button>
+                                <button type="button" onClick={() => handleDeleteBox(boxId, files)} disabled={isDeletingBox || boxAllInUse} className={`p-1.5 rounded ${boxAllInUse ? 'opacity-50 cursor-not-allowed text-slate-400' : 'text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20'} disabled:opacity-60`} title={boxAllInUse ? 'No deletable files in this box (referenced or owned by another profile)' : 'Delete all files in this box (yours only, not in use)'}><Trash2 size={16} strokeWidth={2} /></button>
                               </div>
                               <div className="divide-y divide-slate-100 dark:divide-slate-700">
                                 {files.map((f, fileIdx) => {
@@ -9766,7 +9865,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                       key={f.id}
                                       title={
                                         dimFileProcess
-                                          ? 'ถูกอ้างอิงโดย saved Test Case/Set หรือ job — แถวจาง (ยังเลือกได้)'
+                                          ? 'Referenced by a saved Test Case/Set or job — dimmed row (still selectable)'
                                           : undefined
                                       }
                                       className={`flex items-center gap-2 px-4 py-2 flex-wrap select-none bg-white/50 dark:bg-transparent ${fpBusy ? 'ring-1 ring-amber-400/40 dark:ring-amber-500/30' : ''} ${isFileClosedBox ? 'opacity-75 cursor-not-allowed' : 'cursor-pointer'} ${isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : dimFileProcess ? 'bg-slate-50/90 dark:bg-slate-900/40 text-slate-500 dark:text-slate-400' : ''} ${!isSelected && !dimFileProcess && !isFileClosedBox ? 'hover:bg-white dark:hover:bg-slate-800/50' : ''} ${!isSelected && dimFileProcess ? 'hover:bg-slate-100/85 dark:hover:bg-slate-800/50' : ''}`}
@@ -9774,7 +9873,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                       onMouseDown={(e) => { if (e.target.closest('input[type="checkbox"]') || e.target.closest('button')) return; if (fpBusy || isFileClosedBox) return; if (e.button === 0) { isDragSelectingFileRef.current = true; if (!selectedFileSet.has(f.id)) setSelectedLibraryFileIds((prev) => [...prev, f.id]); } }}
                                       onMouseEnter={() => { if (fpBusy || isFileClosedBox) return; if (!isDragSelectingFileRef.current) return; if (!selectedFileSet.has(f.id)) setSelectedLibraryFileIds((prev) => [...prev, f.id]); }}
                                     >
-                                      <input type="checkbox" checked={isSelected} disabled={fpBusy || isFileClosedBox} onChange={() => { if (!fpBusy && !isFileClosedBox) toggleFileSelect(f.id, globalIndex >= 0 ? globalIndex : fileIdx, { shiftKey: false, ctrlKey: false, metaKey: false }); }} onClick={(e) => e.stopPropagation()} className={`w-4 h-4 rounded shrink-0 ${fpBusy || isFileClosedBox ? 'cursor-not-allowed opacity-50' : 'cursor-pointer opacity-100'}`} title={fpBusy ? 'กำลังบันทึก/ลบ — รอสักครู่' : isFileClosedBox ? 'Vis=close — not selectable' : inUseByBatch ? 'ถูกอ้างอิงโดย saved Test Case/Set หรือ job — เลือกได้ แต่ลบจาก Library ไม่ได้' : undefined} />
+                                      <input type="checkbox" checked={isSelected} disabled={fpBusy || isFileClosedBox} onChange={() => { if (!fpBusy && !isFileClosedBox) toggleFileSelect(f.id, globalIndex >= 0 ? globalIndex : fileIdx, { shiftKey: false, ctrlKey: false, metaKey: false }); }} onClick={(e) => e.stopPropagation()} className={`w-4 h-4 rounded shrink-0 ${fpBusy || isFileClosedBox ? 'cursor-not-allowed opacity-50' : 'cursor-pointer opacity-100'}`} title={fpBusy ? 'Saving/deleting — please wait' : isFileClosedBox ? 'Vis=close — not selectable' : inUseByBatch ? 'Referenced by a saved Test Case/Set or job — selectable but cannot be deleted from Library' : undefined} />
                                       <span className="flex-1 min-w-0 truncate text-sm text-slate-700 dark:text-slate-200">{f.name}</span>
                                       <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0 max-w-[70px] truncate" title={f.ownerId ? `Owner: ${resolveFileOwnerDisplay(f, ownerLabelCtx)} (${f.ownerId})` : '—'}>
                                         {resolveFileOwnerDisplay(f, ownerLabelCtx)}

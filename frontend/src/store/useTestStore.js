@@ -24,7 +24,13 @@
 
 import { create } from 'zustand';
 import { getClientId } from '../utils/sessionStorage';
-import { isValidPaletteKey, TAG_PALETTE_MAP, splitTagsComma } from '../utils/tagPalette';
+import {
+  isValidPaletteKey,
+  TAG_PALETTE_MAP,
+  splitTagsComma,
+  normalizeCommaTagString,
+  clampTagLabel,
+} from '../utils/tagPalette';
 import { rememberClientOwnerLabel, syncOwnerLabelsFromJobs, syncOwnerLabelsFromFiles } from '../utils/profileOwnerLabel';
 import api from '../services/api';
 import { formatClientNetworkError } from '../utils/apiEndpoints';
@@ -366,14 +372,8 @@ const buildFileTagMapsFromApiFiles = (files) => {
 
 /** Merge comma-separated tags (case-insensitive dedup; keep first-seen order). */
 const mergeCommaTagStrings = (a, b) => {
-  const sa = String(a || '')
-    .split(',')
-    .map((t) => t.trim())
-    .filter(Boolean);
-  const sb = String(b || '')
-    .split(',')
-    .map((t) => t.trim())
-    .filter(Boolean);
+  const sa = splitTagsComma(a);
+  const sb = splitTagsComma(b);
   const seen = new Set(sa.map((x) => x.toLowerCase()));
   const out = [...sa];
   sb.forEach((t) => {
@@ -1608,7 +1608,7 @@ export const useTestStore = create((set, get) => {
     const idKey = String(fileId);
     if (!beginFilePending(idKey, 'tags')) return false;
     try {
-      const value = (tag || '').trim();
+      const value = normalizeCommaTagString(tag);
       const state = get();
       const payload = { tags: value };
       const col = state.fileTagColors?.[idKey] ?? state.fileTagColors?.[fileId];
@@ -2086,7 +2086,7 @@ export const useTestStore = create((set, get) => {
         queueMicrotask(() => {
           get().addToast({
             type: 'info',
-            message: `แทนที่ test case "${normalizeTestCaseName(tc.name)}" เดิมใน Library (ชื่อเดิม ชุดไฟล์ใหม่)`,
+            message: `Replaced test case "${normalizeTestCaseName(tc.name)}" in Library (same name, new file set).`,
           });
         });
       }
@@ -2108,7 +2108,7 @@ export const useTestStore = create((set, get) => {
         queueMicrotask(() => {
           get().addToast({
             type: 'info',
-            message: `ชื่อ "${rawDesired}" ยังชนกับโปรไฟล์อื่น — ใช้ "${finalName}" แทน`,
+            message: `Name "${rawDesired}" conflicts with another profile — using "${finalName}" instead.`,
           });
         });
       }
@@ -2400,7 +2400,7 @@ export const useTestStore = create((set, get) => {
           queueMicrotask(() => {
             get().addToast({
               type: 'info',
-              message: `ชื่อ "${baseName}" ถูกใช้แล้ว — ใช้ "${uniqueName}" สำหรับสำเนา`,
+              message: `Name "${baseName}" is already in use — using "${uniqueName}" for the copy.`,
             });
           });
         }
@@ -2628,18 +2628,19 @@ export const useTestStore = create((set, get) => {
         if (anyLibraryEvict) {
           get().addToast({
             type: 'info',
-            message: 'แทนที่ test case ใน Library ที่ชื่อเดิมแต่ชุดไฟล์ต่าง — แล้วบันทึก job',
+            message: 'Replaced test case in Library (same name, different files) and saved job.',
           });
         } else if (renamedForUniqueness) {
           get().addToast({
             type: 'info',
-            message: 'ชื่อ test case บางแถวยังชนกับโปรไฟล์อื่น — ปรับชื่ออัตโนมัติใน job นี้ (เช่น test1 (2))',
+            message: 'Some test case names conflict with another profile — names were auto-adjusted in this job (e.g. test1 (2)).',
           });
         }
 
         const fileLibrarySnapshot = options.fileLibrarySnapshot || [];
         const entry = { id, name: setName, createdAt: now, updatedAt: now, items: normalizedItems, fileLibrarySnapshot };
-        const tagTrim = typeof options.tag === 'string' ? options.tag.trim() : '';
+        const tagTrim =
+          typeof options.tag === 'string' ? normalizeCommaTagString(options.tag.trim()) : '';
         if (tagTrim) {
           const colorKey = options.tagColor && TAG_PALETTE_MAP[options.tagColor] ? options.tagColor : 'mint';
           entry.tag = tagTrim;
@@ -2717,7 +2718,7 @@ export const useTestStore = create((set, get) => {
       const sets = state.savedTestCaseSets || [];
       const idx = sets.findIndex((s) => s.id === setId);
       if (idx < 0) {
-        get().addToast({ type: 'error', message: 'ไม่พบ job' });
+        get().addToast({ type: 'error', message: 'Job not found.' });
         return state;
       }
       const list = newItems || [];
@@ -2773,7 +2774,7 @@ export const useTestStore = create((set, get) => {
       const sets = state.savedTestCaseSets || [];
       const idx = sets.findIndex((s) => s.id === setId);
       if (idx < 0) {
-        get().addToast({ type: 'error', message: 'ไม่พบ job' });
+        get().addToast({ type: 'error', message: 'Job not found.' });
         return state;
       }
       const rm = indicesSet instanceof Set ? indicesSet : new Set(indicesSet || []);
@@ -2951,13 +2952,13 @@ export const useTestStore = create((set, get) => {
       if (anyLibraryEvict) {
         get().addToast({
           type: 'info',
-          message: 'อัปเดต Library ตามชุดไฟล์ใหม่ของรายการที่ซ้ำชื่อ (ถ้ามี)',
+          message: 'Updated Library for duplicate-name rows with new file sets (where applicable).',
           duration: 4000,
         });
       }
       get().addToast({
         type: 'success',
-        message: `สำเนา job แล้ว — "${newName}"`,
+        message: `Job duplicated — "${newName}".`,
         duration: 4000,
       });
       return { ok: true, newId };
@@ -2979,7 +2980,7 @@ export const useTestStore = create((set, get) => {
       }
       get().addToast({
         type: 'error',
-        message: `Duplicate job ไม่สำเร็จ — บันทึกไป server ไม่ได้ (${err?.message || err})`,
+        message: `Could not duplicate job — failed to save to server (${err?.message || err}).`,
         duration: 7000,
       });
       return { ok: false, newId, error: err };
@@ -3502,7 +3503,7 @@ export const useTestStore = create((set, get) => {
       void api.putProfileData(id, { preferences: nextPreferences }).catch((err) => {
         console.error('[putProfileData failed: tcViewerTagOverlays]', err);
         try {
-          get().addToast?.({ type: 'error', message: `บันทึก tag ส่วนตัวไปเซิร์ฟเวอร์ไม่สำเร็จ: ${err?.message || err}` });
+          get().addToast?.({ type: 'error', message: `Failed to save private tag to server: ${err?.message || err}` });
         } catch {
           /* ignore */
         }
@@ -4632,10 +4633,10 @@ export const useTestStore = create((set, get) => {
     }));
     void api.stopJobFile(jobId, fileId)
       .then(() => get().refreshJobs())
-      .then(() => get().addToast({ type: 'success', message: 'หยุด test case นี้แล้ว' }))
+      .then(() => get().addToast({ type: 'success', message: 'This test case was stopped.' }))
       .catch((error) => {
         console.error('Failed to stop job file', error);
-        get().addToast({ type: 'error', message: 'หยุด test case ไม่สำเร็จ' });
+        get().addToast({ type: 'error', message: 'Failed to stop test case.' });
       });
   },
 
@@ -4770,7 +4771,8 @@ export const useTestStore = create((set, get) => {
   },
   
   updateJobTag: (jobId, tag) => {
-    const nextTags = tag ? [{ tag: String(tag).trim(), tagColor: null }] : [];
+    const one = tag ? clampTagLabel(tag) : '';
+    const nextTags = one ? [{ tag: one, tagColor: null }] : [];
     get().updateJobTags(jobId, nextTags);
   },
 
@@ -4778,7 +4780,7 @@ export const useTestStore = create((set, get) => {
     const normalized = Array.isArray(tags)
       ? tags
           .map((t) => ({
-            tag: String(t?.tag ?? t?.name ?? '').trim(),
+            tag: clampTagLabel(t?.tag ?? t?.name ?? ''),
             tagColor: (t?.tagColor ?? t?.color ?? null) ? String(t?.tagColor ?? t?.color).trim() : null,
           }))
           .filter((t) => t.tag)

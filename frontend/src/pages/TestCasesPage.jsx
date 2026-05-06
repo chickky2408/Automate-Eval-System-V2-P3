@@ -11,12 +11,16 @@ import { resolveFileOwnerDisplay } from '../utils/profileOwnerLabel';
 import UploadChoiceModal from '../components/UploadChoiceModal';
 import {
   TAG_PALETTE_MAP,
+  MAX_TAG_CHAR_LENGTH,
   normalizeTagColorList,
   getFirstTagPillClass,
   syncTagColorListAfterTagChange,
   isExtraColumnHiddenFromLibraryTable,
   jobTagPillClasses,
   libraryFileRowMatchesTagColorFilter,
+  splitTagsComma as splitTags,
+  clampTagLabel,
+  normalizeCommaTagString,
 } from '../utils/tagPalette';
 import TagColorSwatchPicker from '../components/TagColorSwatchPicker';
 import LibraryFileTagColorFilter from '../components/LibraryFileTagColorFilter';
@@ -40,12 +44,6 @@ const pushLibraryPickerSuggestOpt = (out, seen, raw) => {
   seen.add(k);
   out.push(x);
 };
-
-const splitTags = (raw) =>
-  String(raw || '')
-    .split(',')
-    .map((t) => t.trim())
-    .filter(Boolean);
 
 // Remember which tags *we* added (per active profile + per entity),
 // then show those tags first for this profile (personalized view).
@@ -154,7 +152,7 @@ const replaceTagAtIndexInRaw = (raw, index, newTag) => {
   const tags = splitTags(raw);
   if (index < 0 || index >= tags.length) return String(raw || '');
   const next = [...tags];
-  const tr = String(newTag ?? '').trim();
+  const tr = clampTagLabel(newTag ?? '');
   if (tr === '') next.splice(index, 1);
   else next[index] = tr;
   return next.join(', ');
@@ -780,14 +778,15 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
         // Track tags we add ourselves, then prioritize them in tag chip rendering.
         const oldRaw = (row?.extraColumns && (row.extraColumns.tag || row.extraColumns.Tag)) || '';
         const oldTags = splitTags(oldRaw);
-        const newTags = splitTags(value);
+        const tagNorm = normalizeCommaTagString(value);
+        const newTags = splitTags(tagNorm);
         const oldLower = new Set(oldTags.map((t) => String(t).toLowerCase()));
         const added = newTags.filter((t) => !oldLower.has(String(t).toLowerCase()));
         if (added.length) recordMyAddedTagsForEntity(activeProfileId, `tc:${tcId}`, added);
 
-        const nextExtra = { ...(row?.extraColumns || {}), tag: value };
+        const nextExtra = { ...(row?.extraColumns || {}), tag: tagNorm };
         delete nextExtra.Tag;
-        syncTagColorListAfterTagChange(nextExtra, String(value ?? ''));
+        syncTagColorListAfterTagChange(nextExtra, String(tagNorm ?? ''));
         updateDisplayedTestCase(tcId, { extraColumns: nextExtra });
       } else {
         updateDisplayedTestCase(tcId, { extraColumns: { ...(row?.extraColumns || {}), [col]: value } });
@@ -877,7 +876,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
           .slice(0, 5);
         addToast({
           type: 'warning',
-          message: `แต่ละ test case ต้องมี VCD, ERoM และ ULP ให้ครบ — ${incomplete.length} แถวยังไม่ครบ: ${names.join(', ')}${incomplete.length > 5 ? '…' : ''}`,
+          message: `Each test case needs VCD, ERoM, and ULP — ${incomplete.length} row(s) incomplete: ${names.join(', ')}${incomplete.length > 5 ? '…' : ''}`,
         });
         return;
       }
@@ -980,7 +979,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
         const names = badRows.map((t) => String(t.name || '—').trim() || '—').slice(0, 5);
         addToast({
           type: 'warning',
-          message: `แต่ละ test case ต้องมี VCD, ERoM และ ULP ให้ครบ — ยังไม่บันทึก (${badRows.length} แถว): ${names.join(', ')}${badRows.length > 5 ? '…' : ''}`,
+          message: `Each test case needs VCD, ERoM, and ULP — not saved (${badRows.length} row(s)): ${names.join(', ')}${badRows.length > 5 ? '…' : ''}`,
         });
         if (sendToRunSetAfterSaveRef.current) {
           sendToRunSetAfterSaveRef.current = false;
@@ -1306,7 +1305,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
     if (isDuplicate) {
       addToast({
         type: 'warning',
-        message: 'ชื่อนี้ถูกใช้แล้วในระบบ (ทุกโปรไฟล์) — ใช้ชื่ออื่น',
+        message: 'This name is already used in the system (all profiles) — choose another name.',
       });
       updateDisplayedTestCase(tcId, { name: prevName });
       return;
@@ -1500,7 +1499,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
     const ids = [...new Set((fileIds || []).filter(Boolean))];
     const files = ids.map((id) => uploadedFiles.find((f) => f.id === id)).filter(Boolean);
     if (files.length === 0) {
-      addToast({ type: 'warning', message: 'ไม่พบไฟล์ใน Library' });
+      addToast({ type: 'warning', message: 'No files found in Library.' });
       return;
     }
     setSelectedIds(ids);
@@ -1719,7 +1718,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
     if (selectedTestCaseIds.length === 0) {
       addToast({
         type: 'info',
-        message: 'เลือกแถวในตารางก่อน แล้วค่อย Insert row (เหมือน Excel — เลือกแถว แล้วใช้เมนู Insert)',
+        message: 'Select a row in the table first, then Insert row (like Excel — select a row, then use the Insert menu).',
       });
       return;
     }
@@ -1733,7 +1732,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
     const targetId = selectedTestCaseIds[0];
     const idx = displayedSavedTestCases.findIndex((t) => String(t.id) === String(targetId));
     if (idx < 0) {
-      addToast({ type: 'warning', message: 'ไม่พบแถวที่เลือกในตาราง' });
+      addToast({ type: 'warning', message: 'No matching row selected in the table.' });
       return;
     }
     const insertAt = position === 'above' ? idx : idx + 1;
@@ -2089,7 +2088,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
         const names = bad.map((t) => String(t.name || '—').trim() || '—').slice(0, 5);
         addToast({
           type: 'warning',
-          message: `แต่ละ test case ต้องมี VCD, ERoM และ ULP ให้ครบ — กรุณาเลือกไฟล์ (${bad.length} แถว): ${names.join(', ')}${bad.length > 5 ? '…' : ''}`,
+          message: `Each test case needs VCD, ERoM, and ULP — select files (${bad.length} row(s)): ${names.join(', ')}${bad.length > 5 ? '…' : ''}`,
         });
         return;
       }
@@ -3185,6 +3184,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                                     type="text"
                                     value={tcTagModalEditDraft}
                                     onChange={(e) => setTcTagModalEditDraft(e.target.value)}
+                                    maxLength={MAX_TAG_CHAR_LENGTH}
                                     onKeyDown={(e) => {
                                       if (e.key === 'Enter') {
                                         if (tagEnterShouldIgnoreIme(e)) return;
@@ -3211,7 +3211,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                                       setTcTagModalEditDraft(t);
                                     }}
                                     className="max-w-[200px] truncate text-left font-medium hover:underline disabled:cursor-default disabled:no-underline"
-                                    title={modalLocked ? t : 'คลิกเพื่อแก้ไขชื่อ'}
+                                    title={modalLocked ? t : 'Click to edit name'}
                                   >
                                     {t}
                                   </button>
@@ -3279,7 +3279,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                           placeholder="Type and press Enter (comma allowed)"
                         />
                         <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">
-                          
+                          Each tag is limited to {MAX_TAG_CHAR_LENGTH} characters (extra length is trimmed when saved).
                         </p>
                       </div>
                     )}
@@ -3515,7 +3515,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                   ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                   : 'bg-slate-700 text-white hover:bg-slate-800 dark:bg-slate-600 dark:hover:bg-slate-500'
               }`}
-              title="เลือกไฟล์จาก Library ในหน้านี้ แล้วจัดกลุ่มตาม TCxxxx อัตโนมัติ"
+              title="Pick files from Library on this page, then auto-group by TCxxxx"
             >
               <FolderOpen size={14} /> From Library
             </button>
@@ -3535,7 +3535,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                     ? 'Read-only mode — cannot insert rows'
                     : selectedTestCaseIds.length === 1
                       ? 'Insert row above/below the selected row (Excel-style)'
-                      : 'เลือกแถวเดียวในกริดก่อน — แล้วแทรกเหนือหรือใต้แถวนั้น'
+                      : 'Select a single row in the grid first — then insert above or below it'
                 }
               >
                 <Plus size={14} />
@@ -3607,7 +3607,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                 if (currentSet && isSetInUseByJobs(currentSet)) {
                   addToast({
                     type: 'warning',
-                    message: 'Job นี้กำลังถูกใช้รันอยู่ ไม่สามารถอัปเดต test cases / files ได้จนกว่ารันเสร็จ',
+                    message: 'This job is running — test cases / files cannot be updated until the run finishes.',
                   });
                   return;
                 }
@@ -3616,7 +3616,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                   const names = badUpdate.map((t) => String(t.name || '—').trim() || '—').slice(0, 5);
                   addToast({
                     type: 'warning',
-                    message: `แต่ละ test case ต้องมี VCD, ERoM และ ULP ให้ครบก่อนอัปเดต job — ${badUpdate.length} แถว: ${names.join(', ')}${badUpdate.length > 5 ? '…' : ''}`,
+                    message: `Each test case needs VCD, ERoM, and ULP before updating the job — ${badUpdate.length} row(s): ${names.join(', ')}${badUpdate.length > 5 ? '…' : ''}`,
                   });
                   return;
                 }
@@ -3686,7 +3686,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                   className="px-3 py-1 bg-red-600 text-white rounded text-xs font-semibold hover:bg-red-700 flex items-center gap-1 disabled:opacity-40 disabled:pointer-events-none"
                   title={
                     selectedTestCaseIds.some((tid) => isTcStorePending(tid))
-                      ? 'รอให้ action กับ test case ที่เลือกจบก่อน'
+                      ? 'Wait for the pending action on the selected test case(s) to finish'
                       : loadedSetId
                         ? 'Remove selected rows from this saved job (saved rows may delete from library)'
                         : 'Remove selected rows from this table only — does not delete from Library'
@@ -3862,7 +3862,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                         disabled={isTestCaseInUseByBatch(tc) || isViewingShared}
                         className={`w-full min-w-0 px-1.5 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800 ${isTestCaseInUseByBatch(tc) ? 'opacity-70 cursor-not-allowed' : ''}`}
                         placeholder="job name"
-                        title={isTestCaseInUseByBatch(tc) ? 'ล็อก — test case อยู่ใน process (running/pending)' : 'Use a unique name for this test case'}
+                        title={isTestCaseInUseByBatch(tc) ? 'Locked — test case is in a running/pending job' : 'Use a unique name for this test case'}
                       />
                     </td>
                     <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 min-w-[120px] align-middle">
@@ -4018,7 +4018,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                         }
                         disabled={isTestCaseInUseByBatch(tc) || isViewingShared}
                         className={`w-full px-1 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-center ${isTestCaseInUseByBatch(tc) ? 'opacity-70 cursor-not-allowed' : ''}`}
-                        title={isTestCaseInUseByBatch(tc) ? 'ล็อก — อยู่ใน process' : undefined}
+                        title={isTestCaseInUseByBatch(tc) ? 'Locked — in progress' : undefined}
                       />
                     </td>
                     <td className="px-2 py-1.5 flex items-center justify-center gap-0.5 relative">
@@ -4027,7 +4027,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                         onDragStart={(e) => handleRowDragStart(e, originalIndex)}
                         onDragEnd={handleRowDragEnd}
                         className={`p-1 text-slate-400 hover:text-slate-600 ${tcPending ? 'opacity-40 cursor-not-allowed' : 'cursor-grab active:cursor-grabbing'}`}
-                        title={tcPending ? 'กำลังลบ/สำเนา/จัดเรียง — รอสักครู่' : 'Drag to reorder'}
+                        title={tcPending ? 'Deleting / duplicating / reordering — please wait' : 'Drag to reorder'}
                       >
                         <GripVertical size={14} />
                       </span>
@@ -4104,7 +4104,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                         className="p-1 text-red-500 hover:text-red-700 rounded disabled:opacity-40 disabled:cursor-not-allowed"
                         title={
                           tcPending
-                            ? 'กำลังลบ/สำเนา/จัดเรียง — รอสักครู่'
+                            ? 'Deleting / duplicating / reordering — please wait'
                             : isDraftId(tc.id)
                               ? 'Remove this row from the table only — does not delete from Library'
                               : isTestCaseInUseByBatch(tc)
@@ -4169,7 +4169,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                       onDragStart={(e) => handleRowDragStart(e, originalIndex)}
                       onDragEnd={handleRowDragEnd}
                       className={`p-1 shrink-0 mt-0.5 text-slate-400 hover:text-slate-600 ${tcPending ? 'opacity-40 cursor-not-allowed' : 'cursor-grab active:cursor-grabbing'}`}
-                      title={tcPending ? 'กำลังลบ/สำเนา/จัดเรียง — รอสักครู่' : 'Drag to reorder'}
+                      title={tcPending ? 'Deleting / duplicating / reordering — please wait' : 'Drag to reorder'}
                     >
                       <GripVertical size={16} />
                     </span>
@@ -4241,7 +4241,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                         className="p-1 text-red-500 hover:text-red-700 rounded disabled:opacity-40 disabled:cursor-not-allowed"
                         title={
                           tcPending
-                            ? 'กำลังลบ/สำเนา/จัดเรียง — รอสักครู่'
+                            ? 'Deleting / duplicating / reordering — please wait'
                             : isDraftId(tc.id)
                               ? 'Remove this row from the table only — does not delete from Library'
                               : isTestCaseInUseByBatch(tc)

@@ -5,6 +5,8 @@ Supports main library (set_id=None) and per-set storage (set_id=set_id).
 from __future__ import annotations
 from typing import List, Optional
 from datetime import datetime
+
+from utils.tag_text import normalize_comma_separated_tags
 import os
 import uuid
 import hashlib
@@ -203,7 +205,7 @@ class FileStore:
             if not f:
                 return False
             if "tags" in raw:
-                f.library_tags = (raw.get("tags") or "").strip() or None
+                f.library_tags = normalize_comma_separated_tags(raw.get("tags"))
             if "tagColor" in raw:
                 rc = (raw.get("tagColor") or "").strip() or None
                 f.tag_color = rc if rc in allowed else None

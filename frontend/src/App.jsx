@@ -290,10 +290,10 @@ const App = () => {
             <div className="min-w-0 flex-1 space-y-1 leading-relaxed">
               <p className="font-semibold">Production build (e.g. Docker on port 8000)</p>
               <p>
-                โหมดนี้ไม่ใช่ <code className="px-1 rounded bg-black/10 dark:bg-white/10">npm run dev</code> — แอปชุดเดียวกัน
-                แต่เบราว์เซอร์แยก <strong>localStorage ต่อ origin</strong> ดังนั้น profile / ข้อมูลที่เคยเห็นตอน dev (
+                This is not <code className="px-1 rounded bg-black/10 dark:bg-white/10">npm run dev</code> — same app, but
+                the browser keeps <strong>localStorage per origin</strong>, so profiles / data you saw in dev (
                 <code className="px-1 rounded bg-black/10 dark:bg-white/10">localhost:5173</code>
-                ) จะไม่โผล่ที่นี่จนกว่าจะโหลดจากเซิร์ฟเวอร์หรือใช้ Profile → Export / Import
+                ) will not appear here until you load from the server or use Profile → Export / Import.
               </p>
               <p className="opacity-90">
                 Same code as dev — browser storage is per site URL. Use server-backed profiles or export from dev

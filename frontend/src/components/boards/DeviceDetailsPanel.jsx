@@ -71,7 +71,7 @@ const DeviceDetailsPanel = ({ board, onClose, onSSHClick }) => {
           <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
             <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 uppercase mb-3">System resources</h3>
             {statusLoading ? (
-              <div className="text-sm text-slate-500 dark:text-slate-400">กำลังโหลด...</div>
+              <div className="text-sm text-slate-500 dark:text-slate-400">Loading…</div>
             ) : (
               <div className="grid grid-cols-3 gap-3">
                 <div className="p-3 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-600 text-center">
@@ -185,7 +185,7 @@ const DeviceDetailsPanel = ({ board, onClose, onSSHClick }) => {
                   placeholder="comma separated (e.g., REST API, SSH, HTTP)"
                   className={`w-full bg-white border border-slate-200 p-3 rounded-xl outline-none ${isEditing ? 'focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500' : 'opacity-80'}`}
                 />
-                <div className="text-xs text-slate-400 mt-1">แสดงว่าบอร์ดนี้ “connect ได้กับอะไร” เพื่อให้ทีมไม่สับสน</div>
+                <div className="text-xs text-slate-400 mt-1">Describe what this board can connect to so the team stays aligned.</div>
               </div>
               {(board.connections || []).length > 0 && (
                 <div className="flex flex-wrap gap-2">

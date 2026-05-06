@@ -3,6 +3,16 @@
  * Keys are stored in extraColumns.tagColor (default) and tagColorList[i] (per tag).
  */
 
+/** Max characters per tag token (comma-separated). Keep in sync with backend `MAX_TAG_CHAR_LENGTH`. */
+export const MAX_TAG_CHAR_LENGTH = 10;
+
+/** Trim and clamp one tag label for storage/display. */
+export function clampTagLabel(t) {
+  const s = String(t ?? '').trim();
+  if (!s) return '';
+  return s.slice(0, MAX_TAG_CHAR_LENGTH);
+}
+
 export const TAG_PALETTE_MAP = {
   mint: 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-700',
   emerald: 'bg-emerald-100 text-emerald-900 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-100 dark:border-emerald-600',
@@ -152,7 +162,9 @@ export function libraryFileRowMatchesTagColorFilter(file, fileTags, fileTagColor
   if (!selectedColorKey || !TAG_PALETTE_MAP[selectedColorKey]) return true;
   const want = normalizeTagColorKey(selectedColorKey);
   const fid = file?.id;
-  const tagVal = String((fileTags && fid != null && fileTags[fid]) || '').trim();
+  const tagVal = String(
+    (fileTags && fid != null && (fileTags[String(fid)] ?? fileTags[fid])) || ''
+  ).trim();
   const parts = splitTagsComma(tagVal);
   const fromMap =
     fid != null ? fileTagColors?.[String(fid)] ?? fileTagColors?.[fid] : undefined;
@@ -169,18 +181,32 @@ export function libraryFileRowMatchesTagColorFilter(file, fileTags, fileTagColor
   if (!parts.length) {
     return want === normalizeTagColorKey(mapStr ?? rowStr ?? '');
   }
+  // Same precedence as `resolveFileLibraryRowTagColorKey` (store / row wins over API tagColorList).
+  // Otherwise server default lists (e.g. mint) hide client `fileTagColors` and the Files tab filter breaks.
+  if (mapStr) {
+    return normalizeTagColorKey(mapStr) === want;
+  }
+  if (rowStr) {
+    return normalizeTagColorKey(rowStr) === want;
+  }
   if (list && list.length) {
-    const keys = parts.map((_, i) => normalizeTagColorKey(list[i] ?? mapStr ?? rowStr ?? 'mint'));
+    const keys = parts.map((_, i) => normalizeTagColorKey(list[i] ?? 'mint'));
     return keys.some((k) => k === want);
   }
-  return normalizeTagColorKey(mapStr ?? rowStr ?? 'mint') === want;
+  return want === normalizeTagColorKey('mint');
 }
 
 export function splitTagsComma(raw) {
   return String(raw || '')
     .split(',')
-    .map((t) => t.trim())
+    .map((t) => clampTagLabel(t))
     .filter(Boolean);
+}
+
+/** Normalize a full comma-separated tag string (clamp each token, join with ', '). */
+export function normalizeCommaTagString(raw) {
+  const parts = splitTagsComma(raw);
+  return parts.length ? parts.join(', ') : '';
 }
 
 /** Align tagColorList length with comma-separated tags; fill from tagColor default. */

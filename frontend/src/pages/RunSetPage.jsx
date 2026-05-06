@@ -34,6 +34,7 @@ import {
   TAG_SWATCH_DOT_CLASS,
   jobTagPillClasses,
   splitTagsComma,
+  normalizeCommaTagString,
   normalizeTagColorKey,
   normalizeTagColorList,
   formatPaletteOptionLabel,
@@ -1305,7 +1306,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
       if (options.showToast) {
         addToast({
           type: 'warning',
-          message: 'ไม่ได้บันทึก job — ชื่อ job ซ้ำในระบบ หรือมีการแก้ saved job อื่นอยู่ (รอให้จบก่อน)',
+          message: 'Job was not saved — duplicate job name in the system, or another saved job is being edited (wait for it to finish).',
         });
       }
       return null;
@@ -1448,7 +1449,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
       }
       if (created > 0) {
         if (refreshJobs) await refreshJobs();
-        const tagTrim = (tag || '').trim();
+        const tagTrim = normalizeCommaTagString(tag || '');
         if (tagTrim && !usingPreview) {
           const colorKey = TAG_PALETTE_MAP[runSetTagColor] ? runSetTagColor : 'mint';
           const parts = splitTagsComma(tagTrim);
@@ -1503,7 +1504,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
       return;
     }
     const colorKey = TAG_PALETTE_MAP[runSetTagColor] ? runSetTagColor : 'mint';
-    const tagTrim = (tag || '').trim();
+    const tagTrim = normalizeCommaTagString(tag || '');
     const patch = { name };
     if (tagTrim) {
       patch.tag = tagTrim;
@@ -2205,7 +2206,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
                           if (inUse) {
                             addToast({
                               type: 'warning',
-                              message: 'Job นี้กำลังถูกใช้รันอยู่ แก้ไขชื่อไม่ได้ กรุณา duplicate แล้วแก้ใน saved job ใหม่แทน',
+                              message: 'This job is in use for a run — you cannot rename it. Duplicate it and edit the new saved job instead.',
                             });
                             return;
                           }
@@ -2218,9 +2219,9 @@ const RunSetPage = ({ onNavigateJobs }) => {
                         }`}
                         title={
                           setBusy
-                            ? 'กำลังลบ/สำเนา/จัดเรียง saved job — รอสักครู่'
+                            ? 'Deleting / duplicating / reordering saved job — please wait'
                             : inUse
-                              ? 'Job นี้กำลังอยู่ใน process แก้ไขไม่ได้ (ให้ duplicate แล้วแก้ชื่อใน saved job ใหม่)'
+                              ? 'This job is busy — cannot edit (duplicate it and rename the new saved job)'
                               : 'Rename saved job'
                         }
                       >
@@ -2253,7 +2254,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
                           addToast({ type: 'success', message: `Deleted saved job "${set.name}"` });
                         }}
                         className="p-1 rounded hover:bg-red-600/10 text-red-600 dark:text-red-400 disabled:opacity-40 disabled:pointer-events-none"
-                        title="Delete saved job (ไม่ลบ test cases หรือไฟล์ใน Library)"
+                        title="Delete saved job (does not remove test cases or Library files)"
                       >
                         <Trash2 size={14} />
                       </button>
@@ -2333,7 +2334,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
               type="button"
               onClick={clearSection3RunConfig}
               className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border border-slate-300 dark:border-slate-500 text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-              title="ล้างชื่อ job, tag, สี, โหมด/รายการบอร์ด และ Prioritize — รีเซ็ตเป็นค่าเริ่มต้น (Auto assign, ไม่เลือกบอร์ด)"
+              title="Clear job name, tag, color, board mode/list, and Prioritize — reset to defaults (Auto assign, no boards selected)"
             >
               <RotateCcw size={14} className="text-slate-500 dark:text-slate-400" aria-hidden />
               Clear config
