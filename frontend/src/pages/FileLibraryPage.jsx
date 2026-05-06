@@ -2617,6 +2617,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     [activeProfileId]
   );
 
+  /** Fork as new test case in your library — allowed for any visible row (incl. other profiles). */
+  const canDuplicateRawTcRow = useCallback((row) => Boolean(row), []);
+
   const openRawTcEditor = useCallback(
     (tc) => {
       rawTcEditorPendingInsertDiscardRef.current = null;
@@ -7263,14 +7266,19 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                       ))}
                       <th className="w-14 px-2 py-2 border-r border-slate-200 dark:border-slate-600 text-center">Try</th>
                       <th className="w-24 px-2 py-2 border-r border-slate-200 dark:border-slate-600 text-center">Status</th>
-                      <th className="w-20 px-2 py-2 border-r border-slate-200 dark:border-slate-600 text-center">Edit</th>
+                      <th className="w-16 px-1 py-2 border-r border-slate-200 dark:border-slate-600 text-center" title="Edit files/tags on this page">
+                        Edit
+                      </th>
+                      <th className="w-16 px-1 py-2 border-r border-slate-200 dark:border-slate-600 text-center" title="Duplicate as a new test case (change before save)">
+                        Dup
+                      </th>
                       <th className="w-20 px-2 py-2 border-r border-slate-200 dark:border-slate-600 text-center">History</th>
                     </tr>
                   </thead>
                   <tbody>
                     {libraryFilteredRows.length === 0 ? (
                       <tr>
-                        <td colSpan={15 + extraCols.length} className="px-4 py-8 text-center text-slate-500 dark:text-slate-400 text-sm">
+                        <td colSpan={16 + extraCols.length} className="px-4 py-8 text-center text-slate-500 dark:text-slate-400 text-sm">
                           No test cases yet — or no match for filter. Create on Test Cases page or clear filters.
                         </td>
                       </tr>
@@ -7946,36 +7954,56 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                 return <span className="text-slate-400 dark:text-slate-500 text-[10px]">—</span>;
                               })()}
                             </td>
-                            <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-center">
+                            <td className="px-1 py-2 border-r border-slate-100 dark:border-slate-700 text-center">
                               <button
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  if (isTcSystemLocked(tc)) {
-                                    openRawTcDuplicateEditor(tc);
-                                    return;
-                                  }
                                   openRawTcEditor(tc);
                                 }}
-                                disabled={!canEditRawTcRow(tc) && !isTcSystemLocked(tc)}
+                                disabled={!canEditRawTcRow(tc)}
                                 className={`inline-flex items-center justify-center p-1.5 rounded-lg transition-colors ${
                                   canEditRawTcRow(tc)
-                                    ? rawTcEditorKey === key
+                                    ? rawTcEditorKey === key && rawTcEditorMode !== 'duplicate'
                                       ? 'bg-blue-600 text-white'
                                       : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
-                                    : isTcSystemLocked(tc)
-                                      ? 'text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30'
-                                      : 'text-slate-300 dark:text-slate-600 cursor-not-allowed'
+                                    : 'text-slate-300 dark:text-slate-600 cursor-not-allowed'
                                 }`}
                                 title={
                                   canEditRawTcRow(tc)
                                     ? 'Edit on this page'
                                     : isTcSystemLocked(tc)
-                                      ? 'Running/Pending — duplicate to edit'
-                                      : 'Cannot edit (locked or not your profile)'
+                                      ? 'Cannot edit while Running/Pending — use Dup to copy'
+                                      : 'Cannot edit (not your profile)'
                                 }
                               >
-                                {isTcSystemLocked(tc) ? <Copy size={16} /> : <Pencil size={16} />}
+                                <Pencil size={16} />
+                              </button>
+                            </td>
+                            <td className="px-1 py-2 border-r border-slate-100 dark:border-slate-700 text-center">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openRawTcDuplicateEditor(tc);
+                                }}
+                                disabled={!canDuplicateRawTcRow(tc)}
+                                className={`inline-flex items-center justify-center p-1.5 rounded-lg transition-colors ${
+                                  canDuplicateRawTcRow(tc)
+                                    ? rawTcEditorKey === key && rawTcEditorMode === 'duplicate'
+                                      ? 'bg-blue-600 text-white'
+                                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+                                    : 'text-slate-300 dark:text-slate-600 cursor-not-allowed'
+                                }`}
+                                title={
+                                  isTcSystemLocked(tc)
+                                    ? 'Duplicate — copy while original is Running/Pending'
+                                    : tc._ownerId != null && String(tc._ownerId) !== String(activeProfileId)
+                                      ? 'Duplicate into your profile as a new test case (change name/files before save)'
+                                      : 'Duplicate as new test case (change before save)'
+                                }
+                              >
+                                <Copy size={16} />
                               </button>
                             </td>
                             <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-center w-20">
