@@ -153,12 +153,25 @@ export default function JobTagManagerModal({ jobId, onClose }) {
                 ) : (
                   <div className="flex flex-wrap gap-2">
                     {draft.map((t, idx) => (
-                      <div key={`${t.tag}-${idx}`} className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border ${jobTagPillClasses(t.tagColor)}`}>
-                        <button type="button" className="text-[11px] font-bold max-w-[220px] truncate" onClick={() => startEdit(idx)} title="Edit tag">
-                          {t.tag}
+                      <div key={`${t.tag}-${idx}`} className={`inline-flex items-stretch rounded-lg border overflow-hidden ${jobTagPillClasses(t.tagColor)}`}>
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1.5 px-2 py-1 text-left min-w-0 flex-1"
+                          onClick={() => startEdit(idx)}
+                          title="Edit tag"
+                        >
+                          <span className="text-[11px] font-bold max-w-[220px] truncate">{t.tag}</span>
+                          {idx === 0 && <span className="text-[10px] font-semibold opacity-70 whitespace-nowrap">(display)</span>}
                         </button>
-                        {idx === 0 && <span className="text-[10px] font-semibold opacity-70">(display)</span>}
-                        <button type="button" className="ml-1 text-[12px] font-bold opacity-70 hover:opacity-100" onClick={() => removeIdx(idx)} title="Remove">
+                        <button
+                          type="button"
+                          className="px-2 py-1 text-[12px] font-bold opacity-70 hover:opacity-100"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeIdx(idx);
+                          }}
+                          title="Remove"
+                        >
                           ×
                         </button>
                       </div>
