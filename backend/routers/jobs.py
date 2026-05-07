@@ -538,8 +538,11 @@ async def create_job(payload: JobCreatePayload):
     # เก็บ pairs data สำหรับ edit batch
     if payload.pairsData:
         fe_job_store.save_pairs_data(job.id, payload.pairsData)
-    
-    return await _build_fe_job(job)
+
+    # If no job is running, start the first pending (often this one) in queue order.
+    await _autostart_next_pending()
+    refreshed = await job_queue_service.get_job(job.id)
+    return await _build_fe_job(refreshed or job)
 
 
 @router.put("/{job_id}")

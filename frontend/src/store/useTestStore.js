@@ -2800,7 +2800,9 @@ export const useTestStore = create((set, get) => {
             }
           : s,
       );
-      saveSavedTestCaseSets(next);
+      // Deleting rows from a saved set should not surface backend sync errors
+      // as blocking toasts — keep this a best-effort profile sync.
+      saveSavedTestCaseSets(next, { suppressSyncErrorToast: true });
       ok = true;
       return { savedTestCaseSets: next };
     });
@@ -2812,7 +2814,9 @@ export const useTestStore = create((set, get) => {
     try {
       set((state) => {
         const next = state.savedTestCaseSets.filter((s) => s.id !== id);
-        saveSavedTestCaseSets(next);
+        // Removing a set should not show "Save job to server failed" if profile sync
+        // rejects due to older duplicate TC data — treat server write as best-effort.
+        saveSavedTestCaseSets(next, { suppressSyncErrorToast: true });
         return { savedTestCaseSets: next };
       });
     } finally {
@@ -2831,7 +2835,8 @@ export const useTestStore = create((set, get) => {
         if (fromIndex < 0 || fromIndex >= list.length || toIndex < 0 || toIndex >= list.length) return state;
         const [removed] = list.splice(fromIndex, 1);
         list.splice(toIndex, 0, removed);
-        saveSavedTestCaseSets(list);
+        // Pure reordering should not surface backend sync failures either.
+        saveSavedTestCaseSets(list, { suppressSyncErrorToast: true });
         return { savedTestCaseSets: list };
       });
     } finally {
@@ -2887,32 +2892,47 @@ export const useTestStore = create((set, get) => {
     const now = new Date().toISOString();
     const newId = `tcs-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     const baseName = src.name || 'Job';
-    const newName = `${baseName} (copy)`;
-    let workCases = [...(state0.savedTestCases || [])];
-    let workSets = [...(state0.savedTestCaseSets || [])];
-    const usedInBatch = new Set();
+    const desiredName = `${baseName} (copy)`;
+    const usedSetNames = buildGlobalSetNameSet(state0, null);
+    let newName = desiredName;
+    let suffix = 2;
+    while (usedSetNames.has(String(newName).trim().toLowerCase())) {
+      newName = `${desiredName} (${suffix})`;
+      suffix += 1;
+    }
+
+    // Duplicate the *saved job container* without changing item names.
+    // Backend profile sync enforces global uniqueness for TC file-set signatures,
+    // but explicitly allows duplicates when the display name matches.
+    // Therefore we must keep original item names for the same file-set.
+    const workCases = [...(state0.savedTestCases || [])];
+    const workSets = [...(state0.savedTestCaseSets || [])];
+
+    // If any TC row has an empty name, backend uniqueness rules will reject a duplicated file-set.
+    // Resolve to an existing non-empty name for the same file-set when possible.
+    const fileKeyToAnyName = new Map();
+    const seedKeyNames = (row) => {
+      if (!row || typeof row !== 'object') return;
+      const k = getTestCaseFilesKey(row);
+      if (!k) return;
+      const n = normalizeTestCaseName(row.name);
+      if (!n) return;
+      if (!fileKeyToAnyName.has(k)) fileKeyToAnyName.set(k, n);
+    };
+    (state0.savedTestCases || []).forEach(seedKeyNames);
+    (state0.savedTestCaseSets || []).forEach((s) => (s?.items || []).forEach(seedKeyNames));
+    (src.items || []).forEach(seedKeyNames);
     const rawItems = Array.isArray(src.items) ? src.items : [];
-    let anyLibraryEvict = false;
     const newItems = [];
     for (let idx = 0; idx < rawItems.length; idx++) {
       const t = rawItems[idx];
       const itemId = `tc-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 9)}`;
-      const ev = evictLocalLibrarySameNameDifferentFiles(workCases, workSets, t, itemId);
-      if (ev.evictedId) {
-        workCases = ev.savedTestCases;
-        workSets = ev.savedTestCaseSets;
-        anyLibraryEvict = true;
+      const rawName = normalizeTestCaseName(t?.name);
+      let finalName = rawName;
+      if (!finalName) {
+        const fk = getTestCaseFilesKey(t);
+        finalName = (fk && fileKeyToAnyName.get(fk)) || `Test case ${idx + 1}`;
       }
-      const mergedState = { ...state0, savedTestCases: workCases, savedTestCaseSets: workSets };
-      const usedForPick = new Set([
-        ...buildGlobalTestCaseNameSet(mergedState, null, []),
-        ...usedInBatch,
-      ]);
-      subtractNamesFromSameFileSetKey(usedForPick, t, mergedState);
-      const rawDesired = normalizeTestCaseName(t.name) || `Test case ${idx + 1}`;
-      const base = preferredJobItemBaseName(t, workCases) || rawDesired;
-      const finalName = pickUniqueTestCaseName(base, usedForPick);
-      usedInBatch.add(finalName);
       const extra = t.extraColumns && typeof t.extraColumns === 'object' ? { ...t.extraColumns } : {};
       const commands = Array.isArray(t.commands)
         ? t.commands.map((c) => ({
@@ -2952,13 +2972,6 @@ export const useTestStore = create((set, get) => {
     set({ savedTestCases: workCases, savedTestCaseSets: next });
     try {
       await saveSavedTestCaseSets(next, { suppressSyncErrorToast: true, rethrow: true });
-      if (anyLibraryEvict) {
-        get().addToast({
-          type: 'info',
-          message: 'Updated Library for duplicate-name rows with new file sets (where applicable).',
-          duration: 4000,
-        });
-      }
       get().addToast({
         type: 'success',
         message: `Job duplicated — "${newName}".`,

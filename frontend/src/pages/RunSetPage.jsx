@@ -5,7 +5,6 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
-  Clock,
   Copy,
   Filter,
   Globe,
@@ -1325,8 +1324,9 @@ const RunSetPage = ({ onNavigateJobs }) => {
     return { id: newSetId, name, count: items.length };
   };
 
-  const runSelected = async (options = { startImmediately: true, navigateToJobs: true }) => {
-    const { startImmediately = true, navigateToJobs = true } = options || {};
+  /** Queue jobs on the server; backend auto-starts when a slot is free (_autostart_next_pending). */
+  const runSelected = async (options = { navigateToJobs: true }) => {
+    const { navigateToJobs = true } = options || {};
     const usingPreview = runPreview.length > 0;
     const setsToRun = usingPreview ? [] : selectedRunnableSets;
 
@@ -1350,7 +1350,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
       const more = nonRunnableSelectedBoards.length > 3 ? ` +${nonRunnableSelectedBoards.length - 3}` : '';
       addToast({
         type: 'warning',
-        message: `Cannot run/pending with board status error/offline: ${names}${more}. You can still Save (not run), or switch to Auto assign.`,
+        message: `Cannot run with board status error/offline: ${names}${more}. You can still Save (not run), or switch to Auto assign.`,
         duration: 7000,
       });
       return;
@@ -1444,7 +1444,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
     try {
       let created = 0;
       for (const payload of jobsToCreate) {
-        const result = await createJob(payload, { startImmediately });
+        const result = await createJob(payload, { startImmediately: false });
         if (result) created++;
       }
       if (created > 0) {
@@ -1461,14 +1461,10 @@ const RunSetPage = ({ onNavigateJobs }) => {
         }
         addToast({
           type: 'success',
-          message: startImmediately
-            ? `${created} job(s) sent to queue — see Jobs Manager (Running)`
-            : `${created} job(s) created in Pending — see Jobs Manager (Pending)`,
+          message: `${created} job(s) queued — they start automatically when a run slot is free (Jobs Manager → Running / Pending).`,
         });
         clearSection3RunConfig();
-        if (startImmediately) {
-          setRunPreview([]);
-        }
+        setRunPreview([]);
         if (navigateToJobs && onNavigateJobs) onNavigateJobs();
       }
       if (created < jobsToCreate.length) {
@@ -2516,33 +2512,19 @@ const RunSetPage = ({ onNavigateJobs }) => {
         {/* Run & Save (not run) */}
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <button
-            onClick={() => runSelected({ startImmediately: true, navigateToJobs: true })}
+            onClick={() => runSelected({ navigateToJobs: true })}
             disabled={isSubmitting || nonRunnableSelectedBoards.length > 0 || (runPreview.length === 0 && selectedRunnableCaseCount === 0)}
             className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             title={
               nonRunnableSelectedBoards.length > 0
                 ? 'Disabled: selected board includes error/offline status. Keep Save (not run) or remove those boards.'
-                : undefined
+                : 'Submit job(s) to the queue. They run automatically when a slot is free; excess jobs wait in Pending.'
             }
           >
             {isSubmitting ? <RefreshCw size={16} className="animate-spin" /> : <Play size={16} />}
             {runPreview.length > 0
               ? `Run (${runPreview.length} case${runPreview.length !== 1 ? 's' : ''})`
               : `Run (${selectedRunnableCaseCount} case${selectedRunnableCaseCount !== 1 ? 's' : ''})`}
-          </button>
-          <button
-            type="button"
-            onClick={() => runSelected({ startImmediately: false, navigateToJobs: true })}
-            disabled={isSubmitting || nonRunnableSelectedBoards.length > 0 || (runPreview.length === 0 && selectedRunnableCaseCount === 0)}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-bold hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            title={
-              nonRunnableSelectedBoards.length > 0
-                ? 'Disabled: selected board includes error/offline status. Keep Save (not run) or remove those boards.'
-                : 'Create job(s) in Pending without starting. You can edit order or remove test cases in Jobs Manager.'
-            }
-          >
-            <Clock size={16} />
-            Send to Pending
           </button>
           <button
             type="button"
@@ -2558,7 +2540,9 @@ const RunSetPage = ({ onNavigateJobs }) => {
             <Save size={16} />
             Save (not run)
           </button>
-          <p className="text-xs text-slate-500">After Run, see Jobs Manager → Running. Saved jobs appear on the Test Cases page.</p>
+          <p className="text-xs text-slate-500">
+            Jobs queue automatically: free slot → Running; otherwise Pending until the previous job finishes. Open Jobs Manager to watch progress. Saved jobs stay on the Test Cases page.
+          </p>
         </div>
       </div>
 
