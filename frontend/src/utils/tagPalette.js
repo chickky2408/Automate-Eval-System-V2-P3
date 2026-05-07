@@ -154,46 +154,63 @@ export function testCaseHasAnyTagColor(tc, selectedColorKey) {
   return colorList.some((k) => normalizeTagColorKey(k) === want);
 }
 
+/** Comma-separated tags for a library file: store map first, then row `tags` from GET /files. */
+export function resolveLibraryFileTagsString(file, fileTags) {
+  const fid = file?.id;
+  if (fid == null) return '';
+  const fromMap = fileTags && (fileTags[String(fid)] ?? fileTags[fid]);
+  if (fromMap != null && String(fromMap).trim() !== '') return String(fromMap).trim();
+  const rowTags = file?.tags;
+  if (rowTags != null && String(rowTags).trim() !== '') return String(rowTags).trim();
+  return '';
+}
+
+/**
+ * Canonical palette key for a library file row — aligned with Files table pills and color filter.
+ * Prefers `fileTagColors[id]`, then `file.tagColor` / `file.tag_color` from the row.
+ */
+export function resolveFileLibraryRowTagColorKey(file, colorsMap) {
+  const fid = file?.id;
+  if (fid == null) return normalizeTagColorKey('');
+  const fromMap = colorsMap?.[String(fid)] ?? colorsMap?.[fid];
+  const mapStr =
+    fromMap !== undefined && fromMap !== null && String(fromMap).trim() !== ''
+      ? String(fromMap).trim()
+      : null;
+  const fromRow = file?.tagColor ?? file?.tag_color;
+  const rowStr =
+    fromRow !== undefined && fromRow !== null && String(fromRow).trim() !== ''
+      ? String(fromRow).trim()
+      : null;
+  return normalizeTagColorKey(mapStr ?? rowStr ?? '');
+}
+
 /**
  * Library file row (picker / filters) — matches when file tag styling uses the selected palette key.
  * Uses `fileTagColors[id]`, optional `file.tagColor`, and optional per-tag `tagColorList` on the file row.
  */
 export function libraryFileRowMatchesTagColorFilter(file, fileTags, fileTagColors, selectedColorKey) {
-  if (!selectedColorKey || !TAG_PALETTE_MAP[selectedColorKey]) return true;
-  const want = normalizeTagColorKey(selectedColorKey);
-  const fid = file?.id;
-  const tagVal = String(
-    (fileTags && fid != null && (fileTags[String(fid)] ?? fileTags[fid])) || ''
-  ).trim();
-  const parts = splitTagsComma(tagVal);
-  const fromMap =
-    fid != null ? fileTagColors?.[String(fid)] ?? fileTagColors?.[fid] : undefined;
-  const mapStr =
-    fromMap !== undefined && fromMap !== null && String(fromMap).trim() !== '' ? String(fromMap).trim() : null;
-  const fromRow = file?.tagColor ?? file?.tag_color;
-  const rowStr =
-    fromRow !== undefined && fromRow !== null && String(fromRow).trim() !== '' ? String(fromRow).trim() : null;
+  const raw = String(selectedColorKey || '').trim().toLowerCase();
+  if (!raw || !TAG_PALETTE_MAP[raw]) return true;
+  const want = raw;
+
+  const parts = splitTagsComma(resolveLibraryFileTagsString(file, fileTags));
+  const primary = resolveFileLibraryRowTagColorKey(file, fileTagColors);
+
+  if (!parts.length) {
+    return primary === want;
+  }
+
   const list = Array.isArray(file?.tagColorList)
     ? file.tagColorList
     : Array.isArray(file?.tag_color_list)
       ? file.tag_color_list
       : null;
-  if (!parts.length) {
-    return want === normalizeTagColorKey(mapStr ?? rowStr ?? '');
-  }
-  // Same precedence as `resolveFileLibraryRowTagColorKey` (store / row wins over API tagColorList).
-  // Otherwise server default lists (e.g. mint) hide client `fileTagColors` and the Files tab filter breaks.
-  if (mapStr) {
-    return normalizeTagColorKey(mapStr) === want;
-  }
-  if (rowStr) {
-    return normalizeTagColorKey(rowStr) === want;
-  }
   if (list && list.length) {
-    const keys = parts.map((_, i) => normalizeTagColorKey(list[i] ?? 'mint'));
-    return keys.some((k) => k === want);
+    const keys = parts.map((_, i) => normalizeTagColorKey(list[i] ?? primary));
+    if (keys.some((k) => k === want)) return true;
   }
-  return want === normalizeTagColorKey('mint');
+  return primary === want;
 }
 
 export function splitTagsComma(raw) {

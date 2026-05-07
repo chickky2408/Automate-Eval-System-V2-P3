@@ -2669,7 +2669,7 @@ export const useTestStore = create((set, get) => {
       queueMicrotask(() => endSavedTestCaseSetPending(id));
     }
   },
-  updateSavedTestCaseSet: (id, updates) => set((state) => {
+  updateSavedTestCaseSet: (id, updates, opts = {}) => set((state) => {
     if (updates.name !== undefined) {
       const setName = normalizeSetName(updates.name);
       if (!setName) {
@@ -2705,7 +2705,10 @@ export const useTestStore = create((set, get) => {
       }
     }
     const next = state.savedTestCaseSets.map((s) => (s.id === id ? { ...s, ...updates, updatedAt: new Date().toISOString() } : s));
-    saveSavedTestCaseSets(next);
+    saveSavedTestCaseSets(next, {
+      suppressSyncErrorToast: Boolean(opts?.suppressSyncErrorToast),
+      rethrow: Boolean(opts?.rethrow),
+    });
     return { savedTestCaseSets: next };
   }),
   /**
@@ -4818,11 +4821,15 @@ export const useTestStore = create((set, get) => {
                 const tc0 = primary?.tagColor || null;
                 const tagColor = tc0 && typeof tc0 === 'string' ? tc0 : (matches[0]?.tagColor || null);
                 const tagColorList = normalized.length ? normalized.map((t) => t.tagColor || tagColor || null) : [];
-                get().updateSavedTestCaseSet(setId, {
+                get().updateSavedTestCaseSet(
+                  setId,
+                  {
                   tag: rawTag,
                   ...(tagColor != null ? { tagColor } : {}),
                   tagColorList,
-                });
+                  },
+                  { suppressSyncErrorToast: true }
+                );
               }
             }
           } catch (_e) {

@@ -26,6 +26,8 @@ import {
   normalizeTagColorKey,
   libraryFileRowMatchesTagColorFilter,
   normalizeCommaTagString,
+  resolveFileLibraryRowTagColorKey,
+  resolveLibraryFileTagsString,
 } from '../utils/tagPalette';
 import TagColorSwatchPicker from '../components/TagColorSwatchPicker';
 import UploadChoiceModal from '../components/UploadChoiceModal';
@@ -460,26 +462,6 @@ const cloneSavedLibraryTcToSetItem = (tc, finalName) => {
 
 /** Files tab — same keys as `TAG_PALETTE_MAP` (fileTagColors in store). */
 const FILE_TAG_PALETTE_MAP = TAG_PALETTE_MAP;
-
-/**
- * Canonical tag-pill palette key for a library file row — must stay aligned with tag-color filter:
- * prefers `fileTagColors[id]` (string or numeric id keys), then `file.tagColor` from API row.
- */
-const resolveFileLibraryRowTagColorKey = (file, colorsMap) => {
-  const fid = file?.id;
-  if (fid == null) return normalizeTagColorKey('');
-  const fromMap = colorsMap?.[String(fid)] ?? colorsMap?.[fid];
-  const mapStr =
-    fromMap !== undefined && fromMap !== null && String(fromMap).trim() !== ''
-      ? String(fromMap).trim()
-      : null;
-  const fromRow = file?.tagColor ?? file?.tag_color;
-  const rowStr =
-    fromRow !== undefined && fromRow !== null && String(fromRow).trim() !== ''
-      ? String(fromRow).trim()
-      : null;
-  return normalizeTagColorKey(mapStr ?? rowStr ?? '');
-};
 
 /** Order of Library sub-tabs: Files → Test Cases → Sets (for prev/next navigation). */
 const LIBRARY_TAB_ORDER = ['files', 'rawTestCases', 'testCases'];
@@ -1387,22 +1369,15 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     return 'other';
   };
 
-  // Close Files tag-color dropdown on outside click / Esc
+  // Esc only — outside click is handled above (must ignore portal `[data-file-tagcolor-dropdown-pop]`,
+  // otherwise mousedown closes the menu before the color button's click and the filter never updates).
   useEffect(() => {
     if (!fileTagColorDropdownOpen) return;
-    const onDoc = (e) => {
-      const root = e.target?.closest?.('[data-file-tagcolor-dropdown-root]');
-      if (!root) setFileTagColorDropdownOpen(false);
-    };
     const onEsc = (e) => {
       if (e.key === 'Escape') setFileTagColorDropdownOpen(false);
     };
-    document.addEventListener('mousedown', onDoc);
     document.addEventListener('keydown', onEsc);
-    return () => {
-      document.removeEventListener('mousedown', onDoc);
-      document.removeEventListener('keydown', onEsc);
-    };
+    return () => document.removeEventListener('keydown', onEsc);
   }, [fileTagColorDropdownOpen]);
 
   useEffect(() => {
@@ -1842,8 +1817,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
       }
       if (fileSearch.trim() && !String(f.name || '').toLowerCase().includes(fileSearch.trim().toLowerCase())) return false;
       if (fileTagSearch.trim()) {
-        const fid = f?.id;
-        const tagStr = (fileTags && (fileTags[String(fid)] ?? fileTags[fid])) || '';
+        const tagStr = resolveLibraryFileTagsString(f, fileTags);
         const tags = splitTags(tagStr);
         const q = fileTagSearch.trim().toLowerCase();
         if (!tags.some((t) => t.toLowerCase().includes(q))) return false;
@@ -4616,9 +4590,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                     ) : (
                       <div className="flex flex-wrap gap-2">
                         {tags.map((t, i) => (
-                          <span
+                          <div
                             key={`${fid}-alltag-${i}`}
-                            className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs border ${pillClass}`}
+                            className={`inline-flex items-stretch rounded-full text-xs border overflow-hidden ${pillClass}`}
                           >
                             {fileTagsModalEditIndex === i ? (
                               <input
@@ -4638,7 +4612,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                   }
                                 }}
                                 onBlur={commitFileTagsModalEdit}
-                                className="min-w-[100px] max-w-[280px] px-2 py-0.5 text-xs rounded-md border border-blue-400 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
+                                className="min-w-[100px] max-w-[280px] flex-1 px-3 py-2 text-xs border-0 rounded-none bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 ring-1 ring-inset ring-blue-400"
                                 autoFocus
                               />
                             ) : (
@@ -4649,10 +4623,10 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                   setFileTagsModalEditIndex(i);
                                   setFileTagsModalEditDraft(t);
                                 }}
-                                className="max-w-[260px] truncate text-left font-medium hover:underline disabled:opacity-50 disabled:pointer-events-none"
-                                title="Click to edit name"
+                                className="inline-flex items-center min-h-8 px-3 py-1.5 max-w-[260px] flex-1 text-left font-medium hover:brightness-95 disabled:opacity-50 disabled:pointer-events-none"
+                                title="Click to edit tag"
                               >
-                                {t}
+                                <span className="truncate pointer-events-none select-none">{t}</span>
                               </button>
                             )}
                             <button
@@ -4669,12 +4643,12 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                 const r0 = (fileTags && fileTags[fid]) || '';
                                 setFileTag?.(fid, removeTagAtIndexFromRaw(r0, i));
                               }}
-                              className="ml-0.5 w-5 h-5 rounded-full inline-flex items-center justify-center hover:bg-black/10 dark:hover:bg-white/10 disabled:opacity-40 disabled:pointer-events-none"
+                              className="shrink-0 w-8 inline-flex items-center justify-center hover:bg-black/10 dark:hover:bg-white/10 disabled:opacity-40 disabled:pointer-events-none"
                               title="Remove tag"
                             >
                               <X size={12} />
                             </button>
-                          </span>
+                          </div>
                         ))}
                       </div>
                     )}
@@ -8282,7 +8256,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                   </tr>
                                 ) : (
                                   rawTcPickerFiles.map((f) => {
-                                    const tagVal = (fileTags && fileTags[f.id]) || '';
+                                    const tagVal = resolveLibraryFileTagsString(f, fileTags);
                                     const tags = splitTags(tagVal);
                                     const displayName = (fileDisplayNames && fileDisplayNames[f.id]) || (String(f.name || '').split('/').pop() || f.name);
                                     let usedByTcs = getTestCasesUsingFile(f.name, fileReferenceTestCases, fileReferenceTestCaseSets);
@@ -8315,7 +8289,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                               {tags.slice(0, 3).map((t, ti) => (
                                                 <button
                                                   key={`rawtc-pick-tag-${f.id}-${ti}-${t}`}
-                                                  className="px-1 py-0.5 rounded-full text-[10px] bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700"
+                                                  className="inline-flex items-center justify-center shrink-0 min-h-7 min-w-7 px-2 py-1 rounded-full text-[10px] leading-none bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700"
                                                   title={t}
                                                   type="button"
                                                   onClick={(e) => {
@@ -8330,7 +8304,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                                     setShowAllTagsForFileId(f.id);
                                                   }}
                                                 >
-                                                  {t}
+                                                  <span className="pointer-events-none select-none">{t}</span>
                                                 </button>
                                               ))}
                                               {tags.length > 3 && (
@@ -9469,7 +9443,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                         {filteredFiles.map((f, index) => {
                           let setNames = getSetNamesUsingFile(f.name, fileReferenceTestCaseSets);
-                          const tagVal = (fileTags && fileTags[f.id]) || '';
+                          const tagVal = resolveLibraryFileTagsString(f, fileTags);
                           const tags = splitTags(tagVal);
                           let usedByTcs = getTestCasesUsingFile(f.name, fileReferenceTestCases, fileReferenceTestCaseSets);
                           if ((usedByTcs?.length || 0) === 0 || (setNames?.length || 0) === 0) {
@@ -9633,10 +9607,10 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                           const idx = Math.max(0, keys.indexOf(cur));
                                           setFileTagColor?.(f.id, keys[(idx + 1) % keys.length]);
                                         }}
-                                        className={`px-1.5 py-0.5 rounded-full text-[10px] border font-medium ${palette} hover:brightness-95 disabled:opacity-40 disabled:pointer-events-none`}
+                                        className={`inline-flex items-center justify-center shrink-0 min-h-7 min-w-7 px-2 py-1 rounded-full text-[10px] border font-medium leading-none ${palette} hover:brightness-95 disabled:opacity-40 disabled:pointer-events-none`}
                                         title={`${t} — click to change color`}
                                       >
-                                        {t}
+                                        <span className="pointer-events-none select-none">{t}</span>
                                       </button>
                                     );
                                     });
@@ -9656,7 +9630,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                         setFileTagsModalAddOpen(false);
                                         setShowAllTagsForFileId(f.id);
                                       }}
-                                      className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold border border-slate-200 dark:border-slate-700 bg-white/60 dark:bg-slate-800 text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 shrink-0 disabled:opacity-40 disabled:pointer-events-none"
+                                      className="inline-flex items-center justify-center shrink-0 min-h-7 min-w-7 rounded-full text-[10px] font-semibold border border-slate-200 dark:border-slate-700 bg-white/60 dark:bg-slate-800 text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40 disabled:pointer-events-none"
                                       title="Show all tags"
                                     >
                                       …
@@ -9705,7 +9679,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                         if (fpBusy) return;
                                         setIsTagEditorOpenByFileId((prev) => ({ ...prev, [f.id]: true }));
                                       }}
-                                      className="px-2 py-0.5 rounded-full text-[11px] font-semibold border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 shrink-0 disabled:opacity-40 disabled:pointer-events-none"
+                                      className="inline-flex items-center justify-center shrink-0 min-h-7 min-w-7 rounded-full text-[11px] font-semibold border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40 disabled:pointer-events-none"
                                       title="Add tag"
                                     >
                                       +
