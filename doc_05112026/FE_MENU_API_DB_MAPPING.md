@@ -222,3 +222,4 @@ graph TD
 | **โครงสร้างฐานข้อมูล** | [DATABASE_SCHEMA_FULL.md](./DATABASE_SCHEMA_FULL.md) | รายละเอียดทุก Field ใน 13 ตาราง และความสัมพันธ์ |
 | **รูปแบบการไหลของข้อมูล** | [COMPREHENSIVE_API_FLOW_PATTERNS.md](./COMPREHENSIVE_API_FLOW_PATTERNS.md) | อธิบาย 4 Patterns หลัก (CRUD, File, Hardware, Sync) |
 | **ขั้นตอนการทำงานระดับฮาร์ดแวร์** | [JOB_SEQUENCE_DIAGRAM.md](./JOB_SEQUENCE_DIAGRAM.md) | กระบวนการทำงานระหว่าง BE และ Zybo Agent แบบละเอียด |
+| **แผนปรับปรุงฐานข้อมูลใหม่** | [PROPOSED_DATABASE_REDESIGN.md](./PROPOSED_DATABASE_REDESIGN.md) | **[ข้อเสนอ]** ปรับปรุงโครงสร้าง DB ให้สมเหตุสมผลและเป็นระบบมากขึ้น |

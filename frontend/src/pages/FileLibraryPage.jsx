@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  Activity, AlertCircle, ArrowDown, ArrowDownFromLine, ArrowUp, ArrowUpFromLine, Bell, CheckCircle2, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, Copy, Cpu, Download, Eye, FileCode, FileDown, FileJson, FileUp, Filter, FolderOpen, Globe, GripVertical, Grid3x3, HardDrive, History, Layers, LayoutDashboard, List, Lock, LogOut, Menu, Monitor, MoreVertical,   Pause, Pencil, Play, PlayCircle, Plus, RefreshCw, RotateCcw, Save, Search, Settings, Square, StopCircle, Tag, Terminal, Trash2, Upload, User, UserPlus, Users, Wifi, WifiOff, X, XCircle, Zap
+  Activity, AlertCircle, ArrowDown, ArrowDownFromLine, ArrowUp, ArrowUpFromLine, Bell, CheckCircle2, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, Copy, Cpu, Download, Eye, FileCode, FileDown, FileJson, FileUp, Filter, FolderOpen, Globe, GripVertical, Grid3x3, HardDrive, History, Layers, LayoutDashboard, List, Lock, LogOut, Menu, Monitor, MoreVertical, Pause, Pencil, Play, PlayCircle, Plus, RefreshCw, RotateCcw, Save, Search, Settings, Square, StopCircle, Tag, Terminal, Trash2, Upload, User, UserPlus, Users, Wifi, WifiOff, X, XCircle, Zap
 } from 'lucide-react';
 import { useTestStore } from '../store/useTestStore';
 import api from '../services/api';
@@ -439,9 +439,9 @@ const cloneSavedLibraryTcToSetItem = (tc, finalName) => {
   const extra = tc.extraColumns && typeof tc.extraColumns === 'object' ? { ...tc.extraColumns } : {};
   const commands = Array.isArray(tc.commands)
     ? tc.commands.map((c, i) => ({
-        ...c,
-        id: `cmd-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 9)}`,
-      }))
+      ...c,
+      id: `cmd-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 9)}`,
+    }))
     : null;
   const srcOwnerId =
     tc._ownerId != null && String(tc._ownerId).trim() !== '' ? String(tc._ownerId) : null;
@@ -2018,9 +2018,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
   const filesBySet =
     fileViewMode === 'bySet'
       ? (fileReferenceTestCaseSets || []).map((set) => ({
-          set,
-          files: filteredFiles.filter((f) => getFileNamesForSet(set).includes(f.name)),
-        }))
+        set,
+        files: filteredFiles.filter((f) => getFileNamesForSet(set).includes(f.name)),
+      }))
       : [];
 
   const focusFileInLibrary = (rawName) => {
@@ -2113,18 +2113,18 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     const sourceCases = needsGlobal
       ? aggregateSavedTestCasesAcrossProfiles()
       : (savedTestCases || []).map((tc) => ({
-          ...tc,
-          _ownerId: activeProfileId,
-          _ownerName: mineOwnerDisplay,
-        }));
+        ...tc,
+        _ownerId: activeProfileId,
+        _ownerName: mineOwnerDisplay,
+      }));
 
     const sourceSets = needsGlobal
       ? aggregateSavedTestCaseSetsAcrossProfiles()
       : (savedTestCaseSets || []).map((set) => ({
-          ...set,
-          _ownerId: activeProfileId,
-          _ownerName: mineOwnerDisplay,
-        }));
+        ...set,
+        _ownerId: activeProfileId,
+        _ownerName: mineOwnerDisplay,
+      }));
 
     // Reverse index: file-key OR test-case-name → list of set names that contain it.
     // Used to surface a "saved in set X" badge on current TC rows that haven't run yet.
@@ -2763,9 +2763,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
         mode === 'auto'
           ? []
           : brList
-              .filter((b) => boardIds.includes(b.id))
-              .map((b) => b.name)
-              .filter(Boolean);
+            .filter((b) => boardIds.includes(b.id))
+            .map((b) => b.name)
+            .filter(Boolean);
 
       const libFiles = Array.isArray(uploadedFiles) ? uploadedFiles : [];
       // Match by normalized filename to avoid false "not found" due to case/whitespace.
@@ -3211,9 +3211,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
       setRawTcEditorDraft((d) =>
         d
           ? {
-              ...d,
-              extraSlots: (d.extraSlots || []).map((s) => (s.id === tgt.slotId ? { ...s, file: name } : s)),
-            }
+            ...d,
+            extraSlots: (d.extraSlots || []).map((s) => (s.id === tgt.slotId ? { ...s, file: name } : s)),
+          }
           : d
       );
     } else {
@@ -3627,11 +3627,10 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
 
             <div className="p-5 space-y-4 overflow-y-auto max-h-[calc(100vh-10rem)]">
               <div
-                className={`rounded-xl border-2 border-dashed p-4 flex flex-col sm:flex-row sm:items-center gap-3 ${
-                  isImportDragging
+                className={`rounded-xl border-2 border-dashed p-4 flex flex-col sm:flex-row sm:items-center gap-3 ${isImportDragging
                     ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
                     : 'border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/30'
-                }`}
+                  }`}
                 onDragOver={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -3821,407 +3820,404 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
             aria-labelledby="add-tcs-to-set-title"
           >
             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
-            <div className="p-4 border-b border-slate-200 dark:border-slate-600">
-              <div className="flex items-start gap-3">
-                <div className="w-9 h-9 rounded-xl bg-slate-700 dark:bg-slate-600 text-white flex items-center justify-center shrink-0">
-                  <FolderOpen size={18} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h3 id="add-tcs-to-set-title" className="text-lg font-bold text-slate-800 dark:text-slate-100">
-                    Edit saved job
-                  </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                    Job name, tag, boards (same as Run Job) — then add test cases from Library if you like
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={closeAddTcsToSetModal}
-                  className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"
-                  title="Close"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-              <div className="mt-3 flex flex-col sm:flex-row sm:items-end gap-2">
-                <label className="flex-1 min-w-0 flex flex-col gap-0.5">
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Job name</span>
-                  <input
-                    type="text"
-                    value={addTcsToSetNameDraft}
-                    onChange={(e) => setAddTcsToSetNameDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        void handleSaveSetSettingsFromAddTcsModal();
-                      }
-                    }}
-                    className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
-                    placeholder="Job name"
-                    autoComplete="off"
-                    aria-label="Job name"
-                  />
-                </label>
-                <button
-                  type="button"
-                  onClick={() => void handleSaveSetSettingsFromAddTcsModal()}
-                  className="shrink-0 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700"
-                >
-                  <Save size={14} />
-                  Save settings
-                </button>
-              </div>
-
-              <div className="mt-3 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800/50 p-3 space-y-3">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <p className="text-xs font-bold text-slate-700 dark:text-slate-200">Tag, board &amp; priority</p>
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400">Used when you Run this set from the library</p>
+              <div className="p-4 border-b border-slate-200 dark:border-slate-600">
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-slate-700 dark:bg-slate-600 text-white flex items-center justify-center shrink-0">
+                    <FolderOpen size={18} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h3 id="add-tcs-to-set-title" className="text-lg font-bold text-slate-800 dark:text-slate-100">
+                      Edit saved job
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                      Job name, tag, boards (same as Run Job) — then add test cases from Library if you like
+                    </p>
                   </div>
                   <button
                     type="button"
-                    onClick={clearAddTcsModalRunConfig}
-                    className="shrink-0 inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-semibold border border-slate-300 dark:border-slate-500 text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700"
-                    title="Reset name, tag, boards, and priority in this form"
+                    onClick={closeAddTcsToSetModal}
+                    className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"
+                    title="Close"
                   >
-                    <RotateCcw size={12} className="text-slate-500" aria-hidden />
-                    Clear config
+                    <X size={18} />
                   </button>
                 </div>
-                <div className="flex flex-col gap-1 min-w-0">
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Tag (optional)</span>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <TagColorSwatchPicker
-                      size="sm"
-                      value={TAG_PALETTE_MAP[addTcsModalTagColor] ? addTcsModalTagColor : 'mint'}
-                      menuZClass="z-[130]"
-                      onChange={(k) => setAddTcsModalTagColor(k)}
-                    />
+                <div className="mt-3 flex flex-col sm:flex-row sm:items-end gap-2">
+                  <label className="flex-1 min-w-0 flex flex-col gap-0.5">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Job name</span>
                     <input
                       type="text"
-                      placeholder="Type tag (optional)"
-                      value={addTcsModalTag}
-                      onChange={(e) => setAddTcsModalTag(e.target.value)}
-                      className="flex-1 min-w-[140px] px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
-                    />
-                    {addTcsModalTag.trim() ? (
-                      <span
-                        className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${jobTagPillClasses(addTcsModalTagColor)}`}
-                      >
-                        {addTcsModalTag.trim()}
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-                <div>
-                  <h4 className="text-[10px] font-bold text-slate-600 dark:text-slate-400 mb-2">Board selection</h4>
-                  <div className="flex flex-wrap items-center gap-3 text-sm">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="addTcsLibBoardMode"
-                        checked={addTcsModalBoardMode === 'auto'}
-                        onChange={() => setAddTcsModalBoardMode('auto')}
-                        className="w-3.5 h-3.5 text-blue-600"
-                      />
-                      <span className="text-slate-700 dark:text-slate-200">Auto assign</span>
-                      {addTcsModalBoardMode === 'auto' && <CheckCircle2 size={14} className="text-emerald-600 shrink-0" />}
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="addTcsLibBoardMode"
-                        checked={addTcsModalBoardMode === 'manual'}
-                        onChange={() => setAddTcsModalBoardMode('manual')}
-                        className="w-3.5 h-3.5 text-blue-600"
-                      />
-                      <span className="text-slate-700 dark:text-slate-200">Manual select</span>
-                      {addTcsModalBoardMode === 'manual' && (
-                        <span className="text-[10px] text-slate-500">({addTcsModalBoardIds.length})</span>
-                      )}
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer border-l border-slate-200 dark:border-slate-600 pl-3">
-                      <input
-                        type="checkbox"
-                        checked={addTcsModalPrioritize}
-                        onChange={(e) => setAddTcsModalPrioritize(e.target.checked)}
-                        className="w-3.5 h-3.5 rounded border-slate-300 text-amber-500"
-                      />
-                      <span className="text-slate-700 dark:text-slate-200">Prioritize (high)</span>
-                    </label>
-                  </div>
-                  {addTcsModalBoardMode === 'auto' && (
-                    <div className="mt-2">
-                      <p className="text-[10px] text-slate-500 dark:text-slate-400 mb-1">
-                        Preferred boards (optional) — still auto assign, but prefer these first
-                      </p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {safeBoardsAddTcsModal.length === 0 ? (
-                          <span className="text-[11px] text-slate-500">No boards in list — add under Board Status</span>
-                        ) : (
-                          safeBoardsAddTcsModal.map((b) => {
-                            const status = (b.status || '').toLowerCase();
-                            const isSelected = addTcsModalBoardIds.includes(b.id);
-                            const isOnline = status === 'online';
-                            const isBusy = status === 'busy';
-                            return (
-                              <button
-                                key={b.id}
-                                type="button"
-                                onClick={() => {
-                                  setAddTcsModalBoardIds((prev) => {
-                                    const on = !prev.includes(b.id);
-                                    const next = on ? [...prev, b.id] : prev.filter((x) => x !== b.id);
-                                    return next;
-                                  });
-                                }}
-                                className={`flex items-center gap-1 px-2 py-1 rounded border text-[10px] font-medium ${
-                                  isSelected
-                                    ? 'bg-blue-100 dark:bg-blue-900/40 border-blue-300 dark:border-blue-600 text-blue-800 dark:text-blue-200'
-                                    : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-600'
-                                }`}
-                              >
-                                <span
-                                  className={`w-2.5 h-2.5 rounded border ${
-                                    isSelected ? 'bg-blue-600 border-blue-600' : 'border-slate-400'
-                                  }`}
-                                />
-                                {b.name || b.id}
-                                {isOnline && !isBusy && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" title="Online" />}
-                                {isBusy && <span className="w-1.5 h-1.5 rounded-full bg-amber-500" title="Busy" />}
-                              </button>
-                            );
-                          })
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  {addTcsModalBoardMode === 'manual' && (
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setAddTcsModalBoardIds(safeBoardsAddTcsModal.map((b) => b.id))}
-                        className="text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
-                      >
-                        Select all
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setAddTcsModalBoardIds(
-                            safeBoardsAddTcsModal
-                              .filter((b) => {
-                                const s = (b.status || '').toLowerCase();
-                                return s === 'online' || s === 'busy';
-                              })
-                              .map((b) => b.id)
-                          )
+                      value={addTcsToSetNameDraft}
+                      onChange={(e) => setAddTcsToSetNameDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          void handleSaveSetSettingsFromAddTcsModal();
                         }
-                        className="text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:underline"
-                      >
-                        Online only
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setAddTcsModalBoardIds([])}
-                        className="text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:underline"
-                      >
-                        Clear
-                      </button>
-                      <div className="w-full flex flex-wrap gap-1.5">
-                        {safeBoardsAddTcsModal.length === 0 ? (
-                          <span className="text-[11px] text-slate-500">No boards in list</span>
-                        ) : (
-                          safeBoardsAddTcsModal.map((b) => {
-                            const status = (b.status || '').toLowerCase();
-                            const isOnline = status === 'online';
-                            const isBusy = status === 'busy' || (isOnline && !!b.currentJob);
-                            return (
-                              <label
-                                key={b.id}
-                                className={`flex items-center gap-1 px-2 py-1 rounded border text-[10px] font-medium cursor-pointer ${
-                                  addTcsModalBoardIds.includes(b.id)
-                                    ? 'bg-blue-100 dark:bg-blue-900/40 border-blue-300 dark:border-blue-600'
-                                    : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-600'
-                                }`}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={addTcsModalBoardIds.includes(b.id)}
-                                  onChange={() => {
-                                    setAddTcsModalBoardIds((prev) => {
-                                      const on = !prev.includes(b.id);
-                                      return on ? [...prev, b.id] : prev.filter((x) => x !== b.id);
-                                    });
-                                  }}
-                                  className="w-3 h-3 rounded border-slate-400 text-blue-600"
-                                />
-                                {b.name || b.id}
-                                {isOnline && !isBusy && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />}
-                                {isBusy && <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />}
-                              </label>
-                            );
-                          })
-                        )}
-                      </div>
-                    </div>
-                  )}
+                      }}
+                      className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                      placeholder="Job name"
+                      autoComplete="off"
+                      aria-label="Job name"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => void handleSaveSetSettingsFromAddTcsModal()}
+                    className="shrink-0 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700"
+                  >
+                    <Save size={14} />
+                    Save settings
+                  </button>
                 </div>
-              </div>
 
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mt-4 mb-1">Add test cases from Library</p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-2">
-                Same filters as the Test Case Library — owner, name, tag text, and tag color. Test cases
-                that are <span className="font-semibold">already in this set</span> stay in the list with an “In set”
-                label and a disabled checkbox.
-              </p>
-              <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-1">
-                <select
-                  value={addTcsPickerOwnerFilter === 'mine' ? '__active__' : addTcsPickerOwnerFilter}
-                  onChange={(e) => setAddTcsPickerOwnerFilter(e.target.value)}
-                  className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 min-w-0 max-w-[200px]"
-                  title="Filter test cases by owner (same as Test Case Library). “All owners” uses merged local + server snapshot when available."
-                >
-                  <option value="all">All owners</option>
-                  <option value="__active__">
-                    {resolveOwnerDisplayName(activeProfileId, ownerLabelCtx) || activeProfile?.name || 'My profile'}
-                  </option>
-                  {allOwnerProfiles
-                    .filter((p) => String(p?.id) !== String(activeProfileId))
-                    .map((p) => (
-                      <option key={`add-tcs-picker-owner-${p.id}`} value={String(p.id)}>
-                        {p.name || p.id}
-                      </option>
-                    ))}
-                  <option value="shared">Shared with me</option>
-                </select>
-                <input
-                  type="text"
-                  value={addTcsPickerNameQ}
-                  onChange={(e) => setAddTcsPickerNameQ(e.target.value)}
-                  placeholder="Filter by name"
-                  className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 w-40 min-w-[7rem]"
-                  autoComplete="off"
-                />
-                <input
-                  type="text"
-                  value={addTcsPickerTagQ}
-                  onChange={(e) => setAddTcsPickerTagQ(e.target.value)}
-                  placeholder="Filter by tag"
-                  className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 w-32 min-w-[6rem]"
-                  autoComplete="off"
-                />
-                {(() => {
-                  const selectedKey = String(addTcsPickerTagColorFilter || '').trim();
-                  const dotKey = TAG_PALETTE_MAP[selectedKey] ? selectedKey : 'mint';
-                  const isAll = !selectedKey;
-                  const q = addTcsPickerTagColorSearch.trim().toLowerCase();
-                  const keys = TAG_PALETTE_KEYS.filter((k) => !q || k.toLowerCase().includes(q));
-                  return (
-                    <div className="relative shrink-0" data-add-tcs-picker-tagcolor-root>
-                      <button
-                        type="button"
-                        onClick={() => setAddTcsPickerTagColorOpen((v) => !v)}
-                        className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 inline-flex items-center gap-2"
-                        title="Tag color"
-                      >
+                <div className="mt-3 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800/50 p-3 space-y-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="text-xs font-bold text-slate-700 dark:text-slate-200">Tag, board &amp; priority</p>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400">Used when you Run this set from the library</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={clearAddTcsModalRunConfig}
+                      className="shrink-0 inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-semibold border border-slate-300 dark:border-slate-500 text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700"
+                      title="Reset name, tag, boards, and priority in this form"
+                    >
+                      <RotateCcw size={12} className="text-slate-500" aria-hidden />
+                      Clear config
+                    </button>
+                  </div>
+                  <div className="flex flex-col gap-1 min-w-0">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Tag (optional)</span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <TagColorSwatchPicker
+                        size="sm"
+                        value={TAG_PALETTE_MAP[addTcsModalTagColor] ? addTcsModalTagColor : 'mint'}
+                        menuZClass="z-[130]"
+                        onChange={(k) => setAddTcsModalTagColor(k)}
+                      />
+                      <input
+                        type="text"
+                        placeholder="Type tag (optional)"
+                        value={addTcsModalTag}
+                        onChange={(e) => setAddTcsModalTag(e.target.value)}
+                        className="flex-1 min-w-[140px] px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                      />
+                      {addTcsModalTag.trim() ? (
                         <span
-                          className={`inline-flex w-2.5 h-2.5 rounded-full ${isAll ? 'bg-slate-400 dark:bg-slate-600' : (TAG_SWATCH_DOT_CLASS[dotKey] || TAG_SWATCH_DOT_CLASS.mint)}`}
-                          aria-hidden
+                          className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${jobTagPillClasses(addTcsModalTagColor)}`}
+                        >
+                          {addTcsModalTag.trim()}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div>
+                    <h4 className="text-[10px] font-bold text-slate-600 dark:text-slate-400 mb-2">Board selection</h4>
+                    <div className="flex flex-wrap items-center gap-3 text-sm">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="addTcsLibBoardMode"
+                          checked={addTcsModalBoardMode === 'auto'}
+                          onChange={() => setAddTcsModalBoardMode('auto')}
+                          className="w-3.5 h-3.5 text-blue-600"
                         />
-                        <span className="sr-only">{isAll ? 'All tag colors' : selectedKey}</span>
-                      </button>
-                      {addTcsPickerTagColorOpen && (
-                        <div className="absolute left-0 top-full mt-2 z-[120] bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg w-[180px] max-h-[320px] overflow-y-auto">
-                          <div className="px-3 py-2 text-[11px] font-semibold text-slate-500 dark:text-slate-400">Tag color</div>
-                          <div className="px-2 pb-2">
-                            <input
-                              type="text"
-                              value={addTcsPickerTagColorSearch}
-                              onChange={(e) => setAddTcsPickerTagColorSearch(e.target.value)}
-                              placeholder="Search color…"
-                              className="w-full px-2 py-1.5 text-xs rounded-md border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200"
-                            />
-                          </div>
-                          <div className="p-2 space-y-1">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setAddTcsPickerTagColorFilter('');
-                                setAddTcsPickerTagColorOpen(false);
-                              }}
-                              className={`w-full flex items-center justify-start px-2 py-2 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 ${isAll ? 'bg-slate-100 dark:bg-slate-700' : ''}`}
-                              title="All tag colors"
-                            >
-                              <span className="inline-flex w-2.5 h-2.5 rounded-full bg-slate-400 dark:bg-slate-600" aria-hidden />
-                              <span className="ml-2 text-xs text-slate-700 dark:text-slate-200">All</span>
-                            </button>
-                            {keys.map((k) => {
-                              const isSel = selectedKey === k;
+                        <span className="text-slate-700 dark:text-slate-200">Auto assign</span>
+                        {addTcsModalBoardMode === 'auto' && <CheckCircle2 size={14} className="text-emerald-600 shrink-0" />}
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="addTcsLibBoardMode"
+                          checked={addTcsModalBoardMode === 'manual'}
+                          onChange={() => setAddTcsModalBoardMode('manual')}
+                          className="w-3.5 h-3.5 text-blue-600"
+                        />
+                        <span className="text-slate-700 dark:text-slate-200">Manual select</span>
+                        {addTcsModalBoardMode === 'manual' && (
+                          <span className="text-[10px] text-slate-500">({addTcsModalBoardIds.length})</span>
+                        )}
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer border-l border-slate-200 dark:border-slate-600 pl-3">
+                        <input
+                          type="checkbox"
+                          checked={addTcsModalPrioritize}
+                          onChange={(e) => setAddTcsModalPrioritize(e.target.checked)}
+                          className="w-3.5 h-3.5 rounded border-slate-300 text-amber-500"
+                        />
+                        <span className="text-slate-700 dark:text-slate-200">Prioritize (high)</span>
+                      </label>
+                    </div>
+                    {addTcsModalBoardMode === 'auto' && (
+                      <div className="mt-2">
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mb-1">
+                          Preferred boards (optional) — still auto assign, but prefer these first
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {safeBoardsAddTcsModal.length === 0 ? (
+                            <span className="text-[11px] text-slate-500">No boards in list — add under Board Status</span>
+                          ) : (
+                            safeBoardsAddTcsModal.map((b) => {
+                              const status = (b.status || '').toLowerCase();
+                              const isSelected = addTcsModalBoardIds.includes(b.id);
+                              const isOnline = status === 'online';
+                              const isBusy = status === 'busy';
                               return (
                                 <button
-                                  key={`add-tcs-tc-${k}`}
+                                  key={b.id}
                                   type="button"
                                   onClick={() => {
-                                    setAddTcsPickerTagColorFilter(k);
-                                    setAddTcsPickerTagColorOpen(false);
+                                    setAddTcsModalBoardIds((prev) => {
+                                      const on = !prev.includes(b.id);
+                                      const next = on ? [...prev, b.id] : prev.filter((x) => x !== b.id);
+                                      return next;
+                                    });
                                   }}
-                                  className={`w-full flex items-center justify-start px-2 py-2 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 ${isSel ? 'bg-slate-100 dark:bg-slate-700' : ''}`}
-                                  title={k}
+                                  className={`flex items-center gap-1 px-2 py-1 rounded border text-[10px] font-medium ${isSelected
+                                      ? 'bg-blue-100 dark:bg-blue-900/40 border-blue-300 dark:border-blue-600 text-blue-800 dark:text-blue-200'
+                                      : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-600'
+                                    }`}
                                 >
-                                  <span className={`inline-flex w-2.5 h-2.5 rounded-full ${TAG_SWATCH_DOT_CLASS[k] || TAG_SWATCH_DOT_CLASS.mint}`} aria-hidden />
-                                  <span className="ml-2 text-xs text-slate-700 dark:text-slate-200">{k}</span>
+                                  <span
+                                    className={`w-2.5 h-2.5 rounded border ${isSelected ? 'bg-blue-600 border-blue-600' : 'border-slate-400'
+                                      }`}
+                                  />
+                                  {b.name || b.id}
+                                  {isOnline && !isBusy && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" title="Online" />}
+                                  {isBusy && <span className="w-1.5 h-1.5 rounded-full bg-amber-500" title="Busy" />}
                                 </button>
                               );
-                            })}
-                          </div>
+                            })
+                          )}
                         </div>
-                      )}
-                    </div>
-                  );
-                })()}
+                      </div>
+                    )}
+                    {addTcsModalBoardMode === 'manual' && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setAddTcsModalBoardIds(safeBoardsAddTcsModal.map((b) => b.id))}
+                          className="text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                        >
+                          Select all
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setAddTcsModalBoardIds(
+                              safeBoardsAddTcsModal
+                                .filter((b) => {
+                                  const s = (b.status || '').toLowerCase();
+                                  return s === 'online' || s === 'busy';
+                                })
+                                .map((b) => b.id)
+                            )
+                          }
+                          className="text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:underline"
+                        >
+                          Online only
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAddTcsModalBoardIds([])}
+                          className="text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:underline"
+                        >
+                          Clear
+                        </button>
+                        <div className="w-full flex flex-wrap gap-1.5">
+                          {safeBoardsAddTcsModal.length === 0 ? (
+                            <span className="text-[11px] text-slate-500">No boards in list</span>
+                          ) : (
+                            safeBoardsAddTcsModal.map((b) => {
+                              const status = (b.status || '').toLowerCase();
+                              const isOnline = status === 'online';
+                              const isBusy = status === 'busy' || (isOnline && !!b.currentJob);
+                              return (
+                                <label
+                                  key={b.id}
+                                  className={`flex items-center gap-1 px-2 py-1 rounded border text-[10px] font-medium cursor-pointer ${addTcsModalBoardIds.includes(b.id)
+                                      ? 'bg-blue-100 dark:bg-blue-900/40 border-blue-300 dark:border-blue-600'
+                                      : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-600'
+                                    }`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={addTcsModalBoardIds.includes(b.id)}
+                                    onChange={() => {
+                                      setAddTcsModalBoardIds((prev) => {
+                                        const on = !prev.includes(b.id);
+                                        return on ? [...prev, b.id] : prev.filter((x) => x !== b.id);
+                                      });
+                                    }}
+                                    className="w-3 h-3 rounded border-slate-400 text-blue-600"
+                                  />
+                                  {b.name || b.id}
+                                  {isOnline && !isBusy && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />}
+                                  {isBusy && <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />}
+                                </label>
+                              );
+                            })
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mt-4 mb-1">Add test cases from Library</p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-2">
+                  Same filters as the Test Case Library — owner, name, tag text, and tag color. Test cases
+                  that are <span className="font-semibold">already in this set</span> stay in the list with an “In set”
+                  label and a disabled checkbox.
+                </p>
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-1">
+                  <select
+                    value={addTcsPickerOwnerFilter === 'mine' ? '__active__' : addTcsPickerOwnerFilter}
+                    onChange={(e) => setAddTcsPickerOwnerFilter(e.target.value)}
+                    className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 min-w-0 max-w-[200px]"
+                    title="Filter test cases by owner (same as Test Case Library). “All owners” uses merged local + server snapshot when available."
+                  >
+                    <option value="all">All owners</option>
+                    <option value="__active__">
+                      {resolveOwnerDisplayName(activeProfileId, ownerLabelCtx) || activeProfile?.name || 'My profile'}
+                    </option>
+                    {allOwnerProfiles
+                      .filter((p) => String(p?.id) !== String(activeProfileId))
+                      .map((p) => (
+                        <option key={`add-tcs-picker-owner-${p.id}`} value={String(p.id)}>
+                          {p.name || p.id}
+                        </option>
+                      ))}
+                    <option value="shared">Shared with me</option>
+                  </select>
+                  <input
+                    type="text"
+                    value={addTcsPickerNameQ}
+                    onChange={(e) => setAddTcsPickerNameQ(e.target.value)}
+                    placeholder="Filter by name"
+                    className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 w-40 min-w-[7rem]"
+                    autoComplete="off"
+                  />
+                  <input
+                    type="text"
+                    value={addTcsPickerTagQ}
+                    onChange={(e) => setAddTcsPickerTagQ(e.target.value)}
+                    placeholder="Filter by tag"
+                    className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 w-32 min-w-[6rem]"
+                    autoComplete="off"
+                  />
+                  {(() => {
+                    const selectedKey = String(addTcsPickerTagColorFilter || '').trim();
+                    const dotKey = TAG_PALETTE_MAP[selectedKey] ? selectedKey : 'mint';
+                    const isAll = !selectedKey;
+                    const q = addTcsPickerTagColorSearch.trim().toLowerCase();
+                    const keys = TAG_PALETTE_KEYS.filter((k) => !q || k.toLowerCase().includes(q));
+                    return (
+                      <div className="relative shrink-0" data-add-tcs-picker-tagcolor-root>
+                        <button
+                          type="button"
+                          onClick={() => setAddTcsPickerTagColorOpen((v) => !v)}
+                          className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 inline-flex items-center gap-2"
+                          title="Tag color"
+                        >
+                          <span
+                            className={`inline-flex w-2.5 h-2.5 rounded-full ${isAll ? 'bg-slate-400 dark:bg-slate-600' : (TAG_SWATCH_DOT_CLASS[dotKey] || TAG_SWATCH_DOT_CLASS.mint)}`}
+                            aria-hidden
+                          />
+                          <span className="sr-only">{isAll ? 'All tag colors' : selectedKey}</span>
+                        </button>
+                        {addTcsPickerTagColorOpen && (
+                          <div className="absolute left-0 top-full mt-2 z-[120] bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg w-[180px] max-h-[320px] overflow-y-auto">
+                            <div className="px-3 py-2 text-[11px] font-semibold text-slate-500 dark:text-slate-400">Tag color</div>
+                            <div className="px-2 pb-2">
+                              <input
+                                type="text"
+                                value={addTcsPickerTagColorSearch}
+                                onChange={(e) => setAddTcsPickerTagColorSearch(e.target.value)}
+                                placeholder="Search color…"
+                                className="w-full px-2 py-1.5 text-xs rounded-md border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200"
+                              />
+                            </div>
+                            <div className="p-2 space-y-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAddTcsPickerTagColorFilter('');
+                                  setAddTcsPickerTagColorOpen(false);
+                                }}
+                                className={`w-full flex items-center justify-start px-2 py-2 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 ${isAll ? 'bg-slate-100 dark:bg-slate-700' : ''}`}
+                                title="All tag colors"
+                              >
+                                <span className="inline-flex w-2.5 h-2.5 rounded-full bg-slate-400 dark:bg-slate-600" aria-hidden />
+                                <span className="ml-2 text-xs text-slate-700 dark:text-slate-200">All</span>
+                              </button>
+                              {keys.map((k) => {
+                                const isSel = selectedKey === k;
+                                return (
+                                  <button
+                                    key={`add-tcs-tc-${k}`}
+                                    type="button"
+                                    onClick={() => {
+                                      setAddTcsPickerTagColorFilter(k);
+                                      setAddTcsPickerTagColorOpen(false);
+                                    }}
+                                    className={`w-full flex items-center justify-start px-2 py-2 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 ${isSel ? 'bg-slate-100 dark:bg-slate-700' : ''}`}
+                                    title={k}
+                                  >
+                                    <span className={`inline-flex w-2.5 h-2.5 rounded-full ${TAG_SWATCH_DOT_CLASS[k] || TAG_SWATCH_DOT_CLASS.mint}`} aria-hidden />
+                                    <span className="ml-2 text-xs text-slate-700 dark:text-slate-200">{k}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+                <div className="flex flex-wrap items-center gap-3 mt-3">
+                  <button
+                    type="button"
+                    onClick={() => setAddTcsToSetSelectedIds([...addTcsPickerSelectableIds])}
+                    className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-40"
+                    disabled={addTcsPickerSelectableIds.length === 0}
+                  >
+                    Select all shown
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAddTcsToSetSelectedIds([])}
+                    className="text-xs font-semibold text-slate-500 hover:underline"
+                  >
+                    Clear selection
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddTcsPickerNameQ('');
+                      setAddTcsPickerTagQ('');
+                      setAddTcsPickerOwnerFilter('__active__');
+                      setAddTcsPickerTagColorFilter('');
+                      setAddTcsPickerTagColorSearch('');
+                      setAddTcsPickerTagColorOpen(false);
+                    }}
+                    className="text-xs font-semibold text-slate-500 hover:underline"
+                  >
+                    Clear filters
+                  </button>
+                </div>
               </div>
-              <div className="flex flex-wrap items-center gap-3 mt-3">
-                <button
-                  type="button"
-                  onClick={() => setAddTcsToSetSelectedIds([...addTcsPickerSelectableIds])}
-                  className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-40"
-                  disabled={addTcsPickerSelectableIds.length === 0}
-                >
-                  Select all shown
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAddTcsToSetSelectedIds([])}
-                  className="text-xs font-semibold text-slate-500 hover:underline"
-                >
-                  Clear selection
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAddTcsPickerNameQ('');
-                    setAddTcsPickerTagQ('');
-                    setAddTcsPickerOwnerFilter('__active__');
-                    setAddTcsPickerTagColorFilter('');
-                    setAddTcsPickerTagColorSearch('');
-                    setAddTcsPickerTagColorOpen(false);
-                  }}
-                  className="text-xs font-semibold text-slate-500 hover:underline"
-                >
-                  Clear filters
-                </button>
-              </div>
-            </div>
-            <div
-              className="overflow-x-auto min-h-[140px] border-t border-slate-100 dark:border-slate-700 bg-slate-50/40 dark:bg-slate-900/30"
-              title="Rows already in this set are disabled. Click and drag across other rows to multi-select."
-            >
-              {addTcsToSetPickerRows.length === 0 ? (
-                <p className="text-sm text-slate-500 dark:text-slate-400 p-6 text-center">
-                  {addTcsPickerBaseTcs.length === 0
-                    ? 'No test cases in your library yet — create and save on the Test Cases page, or wait for server sync.'
-                    : (() => {
+              <div
+                className="overflow-x-auto min-h-[140px] border-t border-slate-100 dark:border-slate-700 bg-slate-50/40 dark:bg-slate-900/30"
+                title="Rows already in this set are disabled. Click and drag across other rows to multi-select."
+              >
+                {addTcsToSetPickerRows.length === 0 ? (
+                  <p className="text-sm text-slate-500 dark:text-slate-400 p-6 text-center">
+                    {addTcsPickerBaseTcs.length === 0
+                      ? 'No test cases in your library yet — create and save on the Test Cases page, or wait for server sync.'
+                      : (() => {
                         const hasFilter =
                           addTcsPickerNameQ.trim() ||
                           addTcsPickerTagQ.trim() ||
@@ -4231,261 +4227,260 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                           ? 'No test cases match these filters. Try Clear filters or widen the owner scope (e.g. All owners).'
                           : 'No test cases in this profile scope.';
                       })()}
-                </p>
-              ) : (
-                <table className="w-full text-left text-xs min-w-max border-collapse select-none">
-                  <caption className="sr-only">
-                    All matching library test cases. Rows already in this set are shown but cannot be selected. Use checkboxes, drag, or Select all for the rest.
-                  </caption>
-                  <thead className="sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-600">
-                    <tr className="text-left font-bold text-slate-600 dark:text-slate-400">
-                      <th className="w-8 px-2 py-1.5 border-r border-slate-200 dark:border-slate-600" />
-                      <th className="w-8 px-2 py-1.5 border-r border-slate-200 dark:border-slate-600">#</th>
-                      <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[72px]">Owner</th>
-                      <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[88px]">Source</th>
-                      <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[120px]">Name</th>
-                      <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[120px]">ERoM</th>
-                      <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[100px]">ULP</th>
-                      <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[100px]">VCD</th>
-                      <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[140px]">MDI (text)</th>
-                      {addTcsToSetPickerExtraCols.map((col) => (
-                        <th key={col} className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[80px] whitespace-nowrap">
-                          {col}
-                        </th>
-                      ))}
-                      <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[160px]">Tag</th>
-                      <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[100px]">Date</th>
-                      <th className="w-10 px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 text-center">Try</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {addTcsToSetPickerRows.map((tc, idx) => {
-                      const idStr = String(tc.id);
-                      const alreadyInSet = addTcsPickerInSetKeySet.has(tcSignatureKeyForDedupe(tc));
-                      const checked = !alreadyInSet && addTcsToSetSelectedIds.includes(idStr);
-                      const ex = tc.extraColumns || {};
-                      const rawTag = (ex.tag || ex.Tag) || '';
-                      const tags = splitTags(String(rawTag));
-                      const colorList = tags.length ? normalizeTagColorList(ex, tags.length) : [];
-                      const tcEntityKey = getTcEntityKey(tc);
-                      const { orderedTags, orderedColorList } = reorderTagsForDisplayWithIndices(
-                        activeProfileId,
-                        tcEntityKey,
-                        tags,
-                        colorList
-                      );
-                      const mdiNames = buildMdiNamesForLibraryRow(tc);
-                      const timeStr = (() => {
-                        const last = tc.updatedAt || tc.createdAt;
-                        return last ? String(last).replace('T', ' ').slice(0, 19) : '—';
-                      })();
-                      const tryN = typeof tc.tryCount === 'number' && tc.tryCount > 0 ? tc.tryCount : 1;
-                      return (
-                        <tr
-                          key={idStr}
-                          className={`border-b border-slate-100 dark:border-slate-700 ${
-                            alreadyInSet
-                              ? 'opacity-60 bg-slate-200/20 dark:bg-slate-800/40 cursor-not-allowed'
-                              : checked
-                                ? 'bg-blue-50/80 dark:bg-blue-900/25'
-                                : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
-                          }`}
-                          title={
-                            alreadyInSet
-                              ? 'Already in this set — cannot add again'
-                              : 'Click or drag to select; checkboxes for rows not already in the set'
-                          }
-                          onMouseDown={(e) => {
-                            if (alreadyInSet) return;
-                            if (e.button !== 0) return;
-                            if (e.target.closest('input, button, a')) return;
-                            isDragSelectingAddTcPickerRef.current = true;
-                            setAddTcsToSetSelectedIds((prev) => (prev.includes(idStr) ? prev : [...prev, idStr]));
-                          }}
-                          onMouseEnter={() => {
-                            if (alreadyInSet) return;
-                            if (!isDragSelectingAddTcPickerRef.current) return;
-                            setAddTcsToSetSelectedIds((prev) => (prev.includes(idStr) ? prev : [...prev, idStr]));
-                          }}
-                        >
-                          <td
-                            className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700"
-                            onClick={(e) => e.stopPropagation()}
+                  </p>
+                ) : (
+                  <table className="w-full text-left text-xs min-w-max border-collapse select-none">
+                    <caption className="sr-only">
+                      All matching library test cases. Rows already in this set are shown but cannot be selected. Use checkboxes, drag, or Select all for the rest.
+                    </caption>
+                    <thead className="sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-600">
+                      <tr className="text-left font-bold text-slate-600 dark:text-slate-400">
+                        <th className="w-8 px-2 py-1.5 border-r border-slate-200 dark:border-slate-600" />
+                        <th className="w-8 px-2 py-1.5 border-r border-slate-200 dark:border-slate-600">#</th>
+                        <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[72px]">Owner</th>
+                        <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[88px]">Source</th>
+                        <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[120px]">Name</th>
+                        <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[120px]">ERoM</th>
+                        <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[100px]">ULP</th>
+                        <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[100px]">VCD</th>
+                        <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[140px]">MDI (text)</th>
+                        {addTcsToSetPickerExtraCols.map((col) => (
+                          <th key={col} className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[80px] whitespace-nowrap">
+                            {col}
+                          </th>
+                        ))}
+                        <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[160px]">Tag</th>
+                        <th className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 min-w-[100px]">Date</th>
+                        <th className="w-10 px-2 py-1.5 border-r border-slate-200 dark:border-slate-600 text-center">Try</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {addTcsToSetPickerRows.map((tc, idx) => {
+                        const idStr = String(tc.id);
+                        const alreadyInSet = addTcsPickerInSetKeySet.has(tcSignatureKeyForDedupe(tc));
+                        const checked = !alreadyInSet && addTcsToSetSelectedIds.includes(idStr);
+                        const ex = tc.extraColumns || {};
+                        const rawTag = (ex.tag || ex.Tag) || '';
+                        const tags = splitTags(String(rawTag));
+                        const colorList = tags.length ? normalizeTagColorList(ex, tags.length) : [];
+                        const tcEntityKey = getTcEntityKey(tc);
+                        const { orderedTags, orderedColorList } = reorderTagsForDisplayWithIndices(
+                          activeProfileId,
+                          tcEntityKey,
+                          tags,
+                          colorList
+                        );
+                        const mdiNames = buildMdiNamesForLibraryRow(tc);
+                        const timeStr = (() => {
+                          const last = tc.updatedAt || tc.createdAt;
+                          return last ? String(last).replace('T', ' ').slice(0, 19) : '—';
+                        })();
+                        const tryN = typeof tc.tryCount === 'number' && tc.tryCount > 0 ? tc.tryCount : 1;
+                        return (
+                          <tr
+                            key={idStr}
+                            className={`border-b border-slate-100 dark:border-slate-700 ${alreadyInSet
+                                ? 'opacity-60 bg-slate-200/20 dark:bg-slate-800/40 cursor-not-allowed'
+                                : checked
+                                  ? 'bg-blue-50/80 dark:bg-blue-900/25'
+                                  : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                              }`}
+                            title={
+                              alreadyInSet
+                                ? 'Already in this set — cannot add again'
+                                : 'Click or drag to select; checkboxes for rows not already in the set'
+                            }
+                            onMouseDown={(e) => {
+                              if (alreadyInSet) return;
+                              if (e.button !== 0) return;
+                              if (e.target.closest('input, button, a')) return;
+                              isDragSelectingAddTcPickerRef.current = true;
+                              setAddTcsToSetSelectedIds((prev) => (prev.includes(idStr) ? prev : [...prev, idStr]));
+                            }}
+                            onMouseEnter={() => {
+                              if (alreadyInSet) return;
+                              if (!isDragSelectingAddTcPickerRef.current) return;
+                              setAddTcsToSetSelectedIds((prev) => (prev.includes(idStr) ? prev : [...prev, idStr]));
+                            }}
                           >
-                            <input
-                              type="checkbox"
-                              className="w-3.5 h-3.5 rounded border-slate-400 text-blue-600"
-                              disabled={alreadyInSet}
-                              checked={checked}
-                              onChange={() => {
-                                if (alreadyInSet) return;
-                                setAddTcsToSetSelectedIds((prev) =>
-                                  prev.includes(idStr) ? prev.filter((x) => x !== idStr) : [...prev, idStr]
-                                );
-                              }}
-                            />
-                          </td>
-                          <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-500">
-                            {idx + 1}
-                          </td>
-                          <td
-                            className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[100px]"
-                            title={resolveOwnerDisplayName(tc._ownerId ?? activeProfileId, ownerLabelCtx)}
-                          >
-                            {resolveOwnerDisplayName(tc._ownerId ?? activeProfileId, ownerLabelCtx)}
-                          </td>
-                          <td
-                            className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-500 dark:text-slate-400 truncate max-w-[120px]"
-                            title="From your test case library (this device)"
-                          >
-                            Library
-                          </td>
-                          <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 font-medium text-slate-800 dark:text-slate-200 truncate max-w-[200px]">
-                            <span className="align-middle">{tc.name || '—'}</span>
-                            {alreadyInSet ? (
-                              <span className="ml-1.5 inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-slate-200/80 text-slate-600 dark:bg-slate-600/50 dark:text-slate-300">
-                                In set
-                              </span>
-                            ) : null}
-                          </td>
-                          <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[100px]">
-                            {(tc.binName || '').trim() ? (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  focusFileInLibrary(tc.binName);
-                                }}
-                                className="text-left text-xs text-blue-600 dark:text-blue-400 hover:underline hover:text-blue-700 dark:hover:text-blue-300 truncate max-w-full block"
-                                title={tc.binName}
-                              >
-                                {tc.binName}
-                              </button>
-                            ) : (
-                              '—'
-                            )}
-                          </td>
-                          <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[80px]">
-                            {(tc.linName || '').trim() ? (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  focusFileInLibrary(tc.linName);
-                                }}
-                                className="text-left text-xs text-blue-600 dark:text-blue-400 hover:underline hover:text-blue-700 dark:hover:text-blue-300 truncate max-w-full block"
-                                title={tc.linName}
-                              >
-                                {tc.linName}
-                              </button>
-                            ) : (
-                              '—'
-                            )}
-                          </td>
-                          <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[100px]">
-                            {(tc.vcdName || '').trim() ? (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  focusFileInLibrary(tc.vcdName);
-                                }}
-                                className="text-left text-xs text-blue-600 dark:text-blue-400 hover:underline hover:text-blue-700 dark:hover:text-blue-300 truncate max-w-full block"
-                                title={tc.vcdName}
-                              >
-                                {tc.vcdName}
-                              </button>
-                            ) : (
-                              '—'
-                            )}
-                          </td>
-                          <td
-                            className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[180px]"
-                            title={mdiNames.length > 0 ? mdiNames.join(', ') : undefined}
-                          >
-                            {mdiNames.length > 0 ? (
-                              mdiNames.map((name, j) => (
-                                <span key={`${idStr}-mdi-${j}`}>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      focusFileInLibrary(String(name));
-                                    }}
-                                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline hover:text-blue-700 dark:hover:text-blue-300"
-                                    title="View in File in Library"
-                                  >
-                                    {name}
-                                  </button>
-                                  {j < mdiNames.length - 1 ? ', ' : ''}
-                                </span>
-                              ))
-                            ) : (
-                              '—'
-                            )}
-                          </td>
-                          {addTcsToSetPickerExtraCols.map((col) => (
                             <td
-                              key={col}
-                              className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 min-w-[80px] truncate max-w-[120px]"
-                              title={String(getTcExtraColVal(tc, col) || '') || undefined}
+                              className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700"
+                              onClick={(e) => e.stopPropagation()}
                             >
-                              {(() => {
-                                const val = (getTcExtraColVal(tc, col) ?? '').toString().trim();
-                                if (!val) return '—';
-                                const isFileCol =
-                                  /^VCD\d+$/i.test(col) ||
-                                  /^ERoM\d+$/i.test(col) ||
-                                  /^ULP\d+$/i.test(col) ||
-                                  /^MDI\d+$/i.test(col);
-                                if (!isFileCol) return val;
-                                return (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      focusFileInLibrary(String(val));
-                                    }}
-                                    className="text-left text-xs text-blue-600 dark:text-blue-400 hover:underline hover:text-blue-700 dark:hover:text-blue-300 truncate max-w-full block"
-                                    title="View in File in Library"
-                                  >
-                                    {val}
-                                  </button>
-                                );
-                              })()}
+                              <input
+                                type="checkbox"
+                                className="w-3.5 h-3.5 rounded border-slate-400 text-blue-600"
+                                disabled={alreadyInSet}
+                                checked={checked}
+                                onChange={() => {
+                                  if (alreadyInSet) return;
+                                  setAddTcsToSetSelectedIds((prev) =>
+                                    prev.includes(idStr) ? prev.filter((x) => x !== idStr) : [...prev, idStr]
+                                  );
+                                }}
+                              />
                             </td>
-                          ))}
-                          <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 min-w-[160px] max-w-[240px]">
-                            {orderedTags.length === 0 ? (
-                              <span className="text-slate-400">—</span>
-                            ) : (
-                              <div className="flex flex-wrap items-center gap-1 min-w-0">
-                                {orderedTags.map((tg, i) => (
-                                  <span
-                                    key={`${idStr}-tag-${i}`}
-                                    className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full border text-[10px] font-medium max-w-[120px] ${jobTagPillClasses(
-                                      orderedColorList[i] || 'mint'
-                                    )}`}
-                                    title={tg}
-                                  >
-                                    <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-current/70" />
-                                    <span className="truncate">{tg}</span>
+                            <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-500">
+                              {idx + 1}
+                            </td>
+                            <td
+                              className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[100px]"
+                              title={resolveOwnerDisplayName(tc._ownerId ?? activeProfileId, ownerLabelCtx)}
+                            >
+                              {resolveOwnerDisplayName(tc._ownerId ?? activeProfileId, ownerLabelCtx)}
+                            </td>
+                            <td
+                              className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-500 dark:text-slate-400 truncate max-w-[120px]"
+                              title="From your test case library (this device)"
+                            >
+                              Library
+                            </td>
+                            <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 font-medium text-slate-800 dark:text-slate-200 truncate max-w-[200px]">
+                              <span className="align-middle">{tc.name || '—'}</span>
+                              {alreadyInSet ? (
+                                <span className="ml-1.5 inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-slate-200/80 text-slate-600 dark:bg-slate-600/50 dark:text-slate-300">
+                                  In set
+                                </span>
+                              ) : null}
+                            </td>
+                            <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[100px]">
+                              {(tc.binName || '').trim() ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    focusFileInLibrary(tc.binName);
+                                  }}
+                                  className="text-left text-xs text-blue-600 dark:text-blue-400 hover:underline hover:text-blue-700 dark:hover:text-blue-300 truncate max-w-full block"
+                                  title={tc.binName}
+                                >
+                                  {tc.binName}
+                                </button>
+                              ) : (
+                                '—'
+                              )}
+                            </td>
+                            <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[80px]">
+                              {(tc.linName || '').trim() ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    focusFileInLibrary(tc.linName);
+                                  }}
+                                  className="text-left text-xs text-blue-600 dark:text-blue-400 hover:underline hover:text-blue-700 dark:hover:text-blue-300 truncate max-w-full block"
+                                  title={tc.linName}
+                                >
+                                  {tc.linName}
+                                </button>
+                              ) : (
+                                '—'
+                              )}
+                            </td>
+                            <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[100px]">
+                              {(tc.vcdName || '').trim() ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    focusFileInLibrary(tc.vcdName);
+                                  }}
+                                  className="text-left text-xs text-blue-600 dark:text-blue-400 hover:underline hover:text-blue-700 dark:hover:text-blue-300 truncate max-w-full block"
+                                  title={tc.vcdName}
+                                >
+                                  {tc.vcdName}
+                                </button>
+                              ) : (
+                                '—'
+                              )}
+                            </td>
+                            <td
+                              className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[180px]"
+                              title={mdiNames.length > 0 ? mdiNames.join(', ') : undefined}
+                            >
+                              {mdiNames.length > 0 ? (
+                                mdiNames.map((name, j) => (
+                                  <span key={`${idStr}-mdi-${j}`}>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        focusFileInLibrary(String(name));
+                                      }}
+                                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline hover:text-blue-700 dark:hover:text-blue-300"
+                                      title="View in File in Library"
+                                    >
+                                      {name}
+                                    </button>
+                                    {j < mdiNames.length - 1 ? ', ' : ''}
                                   </span>
-                                ))}
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                            {timeStr}
-                          </td>
-                          <td className="px-2 py-1.5 text-center text-slate-500">{tryN}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
-            </div>
+                                ))
+                              ) : (
+                                '—'
+                              )}
+                            </td>
+                            {addTcsToSetPickerExtraCols.map((col) => (
+                              <td
+                                key={col}
+                                className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 min-w-[80px] truncate max-w-[120px]"
+                                title={String(getTcExtraColVal(tc, col) || '') || undefined}
+                              >
+                                {(() => {
+                                  const val = (getTcExtraColVal(tc, col) ?? '').toString().trim();
+                                  if (!val) return '—';
+                                  const isFileCol =
+                                    /^VCD\d+$/i.test(col) ||
+                                    /^ERoM\d+$/i.test(col) ||
+                                    /^ULP\d+$/i.test(col) ||
+                                    /^MDI\d+$/i.test(col);
+                                  if (!isFileCol) return val;
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        focusFileInLibrary(String(val));
+                                      }}
+                                      className="text-left text-xs text-blue-600 dark:text-blue-400 hover:underline hover:text-blue-700 dark:hover:text-blue-300 truncate max-w-full block"
+                                      title="View in File in Library"
+                                    >
+                                      {val}
+                                    </button>
+                                  );
+                                })()}
+                              </td>
+                            ))}
+                            <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 min-w-[160px] max-w-[240px]">
+                              {orderedTags.length === 0 ? (
+                                <span className="text-slate-400">—</span>
+                              ) : (
+                                <div className="flex flex-wrap items-center gap-1 min-w-0">
+                                  {orderedTags.map((tg, i) => (
+                                    <span
+                                      key={`${idStr}-tag-${i}`}
+                                      className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full border text-[10px] font-medium max-w-[120px] ${jobTagPillClasses(
+                                        orderedColorList[i] || 'mint'
+                                      )}`}
+                                      title={tg}
+                                    >
+                                      <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-current/70" />
+                                      <span className="truncate">{tg}</span>
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                              {timeStr}
+                            </td>
+                            <td className="px-2 py-1.5 text-center text-slate-500">{tryN}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
             </div>
             <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-600 flex flex-wrap items-center justify-end gap-2 shrink-0 bg-slate-50/95 dark:bg-slate-900/95 shadow-[0_-4px_16px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_16px_rgba(0,0,0,0.25)]">
               <span className="text-xs text-slate-500 mr-auto w-full sm:w-auto">{addTcsToSetSelectedIds.length} selected</span>
@@ -4796,8 +4791,8 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                       const p = (hdr?.extraColumns && (hdr.extraColumns.tag || hdr.extraColumns.Tag)) || '';
                       return p.trim()
                         ? normalizeTagColorList(hdr.extraColumns, splitTags(p).length)[0] ||
-                            hdr?.extraColumns?.tagColor ||
-                            'mint'
+                        hdr?.extraColumns?.tagColor ||
+                        'mint'
                         : hdr?.extraColumns?.tagColor || 'mint';
                     }
                     return 'mint';
@@ -5713,8 +5708,8 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                             title={
                               !canEditSet
                                 ? (set._ownerId != null && String(set._ownerId) !== String(activeProfileId)
-                                    ? 'This set belongs to another profile'
-                                    : 'Cannot select/delete — set is running/pending or has a pending action')
+                                  ? 'This set belongs to another profile'
+                                  : 'Cannot select/delete — set is running/pending or has a pending action')
                                 : 'Select this set for multi-delete'
                             }
                             aria-label={`Select set ${setName} for bulk delete`}
@@ -5805,15 +5800,14 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                           {/* Status section (placed near Run; if edit icon exists, show status before it) */}
                           {setStatus && (
                             <span
-                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
-                                setStatus === 'running'
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${setStatus === 'running'
                                   ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/40 dark:text-blue-200 dark:border-blue-700'
                                   : setStatus === 'pending'
-                                  ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/40 dark:text-amber-200 dark:border-amber-700'
-                                  : setStatus === 'error'
-                                  ? 'bg-red-50 text-red-700 border-red-300 dark:bg-red-900/40 dark:text-red-300 dark:border-red-700/60'
-                                  : 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600'
-                              }`}
+                                    ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/40 dark:text-amber-200 dark:border-amber-700'
+                                    : setStatus === 'error'
+                                      ? 'bg-red-50 text-red-700 border-red-300 dark:bg-red-900/40 dark:text-red-300 dark:border-red-700/60'
+                                      : 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600'
+                                }`}
                               title={setStatus === 'error' ? 'Last run of this set had at least one failed test case' : undefined}
                             >
                               {setStatus === 'error' && <AlertCircle size={11} aria-hidden />}
@@ -5877,11 +5871,10 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                               void runSavedSetNow(set);
                             }}
                             disabled={isSetLocked || setBusy}
-                            className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-semibold ${
-                              isSetLocked || setBusy
+                            className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-semibold ${isSetLocked || setBusy
                                 ? 'bg-slate-200 dark:bg-slate-700 text-slate-400 cursor-not-allowed'
                                 : 'bg-emerald-600 text-white hover:bg-emerald-700'
-                            }`}
+                              }`}
                             title={setBusy ? 'Deleting/duplicating/reordering set — please wait' : isSetLocked ? 'This set is running/pending' : 'Run this set now'}
                           >
                             <Play size={12} />
@@ -5998,7 +5991,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                 const key = rowKey(tc);
                                 const isSelected = selectedSetKeys.has(key);
                                 const isClosed = isTcManuallyClosed(tc);
-                                  const isSystemLocked = isTcSystemLocked(tc);
+                                const isSystemLocked = isTcSystemLocked(tc);
                                 const historyCount = getTestCaseHistory(tc).length;
                                 const isErrorRow = tc._status === 'error';
                                 const rowOwnerId = (() => {
@@ -6017,30 +6010,28 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                 return (
                                   <tr
                                     key={key}
-                                      className={`border-b border-slate-100 dark:border-slate-700 cursor-pointer select-none ${
-                                        isErrorRow ? 'border-l-4 border-l-red-500 bg-red-50/40 dark:bg-red-900/10' : ''
-                                      } ${
-                                        isSetSelectionLocked
-                                          ? 'opacity-70 bg-slate-50 dark:bg-slate-800/50 cursor-not-allowed'
-                                          : ''
+                                    className={`border-b border-slate-100 dark:border-slate-700 cursor-pointer select-none ${isErrorRow ? 'border-l-4 border-l-red-500 bg-red-50/40 dark:bg-red-900/10' : ''
+                                      } ${isSetSelectionLocked
+                                        ? 'opacity-70 bg-slate-50 dark:bg-slate-800/50 cursor-not-allowed'
+                                        : ''
                                       } ${isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : !isSetSelectionLocked && !isErrorRow ? 'hover:bg-slate-50 dark:hover:bg-slate-800/50' : ''}`}
                                     onClick={(e) => {
                                       if (e.target.closest('input[type="checkbox"]') || e.target.closest('button')) return;
-                                        if (isSetSelectionLocked) return;
+                                      if (isSetSelectionLocked) return;
                                       toggleSetTc(key, idx, e);
                                     }}
                                     title="Set Library — select rows, then use the trash icon above to remove from set (Library unchanged)"
                                     onMouseDown={(e) => {
-                                        if (e.target.closest('input[type="checkbox"]') || e.target.closest('button') || isSetSelectionLocked) return;
+                                      if (e.target.closest('input[type="checkbox"]') || e.target.closest('button') || isSetSelectionLocked) return;
                                       if (e.button === 0) {
                                         isDragSelectingLibrarySetRef.current = true;
                                         if (!selectedSetKeys.has(key)) setSelectedLibrarySetTcKeys((prev) => [...prev, key]);
                                       }
                                     }}
-                                      onMouseEnter={() => {
-                                        if (!isDragSelectingLibrarySetRef.current || isSetSelectionLocked) return;
-                                        if (!selectedSetKeys.has(key)) setSelectedLibrarySetTcKeys((prev) => [...prev, key]);
-                                      }}
+                                    onMouseEnter={() => {
+                                      if (!isDragSelectingLibrarySetRef.current || isSetSelectionLocked) return;
+                                      if (!selectedSetKeys.has(key)) setSelectedLibrarySetTcKeys((prev) => [...prev, key]);
+                                    }}
                                   >
                                     <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700" onClick={(e) => e.stopPropagation()}>
                                       <input
@@ -6067,85 +6058,84 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                         type="button"
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                            if (isSystemLocked) {
-                                              addToast({
-                                                type: 'warning',
-                                                message: ' Test case is locked by system (running/pending) — cannot change visibility',
-                                              });
-                                              return;
-                                            }
+                                          if (isSystemLocked) {
+                                            addToast({
+                                              type: 'warning',
+                                              message: ' Test case is locked by system (running/pending) — cannot change visibility',
+                                            });
+                                            return;
+                                          }
                                           updateTcVisibility({ ...tc, _source: 'set', _setId: set.id, _itemIndex: tc._origIndex }, !isClosed);
                                           setSelectedLibrarySetTcKeys((prev) => prev.filter((k) => k !== key));
                                         }}
-                                          className={`inline-flex items-center justify-center p-1 rounded ${
-                                            isSystemLocked
-                                              ? 'text-blue-500 hover:bg-blue-500/10 cursor-not-allowed'
-                                              : isClosed
-                                                ? 'text-amber-500 hover:bg-amber-500/10'
-                                                : 'text-slate-400 hover:bg-slate-500/10'
+                                        className={`inline-flex items-center justify-center p-1 rounded ${isSystemLocked
+                                            ? 'text-blue-500 hover:bg-blue-500/10 cursor-not-allowed'
+                                            : isClosed
+                                              ? 'text-amber-500 hover:bg-amber-500/10'
+                                              : 'text-slate-400 hover:bg-slate-500/10'
                                           }`}
-                                          title={
-                                            isSystemLocked
-                                              ? 'Locked by system (running/pending) — system lock'
-                                              : isClosed
-                                                ? 'Closed — click to open/selectable'
-                                                : 'Open — click to close/lock from select all'
-                                          }
+                                        title={
+                                          isSystemLocked
+                                            ? 'Locked by system (running/pending) — system lock'
+                                            : isClosed
+                                              ? 'Closed — click to open/selectable'
+                                              : 'Open — click to close/lock from select all'
+                                        }
                                       >
-                                          {isSystemLocked ? <Lock size={14} /> : isClosed ? <Lock size={14} /> : <Globe size={14} />}
+                                        {isSystemLocked ? <Lock size={14} /> : isClosed ? <Lock size={14} /> : <Globe size={14} />}
                                       </button>
                                     </td>
                                     <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 min-w-[160px] align-middle">
                                       <div className="flex items-center justify-center min-h-[32px]">
                                         {(() => {
-                                        const rawTag = (tc.extraColumns && (tc.extraColumns.tag || tc.extraColumns.Tag)) || '';
-                                        const tags = splitTags(rawTag);
-                                        if (!tags.length) {
-                                          return (
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                openTcTagEditorFromAnywhere(tc);
-                                              }}
-                                              className="inline-flex items-center px-2 py-0.5 rounded-full border border-dashed border-slate-400/50 text-[11px] text-slate-400 dark:text-slate-500 hover:border-slate-300/70 hover:text-slate-300 transition-colors"
-                                              title="Edit tags"
-                                            >
-                                              No tag
-                                            </button>
-                                          );
-                                        }
-                                        const colors = normalizeTagColorList(tc.extraColumns || {}, tags.length);
-                                        const firstClass = TAG_PALETTE_MAP[colors[0]] || TAG_PALETTE_MAP.mint;
-                                        const more = tags.length > 1;
-                                        return (
-                                          <div className="flex flex-wrap items-center gap-1 min-w-0">
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                openTcTagEditorFromAnywhere(tc);
-                                              }}
-                                              className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border max-w-[160px] truncate hover:brightness-95 ${firstClass}`}
-                                              title="Edit tags"
-                                            >
-                                              <span className="max-w-[160px] truncate">{tags[0]}</span>
-                                            </button>
-                                            {more ? (
+                                          const rawTag = (tc.extraColumns && (tc.extraColumns.tag || tc.extraColumns.Tag)) || '';
+                                          const tags = splitTags(rawTag);
+                                          if (!tags.length) {
+                                            return (
                                               <button
                                                 type="button"
                                                 onClick={(e) => {
                                                   e.stopPropagation();
                                                   openTcTagEditorFromAnywhere(tc);
                                                 }}
-                                                className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold border border-slate-200 dark:border-slate-700 bg-white/60 dark:bg-slate-800 text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700"
-                                                title={tags.join(', ')}
+                                                className="inline-flex items-center px-2 py-0.5 rounded-full border border-dashed border-slate-400/50 text-[11px] text-slate-400 dark:text-slate-500 hover:border-slate-300/70 hover:text-slate-300 transition-colors"
+                                                title="Edit tags"
                                               >
-                                                … +{tags.length - 1}
+                                                No tag
                                               </button>
-                                            ) : null}
-                                          </div>
-                                        );
+                                            );
+                                          }
+                                          const colors = normalizeTagColorList(tc.extraColumns || {}, tags.length);
+                                          const firstClass = TAG_PALETTE_MAP[colors[0]] || TAG_PALETTE_MAP.mint;
+                                          const more = tags.length > 1;
+                                          return (
+                                            <div className="flex flex-wrap items-center gap-1 min-w-0">
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  openTcTagEditorFromAnywhere(tc);
+                                                }}
+                                                className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border max-w-[160px] truncate hover:brightness-95 ${firstClass}`}
+                                                title="Edit tags"
+                                              >
+                                                <span className="max-w-[160px] truncate">{tags[0]}</span>
+                                              </button>
+                                              {more ? (
+                                                <button
+                                                  type="button"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    openTcTagEditorFromAnywhere(tc);
+                                                  }}
+                                                  className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold border border-slate-200 dark:border-slate-700 bg-white/60 dark:bg-slate-800 text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700"
+                                                  title={tags.join(', ')}
+                                                >
+                                                  … +{tags.length - 1}
+                                                </button>
+                                              ) : null}
+                                            </div>
+                                          );
                                         })()}
                                       </div>
                                     </td>
@@ -6389,11 +6379,11 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
             }
             return t.extraColumns?.[col] ?? '';
           };
-         const allCols = [...new Set(libraryFilteredRows.flatMap(getExtraColKeys))].sort();
-         const extraCols = allCols
-           .filter((col) => !isExtraColumnHiddenFromLibraryTable(col))
-           .filter((col) => !/^MDI\d+$/i.test(col))
-           .filter((col) => libraryFilteredRows.some((t) => (getExtraVal(t, col) ?? '').toString().trim() !== ''));
+          const allCols = [...new Set(libraryFilteredRows.flatMap(getExtraColKeys))].sort();
+          const extraCols = allCols
+            .filter((col) => !isExtraColumnHiddenFromLibraryTable(col))
+            .filter((col) => !/^MDI\d+$/i.test(col))
+            .filter((col) => libraryFilteredRows.some((t) => (getExtraVal(t, col) ?? '').toString().trim() !== ''));
           const toggleSelect = (key, idx, e) => {
             const row = libraryFilteredRows[idx];
             if (row && isTcSelectionDisabled(row)) return;
@@ -6815,9 +6805,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
           return (
             <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
               <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-600">
-                
+
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  
+
                 </p>
               </div>
               <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-700 flex flex-wrap items-center gap-3">
@@ -7110,488 +7100,371 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                   </button>
                 )}
                 {selectedSet.size > 0 && (
-                  <span className="text-xs text-slate-500">{selectedSet.size} selected{hasRunningOrPendingInSelection ?  ' (includes locked rows)' : ''}</span>
+                  <span className="text-xs text-slate-500">{selectedSet.size} selected{hasRunningOrPendingInSelection ? ' (includes locked rows)' : ''}</span>
                 )}
               </div>
               {selectedSet.size > 0 && (
-              <div className="w-full px-4 py-2 border-t border-slate-200/80 dark:border-slate-700/80 flex flex-wrap items-center gap-x-3 gap-y-2">
-                <button
-                  type="button"
-                  aria-expanded={libraryRawTcBulkBarOpen}
-                  aria-controls="library-raw-tc-bulk-fields"
-                  onClick={() => setLibraryRawTcBulkBarOpen((v) => !v)}
-                  className={`inline-flex items-center justify-center h-8 w-8 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 shrink-0 transition-colors ${
-                    libraryRawTcBulkBarOpen
-                      ? 'bg-slate-100 dark:bg-slate-700 ring-2 ring-slate-300/50 dark:ring-slate-600'
-                      : 'hover:bg-slate-50 dark:hover:bg-slate-700/80'
-                  }`}
-                  title="Bulk tag / Try — edit multiple rows at once"
-                >
-                  <Pencil size={16} strokeWidth={2} />
-                </button>
-                {libraryRawTcBulkBarOpen && (
-                  <div id="library-raw-tc-bulk-fields" className="flex flex-1 flex-wrap items-center gap-x-3 gap-y-2 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap min-w-0">
-                      <input
-                        type="text"
-                        value={libraryRawTcBulkTagInput}
-                        onChange={(e) => setLibraryRawTcBulkTagInput(e.target.value)}
-                        readOnly={bulkTcInputsLocked}
-                        onKeyDown={(e) => {
-                          if (bulkTcInputsLocked) return;
-                          if (tagEnterShouldIgnoreIme(e)) return;
-                          if (e.key !== 'Enter') return;
-                          e.preventDefault();
-                          applyBulkLibraryRawTcTags();
-                        }}
-                        className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 w-[min(100%,11rem)] sm:w-44"
-                        placeholder="Bulk add tag… (Enter)"
-                        title={
-                          bulkTcInputsLocked
-                            ? 'Wait for the pending action on the selected test case(s) to finish'
-                            : 'Add tag to all selected rows'
-                        }
-                        disabled={bulkTcInputsLocked}
-                      />
-                      <button
-                        type="button"
-                        disabled={bulkTcInputsLocked}
-                        onClick={applyBulkLibraryRawTcTags}
-                        className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-200 text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600 disabled:opacity-40 disabled:pointer-events-none"
-                        title="Apply tag to all selected rows"
-                      >
-                        Apply
-                      </button>
+                <div className="w-full px-4 py-2 border-t border-slate-200/80 dark:border-slate-700/80 flex flex-wrap items-center gap-x-3 gap-y-2">
+                  <button
+                    type="button"
+                    aria-expanded={libraryRawTcBulkBarOpen}
+                    aria-controls="library-raw-tc-bulk-fields"
+                    onClick={() => setLibraryRawTcBulkBarOpen((v) => !v)}
+                    className={`inline-flex items-center justify-center h-8 w-8 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 shrink-0 transition-colors ${libraryRawTcBulkBarOpen
+                        ? 'bg-slate-100 dark:bg-slate-700 ring-2 ring-slate-300/50 dark:ring-slate-600'
+                        : 'hover:bg-slate-50 dark:hover:bg-slate-700/80'
+                      }`}
+                    title="Bulk tag / Try — edit multiple rows at once"
+                  >
+                    <Pencil size={16} strokeWidth={2} />
+                  </button>
+                  {libraryRawTcBulkBarOpen && (
+                    <div id="library-raw-tc-bulk-fields" className="flex flex-1 flex-wrap items-center gap-x-3 gap-y-2 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap min-w-0">
+                        <input
+                          type="text"
+                          value={libraryRawTcBulkTagInput}
+                          onChange={(e) => setLibraryRawTcBulkTagInput(e.target.value)}
+                          readOnly={bulkTcInputsLocked}
+                          onKeyDown={(e) => {
+                            if (bulkTcInputsLocked) return;
+                            if (tagEnterShouldIgnoreIme(e)) return;
+                            if (e.key !== 'Enter') return;
+                            e.preventDefault();
+                            applyBulkLibraryRawTcTags();
+                          }}
+                          className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 w-[min(100%,11rem)] sm:w-44"
+                          placeholder="Bulk add tag… (Enter)"
+                          title={
+                            bulkTcInputsLocked
+                              ? 'Wait for the pending action on the selected test case(s) to finish'
+                              : 'Add tag to all selected rows'
+                          }
+                          disabled={bulkTcInputsLocked}
+                        />
+                        <button
+                          type="button"
+                          disabled={bulkTcInputsLocked}
+                          onClick={applyBulkLibraryRawTcTags}
+                          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-200 text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600 disabled:opacity-40 disabled:pointer-events-none"
+                          title="Apply tag to all selected rows"
+                        >
+                          Apply
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap min-w-0">
+                        <input
+                          type="number"
+                          min={1}
+                          max={100}
+                          value={libraryRawTcBulkTryInput}
+                          onChange={(e) => setLibraryRawTcBulkTryInput(e.target.value)}
+                          readOnly={bulkTcInputsLocked}
+                          onKeyDown={(e) => {
+                            if (bulkTcInputsLocked) return;
+                            if (tagEnterShouldIgnoreIme(e)) return;
+                            if (e.key !== 'Enter') return;
+                            e.preventDefault();
+                            applyBulkLibraryRawTcTry();
+                          }}
+                          className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 w-[6.5rem]"
+                          placeholder="Try 1–100"
+                          title={
+                            bulkTcInputsLocked
+                              ? 'Wait for the current action on the selected test case(s) to finish'
+                              : 'Set Try for your selected cases (other owners skipped)'
+                          }
+                          disabled={bulkTcInputsLocked}
+                        />
+                        <button
+                          type="button"
+                          disabled={bulkTcInputsLocked}
+                          onClick={applyBulkLibraryRawTcTry}
+                          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-200 text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600 disabled:opacity-40 disabled:pointer-events-none"
+                          title="Set Try for your selected rows"
+                        >
+                          Apply
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-wrap min-w-0">
-                      <input
-                        type="number"
-                        min={1}
-                        max={100}
-                        value={libraryRawTcBulkTryInput}
-                        onChange={(e) => setLibraryRawTcBulkTryInput(e.target.value)}
-                        readOnly={bulkTcInputsLocked}
-                        onKeyDown={(e) => {
-                          if (bulkTcInputsLocked) return;
-                          if (tagEnterShouldIgnoreIme(e)) return;
-                          if (e.key !== 'Enter') return;
-                          e.preventDefault();
-                          applyBulkLibraryRawTcTry();
-                        }}
-                        className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 w-[6.5rem]"
-                        placeholder="Try 1–100"
-                        title={
-                          bulkTcInputsLocked
-                            ? 'Wait for the current action on the selected test case(s) to finish'
-                            : 'Set Try for your selected cases (other owners skipped)'
-                        }
-                        disabled={bulkTcInputsLocked}
-                      />
-                      <button
-                        type="button"
-                        disabled={bulkTcInputsLocked}
-                        onClick={applyBulkLibraryRawTcTry}
-                        className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-200 text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600 disabled:opacity-40 disabled:pointer-events-none"
-                        title="Set Try for your selected rows"
-                      >
-                        Apply
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
               )}
               <div className="flex flex-col xl:flex-row gap-4 px-4 pb-4 xl:items-start">
                 {libraryTestCasesFilter !== 'mine' &&
                   libraryTestCasesFilter !== '__active__' &&
                   !globalTestCaseDataLoaded && (
-                  <div className="w-full text-xs text-amber-600 dark:text-amber-400 px-1">
-                    Syncing server snapshot… (local + server rows shown)
-                  </div>
-                )}
+                    <div className="w-full text-xs text-amber-600 dark:text-amber-400 px-1">
+                      Syncing server snapshot… (local + server rows shown)
+                    </div>
+                  )}
                 <div className="flex-1 min-w-0 overflow-x-auto overflow-y-visible rounded-b-xl table-scroll-smooth" style={{ scrollBehavior: 'smooth', WebkitOverflowScrolling: 'touch' }}>
-                <table className="w-full text-sm min-w-max">
-                  <thead>
-                    <tr className="bg-slate-100 dark:bg-slate-800 text-left text-xs font-bold text-slate-600 dark:text-slate-400">
-                      <th className="w-9 px-2 py-2 border-r border-slate-200 dark:border-slate-600 sticky left-0 bg-slate-100 dark:bg-slate-800 z-10">
-                        <input
-                          type="checkbox"
-                          checked={selectableTcKeys.length > 0 && selectableTcKeys.every((k) => selectedSet.has(k))}
-                          onChange={(e) => {
-                            if (e.target.checked) setSelectedLibraryTcKeys([...selectableTcKeys]);
-                            else setSelectedLibraryTcKeys([]);
-                          }}
-                          className="w-4 h-4 rounded cursor-pointer"
-                          title="Select all"
-                        />
-                      </th>
-                      <th className="w-8 px-2 py-2 border-r border-slate-200 dark:border-slate-600">#</th>
-                      <th className="min-w-[120px] px-2 py-2 border-r border-slate-200 dark:border-slate-600">Name</th>
-                      <th className="w-24 px-2 py-2 border-r border-slate-200 dark:border-slate-600" title="Owner">Owner</th>
-                      <th className="w-10 px-2 py-2 border-r border-slate-200 dark:border-slate-600 text-center" title="Visibility">Vis</th>
-                      <th className="min-w-[168px] px-2 py-2 border-r border-slate-200 dark:border-slate-600">Tag</th>
-                      <th className="w-24 px-2 py-2 border-r border-slate-200 dark:border-slate-600 text-center">Date</th>
-                      <th className="min-w-[100px] px-2 py-2 border-r border-slate-200 dark:border-slate-600">ERoM</th>
-                      <th className="min-w-[100px] px-2 py-2 border-r border-slate-200 dark:border-slate-600">ULP</th>
-                      <th className="min-w-[100px] px-2 py-2 border-r border-slate-200 dark:border-slate-600">VCD</th>
-                      <th className="min-w-[140px] px-2 py-2 border-r border-slate-200 dark:border-slate-600">MDI (text)</th>
-                      {extraCols.map((col) => (
-                        <th key={col} className="px-2 py-2 border-r border-slate-200 dark:border-slate-600 min-w-[90px] whitespace-nowrap">{col}</th>
-                      ))}
-                      <th className="w-14 px-2 py-2 border-r border-slate-200 dark:border-slate-600 text-center">Try</th>
-                      <th className="w-24 px-2 py-2 border-r border-slate-200 dark:border-slate-600 text-center">Status</th>
-                      <th className="w-16 px-1 py-2 border-r border-slate-200 dark:border-slate-600 text-center" title="Edit files/tags on this page">
-                        Edit
-                      </th>
-                      <th className="w-16 px-1 py-2 border-r border-slate-200 dark:border-slate-600 text-center" title="Duplicate as a new test case (change before save)">
-                        Dup
-                      </th>
-                      <th className="w-20 px-2 py-2 border-r border-slate-200 dark:border-slate-600 text-center">History</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {libraryFilteredRows.length === 0 ? (
-                      <tr>
-                        <td colSpan={16 + extraCols.length} className="px-4 py-8 text-center text-slate-500 dark:text-slate-400 text-sm">
-                          No test cases yet — or no match for filter. Create on Test Cases page or clear filters.
-                        </td>
+                  <table className="w-full text-sm min-w-max">
+                    <thead>
+                      <tr className="bg-slate-100 dark:bg-slate-800 text-left text-xs font-bold text-slate-600 dark:text-slate-400">
+                        <th className="w-9 px-2 py-2 border-r border-slate-200 dark:border-slate-600 sticky left-0 bg-slate-100 dark:bg-slate-800 z-10">
+                          <input
+                            type="checkbox"
+                            checked={selectableTcKeys.length > 0 && selectableTcKeys.every((k) => selectedSet.has(k))}
+                            onChange={(e) => {
+                              if (e.target.checked) setSelectedLibraryTcKeys([...selectableTcKeys]);
+                              else setSelectedLibraryTcKeys([]);
+                            }}
+                            className="w-4 h-4 rounded cursor-pointer"
+                            title="Select all"
+                          />
+                        </th>
+                        <th className="w-8 px-2 py-2 border-r border-slate-200 dark:border-slate-600">#</th>
+                        <th className="min-w-[120px] px-2 py-2 border-r border-slate-200 dark:border-slate-600">Name</th>
+                        <th className="w-24 px-2 py-2 border-r border-slate-200 dark:border-slate-600" title="Owner">Owner</th>
+                        <th className="w-10 px-2 py-2 border-r border-slate-200 dark:border-slate-600 text-center" title="Visibility">Vis</th>
+                        <th className="min-w-[168px] px-2 py-2 border-r border-slate-200 dark:border-slate-600">Tag</th>
+                        <th className="w-24 px-2 py-2 border-r border-slate-200 dark:border-slate-600 text-center">Date</th>
+                        <th className="min-w-[100px] px-2 py-2 border-r border-slate-200 dark:border-slate-600">ERoM</th>
+                        <th className="min-w-[100px] px-2 py-2 border-r border-slate-200 dark:border-slate-600">ULP</th>
+                        <th className="min-w-[100px] px-2 py-2 border-r border-slate-200 dark:border-slate-600">VCD</th>
+                        <th className="min-w-[140px] px-2 py-2 border-r border-slate-200 dark:border-slate-600">MDI (text)</th>
+                        {extraCols.map((col) => (
+                          <th key={col} className="px-2 py-2 border-r border-slate-200 dark:border-slate-600 min-w-[90px] whitespace-nowrap">{col}</th>
+                        ))}
+                        <th className="w-14 px-2 py-2 border-r border-slate-200 dark:border-slate-600 text-center">Try</th>
+                        <th className="w-24 px-2 py-2 border-r border-slate-200 dark:border-slate-600 text-center">Status</th>
+                        <th className="w-16 px-1 py-2 border-r border-slate-200 dark:border-slate-600 text-center" title="Edit files/tags on this page">
+                          Edit
+                        </th>
+                        <th className="w-16 px-1 py-2 border-r border-slate-200 dark:border-slate-600 text-center" title="Duplicate as a new test case (change before save)">
+                          Dup
+                        </th>
+                        <th className="w-20 px-2 py-2 border-r border-slate-200 dark:border-slate-600 text-center">History</th>
                       </tr>
-                    ) : (
-                      libraryFilteredRows.flatMap((tc, idx) => {
-                        const key = tc._key || `row-${idx}`;
-                        const isSelected = selectedSet.has(key);
-                        const isRowSelectionDisabled = isTcSelectionDisabled(tc);
-                        const isRowEditingLocked = isTcEditingLocked(tc);
-                        const isTcInProcess = isTcSystemLocked(tc);
-                        const tcRowBusy =
-                          tc._source === 'current' && tc.id && testCasePendingById?.[String(tc.id)];
-                        const historyCount = getTestCaseHistory(tc).length;
-                        const dimProcessRow = isTcInProcess && !isRowSelectionDisabled;
-                        const isErrorRow = tc._status === 'error';
+                    </thead>
+                    <tbody>
+                      {libraryFilteredRows.length === 0 ? (
+                        <tr>
+                          <td colSpan={16 + extraCols.length} className="px-4 py-8 text-center text-slate-500 dark:text-slate-400 text-sm">
+                            No test cases yet — or no match for filter. Create on Test Cases page or clear filters.
+                          </td>
+                        </tr>
+                      ) : (
+                        libraryFilteredRows.flatMap((tc, idx) => {
+                          const key = tc._key || `row-${idx}`;
+                          const isSelected = selectedSet.has(key);
+                          const isRowSelectionDisabled = isTcSelectionDisabled(tc);
+                          const isRowEditingLocked = isTcEditingLocked(tc);
+                          const isTcInProcess = isTcSystemLocked(tc);
+                          const tcRowBusy =
+                            tc._source === 'current' && tc.id && testCasePendingById?.[String(tc.id)];
+                          const historyCount = getTestCaseHistory(tc).length;
+                          const dimProcessRow = isTcInProcess && !isRowSelectionDisabled;
+                          const isErrorRow = tc._status === 'error';
 
-                        return [
-                          <tr
-                            key={key}
-                            data-library-tc-row-key={String(key)}
-                            title={
-                              isErrorRow
-                                ? 'Last run of this test case failed — open Job Management to inspect / re-run'
-                                : dimProcessRow
-                                ? 'Running / Pending — grayed rows show an active process (still selectable)'
-                                : isRowEditingLocked
-                                  ? 'Test case is locked (running/pending or Vis=close)'
-                                  : 'Double click to edit in this page'
-                            }
-                            className={`border-b border-slate-100 dark:border-slate-700 select-none ${isErrorRow ? 'border-l-4 border-l-red-500 bg-red-50/40 dark:bg-red-900/10' : ''} ${isRowSelectionDisabled ? 'opacity-75 bg-slate-50 dark:bg-slate-800/50 cursor-not-allowed' : 'cursor-pointer'} ${tcRowBusy ? 'ring-1 ring-amber-400/50 dark:ring-amber-500/40' : ''} ${pointerLibraryTcKey === key ? 'animate-pulse ring-1 ring-emerald-400' : ''} ${dimProcessRow ? '[&_td]:text-slate-500 dark:[&_td]:text-slate-400 [&_a]:text-slate-500 dark:[&_a]:text-slate-400 [&_td:not(:nth-child(5))_button]:text-slate-500 dark:[&_td:not(:nth-child(5))_button]:text-slate-400' : ''} ${isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : dimProcessRow ? 'bg-slate-50/90 dark:bg-slate-900/50' : isErrorRow ? '' : !isRowSelectionDisabled ? 'hover:bg-slate-50 dark:hover:bg-slate-800/50' : ''}`}
-                            onClick={(e) => {
-                              if (
-                                e.target.closest('input[type="checkbox"]') ||
-                                e.target.closest('input[type="text"]') ||
-                                e.target.closest('button')
-                              ) {
-                                return;
+                          return [
+                            <tr
+                              key={key}
+                              data-library-tc-row-key={String(key)}
+                              title={
+                                isErrorRow
+                                  ? 'Last run of this test case failed — open Job Management to inspect / re-run'
+                                  : dimProcessRow
+                                    ? 'Running / Pending — grayed rows show an active process (still selectable)'
+                                    : isRowEditingLocked
+                                      ? 'Test case is locked (running/pending or Vis=close)'
+                                      : 'Double click to edit in this page'
                               }
-                              if (isRowSelectionDisabled || tcRowBusy) return;
-                              toggleSelect(key, idx, e);
-                            }}
-                            onDoubleClick={(e) => {
-                              if (
-                                e.target.closest('input[type="checkbox"]') ||
-                                e.target.closest('input[type="text"]') ||
-                                e.target.closest('button')
-                              ) {
-                                return;
-                              }
-                              if (isRowEditingLocked) {
-                                addToast({ type: 'warning', message: 'Test case is running/pending — cannot edit until process is finished' });
-                                return;
-                              }
-                              openRawTcEditor(tc);
-                            }}
-                            onMouseDown={(e) => {
-                              if (
-                                e.target.closest('input[type="checkbox"]') ||
-                                e.target.closest('input[type="text"]') ||
-                                e.target.closest('button')
-                              ) {
-                                return;
-                              }
-                              if (isRowSelectionDisabled || tcRowBusy) return;
-                              if (e.button === 0) handleRowMouseDown(key, idx);
-                            }}
-                            onMouseEnter={() => { if (!isRowSelectionDisabled && !tcRowBusy) handleRowMouseEnter(key, idx); }}
-                          >
-                            <td
-                              className={`px-2 py-2 border-r border-slate-100 dark:border-slate-700 sticky left-0 z-[1] ${
-                                isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : dimProcessRow ? 'bg-slate-50/95 dark:bg-slate-900/95' : 'bg-white dark:bg-slate-900'
-                              } text-inherit`}
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                disabled={isRowSelectionDisabled || tcRowBusy}
-                                onChange={() => { if (!isRowSelectionDisabled && !tcRowBusy) toggleSelect(key, idx, { shiftKey: false, ctrlKey: false, metaKey: false }); }}
-                                className={`w-4 h-4 rounded ${isRowSelectionDisabled || tcRowBusy ? 'cursor-not-allowed opacity-50' : 'cursor-pointer opacity-100'}`}
-                                title={tcRowBusy ? 'Deleting / duplicating / reordering — please wait' : isRowSelectionDisabled ? 'Cannot select — Vis=closed' : undefined}
-                              />
-                            </td>
-                            <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-slate-500">
-                              {idx + 1}
-                            </td>
-                            <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 font-medium text-slate-800 dark:text-slate-200 min-w-[120px]">
-                              {tc.name || '—'}
-                            </td>
-                            <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400 truncate max-w-[80px]" title={tc._owner || '—'}>
-                              {tc._owner || '—'}
-                            </td>
-                            <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-center">
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (isTcSystemLocked(tc)) {
-                                    addToast({ type: 'warning', message: 'Test case is locked (running/pending) — cannot change Vis' });
-                                    return;
-                                  }
-                                  updateTcVisibility(tc, !isTcManuallyClosed(tc));
-                                  setSelectedLibraryTcKeys((prev) => prev.filter((k) => k !== key));
-                                }}
-                                className={`inline-flex items-center justify-center p-1 rounded ${
-                                  isTcSystemLocked(tc)
-                                    ? 'text-blue-600 dark:text-blue-400 hover:bg-blue-500/10 cursor-not-allowed'
-                                    : isTcManuallyClosed(tc)
-                                      ? 'text-amber-500 hover:bg-amber-500/10'
-                                      : 'text-slate-400 hover:bg-slate-500/10'
-                                }`}
-                                title={
-                                  isTcSystemLocked(tc)
-                                    ? 'Auto-locked — test case is in a running/pending job'
-                                    : isTcManuallyClosed(tc)
-                                      ? 'Closed — click to open/selectable'
-                                      : 'Open — click to close/lock from select all'
+                              className={`border-b border-slate-100 dark:border-slate-700 select-none ${isErrorRow ? 'border-l-4 border-l-red-500 bg-red-50/40 dark:bg-red-900/10' : ''} ${isRowSelectionDisabled ? 'opacity-75 bg-slate-50 dark:bg-slate-800/50 cursor-not-allowed' : 'cursor-pointer'} ${tcRowBusy ? 'ring-1 ring-amber-400/50 dark:ring-amber-500/40' : ''} ${pointerLibraryTcKey === key ? 'animate-pulse ring-1 ring-emerald-400' : ''} ${dimProcessRow ? '[&_td]:text-slate-500 dark:[&_td]:text-slate-400 [&_a]:text-slate-500 dark:[&_a]:text-slate-400 [&_td:not(:nth-child(5))_button]:text-slate-500 dark:[&_td:not(:nth-child(5))_button]:text-slate-400' : ''} ${isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : dimProcessRow ? 'bg-slate-50/90 dark:bg-slate-900/50' : isErrorRow ? '' : !isRowSelectionDisabled ? 'hover:bg-slate-50 dark:hover:bg-slate-800/50' : ''}`}
+                              onClick={(e) => {
+                                if (
+                                  e.target.closest('input[type="checkbox"]') ||
+                                  e.target.closest('input[type="text"]') ||
+                                  e.target.closest('button')
+                                ) {
+                                  return;
                                 }
+                                if (isRowSelectionDisabled || tcRowBusy) return;
+                                toggleSelect(key, idx, e);
+                              }}
+                              onDoubleClick={(e) => {
+                                if (
+                                  e.target.closest('input[type="checkbox"]') ||
+                                  e.target.closest('input[type="text"]') ||
+                                  e.target.closest('button')
+                                ) {
+                                  return;
+                                }
+                                if (isRowEditingLocked) {
+                                  addToast({ type: 'warning', message: 'Test case is running/pending — cannot edit until process is finished' });
+                                  return;
+                                }
+                                openRawTcEditor(tc);
+                              }}
+                              onMouseDown={(e) => {
+                                if (
+                                  e.target.closest('input[type="checkbox"]') ||
+                                  e.target.closest('input[type="text"]') ||
+                                  e.target.closest('button')
+                                ) {
+                                  return;
+                                }
+                                if (isRowSelectionDisabled || tcRowBusy) return;
+                                if (e.button === 0) handleRowMouseDown(key, idx);
+                              }}
+                              onMouseEnter={() => { if (!isRowSelectionDisabled && !tcRowBusy) handleRowMouseEnter(key, idx); }}
+                            >
+                              <td
+                                className={`px-2 py-2 border-r border-slate-100 dark:border-slate-700 sticky left-0 z-[1] ${isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : dimProcessRow ? 'bg-slate-50/95 dark:bg-slate-900/95' : 'bg-white dark:bg-slate-900'
+                                  } text-inherit`}
+                                onClick={(e) => e.stopPropagation()}
                               >
-                                {isTcSystemLocked(tc) ? (
-                                  <Lock size={14} className="text-blue-600 dark:text-blue-400" strokeWidth={2.25} />
-                                ) : isTcManuallyClosed(tc) ? (
-                                  <Lock size={14} className="text-amber-500" strokeWidth={2.25} />
-                                ) : (
-                                  <Globe size={14} />
-                                )}
-                              </button>
-                            </td>
-                            <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 min-w-[160px]">
-                              {(() => {
-                                const isOtherOwner =
-                                  tc._ownerId != null && String(tc._ownerId) !== String(activeProfileId);
-                                const viewerOverlay =
-                                  tc.id != null && tcViewerTagOverlays
-                                    ? tcViewerTagOverlays[String(tc.id)]
-                                    : null;
-                                const { mergedTags: tagsBase, mergedColors: colorListBase, myTagCount, overlayRaw } =
-                                  buildMergedLibraryTcTags(tc, viewerOverlay);
-                                const baseOwnerRaw = (tc.extraColumns && (tc.extraColumns.tag || tc.extraColumns.Tag)) || '';
-                                const rawTag = isOtherOwner ? overlayRaw : baseOwnerRaw;
-                                const tcEntityKey = getTcEntityKey(tc);
-                                const { orderedTags, orderedColorList, orderedOriginalIndices } =
-                                  reorderTagsForDisplayWithIndices(activeProfileId, tcEntityKey, tagsBase, colorListBase);
-                                const firstPillColorKey =
-                                  orderedColorList[0] ||
-                                  (isOtherOwner
-                                    ? viewerOverlay?.tagColor
-                                    : tc.extraColumns?.tagColor) ||
-                                  'mint';
-                                const firstPillClass = TAG_PALETTE_MAP[firstPillColorKey] || TAG_PALETTE_MAP.mint;
-                                const displayFirstOrigIndex = orderedOriginalIndices?.[0] ?? 0;
-                                const canEditFirstPillColor =
-                                  !isRowEditingLocked &&
-                                  (!isOtherOwner || (myTagCount > 0 && displayFirstOrigIndex < myTagCount));
-                                const tagSystemLocked = isRowEditingLocked;
-                                const cycleColor = (e) => {
-                                  e.stopPropagation();
-                                  if (!canEditFirstPillColor) return;
-                                  const keys = TAG_PALETTE_KEYS;
-                                  const cur = tagsBase.length
-                                    ? colorListBase[displayFirstOrigIndex]
-                                    : (isOtherOwner
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  disabled={isRowSelectionDisabled || tcRowBusy}
+                                  onChange={() => { if (!isRowSelectionDisabled && !tcRowBusy) toggleSelect(key, idx, { shiftKey: false, ctrlKey: false, metaKey: false }); }}
+                                  className={`w-4 h-4 rounded ${isRowSelectionDisabled || tcRowBusy ? 'cursor-not-allowed opacity-50' : 'cursor-pointer opacity-100'}`}
+                                  title={tcRowBusy ? 'Deleting / duplicating / reordering — please wait' : isRowSelectionDisabled ? 'Cannot select — Vis=closed' : undefined}
+                                />
+                              </td>
+                              <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-slate-500">
+                                {idx + 1}
+                              </td>
+                              <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 font-medium text-slate-800 dark:text-slate-200 min-w-[120px]">
+                                {tc.name || '—'}
+                              </td>
+                              <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400 truncate max-w-[80px]" title={tc._owner || '—'}>
+                                {tc._owner || '—'}
+                              </td>
+                              <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-center">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (isTcSystemLocked(tc)) {
+                                      addToast({ type: 'warning', message: 'Test case is locked (running/pending) — cannot change Vis' });
+                                      return;
+                                    }
+                                    updateTcVisibility(tc, !isTcManuallyClosed(tc));
+                                    setSelectedLibraryTcKeys((prev) => prev.filter((k) => k !== key));
+                                  }}
+                                  className={`inline-flex items-center justify-center p-1 rounded ${isTcSystemLocked(tc)
+                                      ? 'text-blue-600 dark:text-blue-400 hover:bg-blue-500/10 cursor-not-allowed'
+                                      : isTcManuallyClosed(tc)
+                                        ? 'text-amber-500 hover:bg-amber-500/10'
+                                        : 'text-slate-400 hover:bg-slate-500/10'
+                                    }`}
+                                  title={
+                                    isTcSystemLocked(tc)
+                                      ? 'Auto-locked — test case is in a running/pending job'
+                                      : isTcManuallyClosed(tc)
+                                        ? 'Closed — click to open/selectable'
+                                        : 'Open — click to close/lock from select all'
+                                  }
+                                >
+                                  {isTcSystemLocked(tc) ? (
+                                    <Lock size={14} className="text-blue-600 dark:text-blue-400" strokeWidth={2.25} />
+                                  ) : isTcManuallyClosed(tc) ? (
+                                    <Lock size={14} className="text-amber-500" strokeWidth={2.25} />
+                                  ) : (
+                                    <Globe size={14} />
+                                  )}
+                                </button>
+                              </td>
+                              <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 min-w-[160px]">
+                                {(() => {
+                                  const isOtherOwner =
+                                    tc._ownerId != null && String(tc._ownerId) !== String(activeProfileId);
+                                  const viewerOverlay =
+                                    tc.id != null && tcViewerTagOverlays
+                                      ? tcViewerTagOverlays[String(tc.id)]
+                                      : null;
+                                  const { mergedTags: tagsBase, mergedColors: colorListBase, myTagCount, overlayRaw } =
+                                    buildMergedLibraryTcTags(tc, viewerOverlay);
+                                  const baseOwnerRaw = (tc.extraColumns && (tc.extraColumns.tag || tc.extraColumns.Tag)) || '';
+                                  const rawTag = isOtherOwner ? overlayRaw : baseOwnerRaw;
+                                  const tcEntityKey = getTcEntityKey(tc);
+                                  const { orderedTags, orderedColorList, orderedOriginalIndices } =
+                                    reorderTagsForDisplayWithIndices(activeProfileId, tcEntityKey, tagsBase, colorListBase);
+                                  const firstPillColorKey =
+                                    orderedColorList[0] ||
+                                    (isOtherOwner
+                                      ? viewerOverlay?.tagColor
+                                      : tc.extraColumns?.tagColor) ||
+                                    'mint';
+                                  const firstPillClass = TAG_PALETTE_MAP[firstPillColorKey] || TAG_PALETTE_MAP.mint;
+                                  const displayFirstOrigIndex = orderedOriginalIndices?.[0] ?? 0;
+                                  const canEditFirstPillColor =
+                                    !isRowEditingLocked &&
+                                    (!isOtherOwner || (myTagCount > 0 && displayFirstOrigIndex < myTagCount));
+                                  const tagSystemLocked = isRowEditingLocked;
+                                  const cycleColor = (e) => {
+                                    e.stopPropagation();
+                                    if (!canEditFirstPillColor) return;
+                                    const keys = TAG_PALETTE_KEYS;
+                                    const cur = tagsBase.length
+                                      ? colorListBase[displayFirstOrigIndex]
+                                      : (isOtherOwner
                                         ? viewerOverlay?.tagColor || 'mint'
                                         : (tc.extraColumns?.tagColor || 'mint'));
-                                  const safeCur = TAG_PALETTE_MAP[cur] ? cur : 'mint';
-                                  const cidx = Math.max(0, keys.indexOf(safeCur));
-                                  const nextKey = keys[(cidx + 1) % keys.length];
-                                  if (isOtherOwner) {
-                                    if (displayFirstOrigIndex >= myTagCount) return;
-                                    const o = (tcViewerTagOverlays && tcViewerTagOverlays[String(tc.id)]) || {};
-                                    const myRaw = (o.tag || o.Tag) || '';
-                                    const myParts = splitTags(myRaw);
-                                    if (displayFirstOrigIndex >= myParts.length) return;
-                                    const nextList = normalizeTagColorList({ ...o, tag: myRaw }, myParts.length);
-                                    const newList = [...nextList];
-                                    newList[displayFirstOrigIndex] = nextKey;
-                                    patchLibraryTcExtraColumns(tc, {
-                                      tagColor: o.tagColor || 'mint',
-                                      tagColorList: newList,
-                                    });
-                                    return;
-                                  }
-                                  if (tagsBase.length) {
-                                    const nextList = [...colorListBase];
-                                    nextList[displayFirstOrigIndex] = nextKey;
-                                    patchLibraryTcExtraColumns(tc, { tagColor: nextKey, tagColorList: nextList });
-                                  } else {
-                                    patchLibraryTcExtraColumns(tc, { tagColor: nextKey });
-                                  }
-                                };
-                                const openTagModal = () => {
-                                  setLibraryRawTcTagOverflowKey(key);
-                                  setLibraryRawTcTagModalAddDraft('');
-                                  setLibraryRawTcTagModalEditIndex(null);
-                                  setLibraryRawTcTagModalEditDraft('');
-                                };
-                                /** … = manage all tags — pill click only cycles color */
-                                const showEllipsis = tagSystemLocked
-                                  ? orderedTags.length > 1
-                                  : orderedTags.length >= 1;
+                                    const safeCur = TAG_PALETTE_MAP[cur] ? cur : 'mint';
+                                    const cidx = Math.max(0, keys.indexOf(safeCur));
+                                    const nextKey = keys[(cidx + 1) % keys.length];
+                                    if (isOtherOwner) {
+                                      if (displayFirstOrigIndex >= myTagCount) return;
+                                      const o = (tcViewerTagOverlays && tcViewerTagOverlays[String(tc.id)]) || {};
+                                      const myRaw = (o.tag || o.Tag) || '';
+                                      const myParts = splitTags(myRaw);
+                                      if (displayFirstOrigIndex >= myParts.length) return;
+                                      const nextList = normalizeTagColorList({ ...o, tag: myRaw }, myParts.length);
+                                      const newList = [...nextList];
+                                      newList[displayFirstOrigIndex] = nextKey;
+                                      patchLibraryTcExtraColumns(tc, {
+                                        tagColor: o.tagColor || 'mint',
+                                        tagColorList: newList,
+                                      });
+                                      return;
+                                    }
+                                    if (tagsBase.length) {
+                                      const nextList = [...colorListBase];
+                                      nextList[displayFirstOrigIndex] = nextKey;
+                                      patchLibraryTcExtraColumns(tc, { tagColor: nextKey, tagColorList: nextList });
+                                    } else {
+                                      patchLibraryTcExtraColumns(tc, { tagColor: nextKey });
+                                    }
+                                  };
+                                  const openTagModal = () => {
+                                    setLibraryRawTcTagOverflowKey(key);
+                                    setLibraryRawTcTagModalAddDraft('');
+                                    setLibraryRawTcTagModalEditIndex(null);
+                                    setLibraryRawTcTagModalEditDraft('');
+                                  };
+                                  /** … = manage all tags — pill click only cycles color */
+                                  const showEllipsis = tagSystemLocked
+                                    ? orderedTags.length > 1
+                                    : orderedTags.length >= 1;
 
-                                if (orderedTags.length === 0) {
-                                  const lockedTagHint = isTcSystemLocked(tc)
-                                    ? 'Cannot add tag while Running/Pending'
-                                    : isTcManuallyClosed(tc)
-                                      ? 'Cannot add tag while Vis is Closed'
-                                      : 'Cannot add tag';
-                                  return (
-                                    <div className="flex flex-wrap items-center gap-1 min-w-0">
-                                      {tagSystemLocked ? (
-                                        <span className="inline-flex items-center gap-1.5">
-                                          <span className="inline-flex items-center px-2 py-0.5 rounded-full border border-dashed border-slate-400/50 text-[11px] text-slate-400">
-                                            No tag
+                                  if (orderedTags.length === 0) {
+                                    const lockedTagHint = isTcSystemLocked(tc)
+                                      ? 'Cannot add tag while Running/Pending'
+                                      : isTcManuallyClosed(tc)
+                                        ? 'Cannot add tag while Vis is Closed'
+                                        : 'Cannot add tag';
+                                    return (
+                                      <div className="flex flex-wrap items-center gap-1 min-w-0">
+                                        {tagSystemLocked ? (
+                                          <span className="inline-flex items-center gap-1.5">
+                                            <span className="inline-flex items-center px-2 py-0.5 rounded-full border border-dashed border-slate-400/50 text-[11px] text-slate-400">
+                                              No tag
+                                            </span>
+                                            <button
+                                              type="button"
+                                              disabled
+                                              className="inline-flex items-center justify-center w-7 h-7 rounded-full border border-slate-500/30 text-slate-500 opacity-50 cursor-not-allowed shrink-0"
+                                              title={lockedTagHint}
+                                            >
+                                              <Plus size={14} strokeWidth={2.5} />
+                                            </button>
                                           </span>
-                                          <button
-                                            type="button"
-                                            disabled
-                                            className="inline-flex items-center justify-center w-7 h-7 rounded-full border border-slate-500/30 text-slate-500 opacity-50 cursor-not-allowed shrink-0"
-                                            title={lockedTagHint}
-                                          >
-                                            <Plus size={14} strokeWidth={2.5} />
-                                          </button>
-                                        </span>
-                                      ) : (
-                                        <>
-                                          <button
-                                            type="button"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              setLibraryRawTcTagPlusKey(key);
-                                              setLibraryRawTcTagPlusDraft('');
-                                              setLibraryRawTcTagHistoryOpenKey(key);
-                                            }}
-                                            className="inline-flex items-center px-2 py-0.5 rounded-full border border-dashed border-slate-400/60 text-[11px] text-slate-300 hover:border-slate-300 hover:text-slate-200 transition-colors"
-                                            title="Add tag (or use +)"
-                                          >
-                                            No tag
-                                          </button>
-                                          {libraryRawTcTagPlusKey === key ? (
-                                            <>
-                                              <input
-                                                type="text"
-                                                value={libraryRawTcTagPlusDraft}
-                                                onChange={(e) => setLibraryRawTcTagPlusDraft(e.target.value)}
-                                                onKeyDown={(e) => {
-                                                  if (e.key === 'Enter') {
-                                                    if (tagEnterShouldIgnoreIme(e)) return;
-                                                    e.preventDefault();
-                                                    const add = libraryRawTcTagPlusDraft.trim();
-                                                    if (!add) {
-                                                      setLibraryRawTcTagPlusKey(null);
-                                                      setLibraryRawTcTagPlusDraft('');
-                                                      setLibraryRawTcTagHistoryOpenKey(null);
-                                                      return;
-                                                    }
-                                                    const next = upsertTagsString(rawTag, add);
-                                                    patchLibraryTcExtraColumns(tc, { tag: next });
-                                                    setLibraryRawTcTagPlusDraft('');
-                                                    setLibraryRawTcTagPlusKey(null);
-                                                    setLibraryRawTcTagHistoryOpenKey(null);
-                                                  }
-                                                  if (e.key === 'Escape') {
-                                                    e.preventDefault();
-                                                    setLibraryRawTcTagPlusKey(null);
-                                                    setLibraryRawTcTagPlusDraft('');
-                                                    setLibraryRawTcTagHistoryOpenKey(null);
-                                                  }
-                                                }}
-                                                onBlur={() => {
-                                                  setLibraryRawTcTagPlusKey(null);
-                                                  setLibraryRawTcTagPlusDraft('');
-                                                  setLibraryRawTcTagHistoryOpenKey(null);
-                                                }}
-                                                onClick={(e) => e.stopPropagation()}
-                                                className="px-2 py-0.5 text-[11px] rounded-full border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 w-28 min-w-0"
-                                                placeholder="tag…"
-                                                title="Enter — add (comma ok)"
-                                                autoFocus
-                                              />
-                                              {libraryRawTcTagHistoryOpenKey === key && (
-                                                <div className="mt-1 flex flex-wrap gap-1">
-                                                  {(() => {
-                                                    const existingLower = new Set(
-                                                      tagsBase.map((t) => t.toLowerCase())
-                                                    );
-                                                    const q = libraryRawTcTagPlusDraft
-                                                      .trim()
-                                                      .toLowerCase();
-                                                    const acc = [];
-                                                    (savedTestCases || []).forEach((t) => {
-                                                      const rawExtra =
-                                                        t?.extraColumns &&
-                                                        (t.extraColumns.tag || t.extraColumns.Tag);
-                                                      if (!rawExtra) return;
-                                                      splitTags(rawExtra).forEach((tg) =>
-                                                        acc.push(tg)
-                                                      );
-                                                    });
-                                                    const seen = new Set();
-                                                    return acc
-                                                      .filter((tg) => {
-                                                        const v = String(tg || '').trim();
-                                                        if (!v) return false;
-                                                        const lt = v.toLowerCase();
-                                                        if (existingLower.has(lt)) return false;
-                                                        if (q && !lt.includes(q)) return false;
-                                                        if (seen.has(lt)) return false;
-                                                        seen.add(lt);
-                                                        return true;
-                                                      })
-                                                      .slice(0, 10)
-                                                      .map((tg) => (
-                                                        <button
-                                                          key={`${key}-${tg}`}
-                                                          type="button"
-                                                          onMouseDown={(e) => {
-                                                            e.preventDefault();
-                                                            const next = upsertTagsString(
-                                                              rawTag,
-                                                              tg
-                                                            );
-                                                            patchLibraryTcExtraColumns(tc, {
-                                                              tag: next,
-                                                            });
-                                                            setLibraryRawTcTagPlusDraft('');
-                                                            setLibraryRawTcTagPlusKey(null);
-                                                            setLibraryRawTcTagHistoryOpenKey(null);
-                                                          }}
-                                                          className="px-2 py-0.5 rounded-full text-[11px] font-medium border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700"
-                                                          title={`Use tag "${tg}"`}
-                                                        >
-                                                          {tg}
-                                                        </button>
-                                                      ));
-                                                  })()}
-                                                </div>
-                                              )}
-                                            </>
-                                          ) : (
+                                        ) : (
+                                          <>
                                             <button
                                               type="button"
                                               onClick={(e) => {
@@ -7600,403 +7473,515 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                                 setLibraryRawTcTagPlusDraft('');
                                                 setLibraryRawTcTagHistoryOpenKey(key);
                                               }}
-                                              className="inline-flex items-center justify-center w-7 h-7 rounded-full text-[11px] font-semibold border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 shrink-0"
-                                              title="Add tag"
+                                              className="inline-flex items-center px-2 py-0.5 rounded-full border border-dashed border-slate-400/60 text-[11px] text-slate-300 hover:border-slate-300 hover:text-slate-200 transition-colors"
+                                              title="Add tag (or use +)"
                                             >
-                                              <Plus size={14} strokeWidth={2.5} />
+                                              No tag
                                             </button>
-                                          )}
-                                        </>
-                                      )}
-                                    </div>
-                                  );
-                                }
+                                            {libraryRawTcTagPlusKey === key ? (
+                                              <>
+                                                <input
+                                                  type="text"
+                                                  value={libraryRawTcTagPlusDraft}
+                                                  onChange={(e) => setLibraryRawTcTagPlusDraft(e.target.value)}
+                                                  onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') {
+                                                      if (tagEnterShouldIgnoreIme(e)) return;
+                                                      e.preventDefault();
+                                                      const add = libraryRawTcTagPlusDraft.trim();
+                                                      if (!add) {
+                                                        setLibraryRawTcTagPlusKey(null);
+                                                        setLibraryRawTcTagPlusDraft('');
+                                                        setLibraryRawTcTagHistoryOpenKey(null);
+                                                        return;
+                                                      }
+                                                      const next = upsertTagsString(rawTag, add);
+                                                      patchLibraryTcExtraColumns(tc, { tag: next });
+                                                      setLibraryRawTcTagPlusDraft('');
+                                                      setLibraryRawTcTagPlusKey(null);
+                                                      setLibraryRawTcTagHistoryOpenKey(null);
+                                                    }
+                                                    if (e.key === 'Escape') {
+                                                      e.preventDefault();
+                                                      setLibraryRawTcTagPlusKey(null);
+                                                      setLibraryRawTcTagPlusDraft('');
+                                                      setLibraryRawTcTagHistoryOpenKey(null);
+                                                    }
+                                                  }}
+                                                  onBlur={() => {
+                                                    setLibraryRawTcTagPlusKey(null);
+                                                    setLibraryRawTcTagPlusDraft('');
+                                                    setLibraryRawTcTagHistoryOpenKey(null);
+                                                  }}
+                                                  onClick={(e) => e.stopPropagation()}
+                                                  className="px-2 py-0.5 text-[11px] rounded-full border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 w-28 min-w-0"
+                                                  placeholder="tag…"
+                                                  title="Enter — add (comma ok)"
+                                                  autoFocus
+                                                />
+                                                {libraryRawTcTagHistoryOpenKey === key && (
+                                                  <div className="mt-1 flex flex-wrap gap-1">
+                                                    {(() => {
+                                                      const existingLower = new Set(
+                                                        tagsBase.map((t) => t.toLowerCase())
+                                                      );
+                                                      const q = libraryRawTcTagPlusDraft
+                                                        .trim()
+                                                        .toLowerCase();
+                                                      const acc = [];
+                                                      (savedTestCases || []).forEach((t) => {
+                                                        const rawExtra =
+                                                          t?.extraColumns &&
+                                                          (t.extraColumns.tag || t.extraColumns.Tag);
+                                                        if (!rawExtra) return;
+                                                        splitTags(rawExtra).forEach((tg) =>
+                                                          acc.push(tg)
+                                                        );
+                                                      });
+                                                      const seen = new Set();
+                                                      return acc
+                                                        .filter((tg) => {
+                                                          const v = String(tg || '').trim();
+                                                          if (!v) return false;
+                                                          const lt = v.toLowerCase();
+                                                          if (existingLower.has(lt)) return false;
+                                                          if (q && !lt.includes(q)) return false;
+                                                          if (seen.has(lt)) return false;
+                                                          seen.add(lt);
+                                                          return true;
+                                                        })
+                                                        .slice(0, 10)
+                                                        .map((tg) => (
+                                                          <button
+                                                            key={`${key}-${tg}`}
+                                                            type="button"
+                                                            onMouseDown={(e) => {
+                                                              e.preventDefault();
+                                                              const next = upsertTagsString(
+                                                                rawTag,
+                                                                tg
+                                                              );
+                                                              patchLibraryTcExtraColumns(tc, {
+                                                                tag: next,
+                                                              });
+                                                              setLibraryRawTcTagPlusDraft('');
+                                                              setLibraryRawTcTagPlusKey(null);
+                                                              setLibraryRawTcTagHistoryOpenKey(null);
+                                                            }}
+                                                            className="px-2 py-0.5 rounded-full text-[11px] font-medium border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700"
+                                                            title={`Use tag "${tg}"`}
+                                                          >
+                                                            {tg}
+                                                          </button>
+                                                        ));
+                                                    })()}
+                                                  </div>
+                                                )}
+                                              </>
+                                            ) : (
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setLibraryRawTcTagPlusKey(key);
+                                                  setLibraryRawTcTagPlusDraft('');
+                                                  setLibraryRawTcTagHistoryOpenKey(key);
+                                                }}
+                                                className="inline-flex items-center justify-center w-7 h-7 rounded-full text-[11px] font-semibold border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 shrink-0"
+                                                title="Add tag"
+                                              >
+                                                <Plus size={14} strokeWidth={2.5} />
+                                              </button>
+                                            )}
+                                          </>
+                                        )}
+                                      </div>
+                                    );
+                                  }
 
-                                return (
-                                  <div className="flex flex-wrap items-center gap-1 min-w-0">
-                                    {canEditFirstPillColor ? (
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          cycleColor(e);
-                                        }}
-                                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-medium max-w-[130px] ${firstPillClass} hover:brightness-95 transition-colors`}
-                                        title="Click to cycle tag color — use … to edit the full tag list"
-                                      >
-                                        <span className="w-2 h-2 rounded-full shrink-0 bg-current/70" />
-                                        <span className="truncate">{orderedTags[0]}</span>
-                                      </button>
-                                    ) : (
-                                      <span
-                                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-medium max-w-[120px] ${firstPillClass}`}
-                                        title={orderedTags[0]}
-                                      >
-                                        <span className="w-2 h-2 rounded-full shrink-0 bg-current/70" />
-                                        <span className="truncate">{orderedTags[0]}</span>
-                                      </span>
-                                    )}
-                                    {!tagSystemLocked &&
-                                      (libraryRawTcTagPlusKey === key ? (
-                                        <input
-                                          type="text"
-                                          value={libraryRawTcTagPlusDraft}
-                                          onChange={(e) => setLibraryRawTcTagPlusDraft(e.target.value)}
-                                          onKeyDown={(e) => {
-                                            if (e.key === 'Enter') {
-                                              if (tagEnterShouldIgnoreIme(e)) return;
-                                              e.preventDefault();
-                                              const add = libraryRawTcTagPlusDraft.trim();
-                                              if (!add) {
-                                                setLibraryRawTcTagPlusKey(null);
-                                                setLibraryRawTcTagPlusDraft('');
-                                                return;
-                                              }
-                                              const next = upsertTagsString(rawTag, add);
-                                              patchLibraryTcExtraColumns(tc, { tag: next });
-                                              setLibraryRawTcTagPlusDraft('');
-                                              setLibraryRawTcTagPlusKey(null);
-                                            }
-                                            if (e.key === 'Escape') {
-                                              e.preventDefault();
-                                              setLibraryRawTcTagPlusKey(null);
-                                              setLibraryRawTcTagPlusDraft('');
-                                            }
-                                          }}
-                                          onBlur={() => {
-                                            setLibraryRawTcTagPlusKey(null);
-                                            setLibraryRawTcTagPlusDraft('');
-                                          }}
-                                          onClick={(e) => e.stopPropagation()}
-                                          className="px-2 py-0.5 text-[11px] rounded-full border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 w-28 min-w-0"
-                                          placeholder="tag…"
-                                          title="Enter — add (comma ok)"
-                                          autoFocus
-                                        />
-                                      ) : (
+                                  return (
+                                    <div className="flex flex-wrap items-center gap-1 min-w-0">
+                                      {canEditFirstPillColor ? (
                                         <button
                                           type="button"
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            setLibraryRawTcTagPlusKey(key);
-                                            setLibraryRawTcTagPlusDraft('');
+                                            cycleColor(e);
                                           }}
-                                          className="inline-flex items-center justify-center w-7 h-7 rounded-full text-[11px] font-semibold border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 shrink-0"
-                                          title="Add tag"
+                                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-medium max-w-[130px] ${firstPillClass} hover:brightness-95 transition-colors`}
+                                          title="Click to cycle tag color — use … to edit the full tag list"
                                         >
-                                          <Plus size={14} strokeWidth={2.5} />
+                                          <span className="w-2 h-2 rounded-full shrink-0 bg-current/70" />
+                                          <span className="truncate">{orderedTags[0]}</span>
                                         </button>
-                                      )
-                                    )}
-                                    {showEllipsis && (
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          openTagModal();
-                                        }}
-                                        className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold border border-slate-200 dark:border-slate-700 bg-white/60 dark:bg-slate-800 text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 shrink-0"
-                                        title="Show all tags"
-                                      >
-                                        …
-                                      </button>
-                                    )}
-                                  </div>
-                                );
-                              })()}
-                            </td>
-                            <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-center text-slate-500 dark:text-slate-400 text-xs">
-                              {(tc.updatedAt || tc.createdAt) ? new Date(tc.updatedAt || tc.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '—'}
-                            </td>
-                            <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300">
-                              {tc.binName ? (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    focusFileInLibrary(tc.binName);
-                                  }}
-                                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline hover:text-blue-700 dark:hover:text-blue-300"
-                                  title="View this file in File in Library"
-                                >
-                                  {tc.binName}
-                                </button>
-                              ) : (
-                                '—'
-                              )}
-                            </td>
-                            <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300">
-                              {tc.linName ? (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    focusFileInLibrary(tc.linName);
-                                  }}
-                                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline hover:text-blue-700 dark:hover:text-blue-300"
-                                  title="View this file in File in Library"
-                                >
-                                  {tc.linName}
-                                </button>
-                              ) : (
-                                '—'
-                              )}
-                            </td>
-                            <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300">
-                              {tc.vcdName ? (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    focusFileInLibrary(tc.vcdName);
-                                  }}
-                                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline hover:text-blue-700 dark:hover:text-blue-300"
-                                  title="View this file in File in Library"
-                                >
-                                  {tc.vcdName}
-                                </button>
-                              ) : (
-                                '—'
-                              )}
-                            </td>
-                            <td
-                              className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[180px]"
-                              title={Array.isArray(tc.mdiNames) && tc.mdiNames.length > 0 ? tc.mdiNames.join(', ') : undefined}
-                            >
-                              {Array.isArray(tc.mdiNames) && tc.mdiNames.length > 0 ? (
-                                tc.mdiNames.map((name, idx) => (
-                                  <span key={name}>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        focusFileInLibrary(String(name));
-                                      }}
-                                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline hover:text-blue-700 dark:hover:text-blue-300"
-                                      title="View this file in File in Library"
-                                    >
-                                      {name}
-                                    </button>
-                                    {idx < tc.mdiNames.length - 1 ? ', ' : ''}
-                                  </span>
-                                ))
-                              ) : (
-                                '—'
-                              )}
-                            </td>
-                            {extraCols.map((col) => (
-                              <td
-                                key={col}
-                                className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 min-w-[90px] truncate max-w-[140px]"
-                                title={getExtraVal(tc, col) || undefined}
-                              >
-                                {(() => {
-                                  const val = getExtraVal(tc, col);
-                                  if (!val) return '—';
-                                  const isFileCol =
-                                    /^VCD\d+$/i.test(col) ||
-                                    /^ERoM\d+$/i.test(col) ||
-                                    /^ULP\d+$/i.test(col) ||
-                                    /^MDI\d+$/i.test(col);
-                                  if (!isFileCol) return val;
-                                  return (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        focusFileInLibrary(String(val));
-                                      }}
-                                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline hover:text-blue-700 dark:hover:text-blue-300"
-                                      title="View this file in File in Library"
-                                    >
-                                      {val}
-                                    </button>
+                                      ) : (
+                                        <span
+                                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-medium max-w-[120px] ${firstPillClass}`}
+                                          title={orderedTags[0]}
+                                        >
+                                          <span className="w-2 h-2 rounded-full shrink-0 bg-current/70" />
+                                          <span className="truncate">{orderedTags[0]}</span>
+                                        </span>
+                                      )}
+                                      {!tagSystemLocked &&
+                                        (libraryRawTcTagPlusKey === key ? (
+                                          <input
+                                            type="text"
+                                            value={libraryRawTcTagPlusDraft}
+                                            onChange={(e) => setLibraryRawTcTagPlusDraft(e.target.value)}
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Enter') {
+                                                if (tagEnterShouldIgnoreIme(e)) return;
+                                                e.preventDefault();
+                                                const add = libraryRawTcTagPlusDraft.trim();
+                                                if (!add) {
+                                                  setLibraryRawTcTagPlusKey(null);
+                                                  setLibraryRawTcTagPlusDraft('');
+                                                  return;
+                                                }
+                                                const next = upsertTagsString(rawTag, add);
+                                                patchLibraryTcExtraColumns(tc, { tag: next });
+                                                setLibraryRawTcTagPlusDraft('');
+                                                setLibraryRawTcTagPlusKey(null);
+                                              }
+                                              if (e.key === 'Escape') {
+                                                e.preventDefault();
+                                                setLibraryRawTcTagPlusKey(null);
+                                                setLibraryRawTcTagPlusDraft('');
+                                              }
+                                            }}
+                                            onBlur={() => {
+                                              setLibraryRawTcTagPlusKey(null);
+                                              setLibraryRawTcTagPlusDraft('');
+                                            }}
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="px-2 py-0.5 text-[11px] rounded-full border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 w-28 min-w-0"
+                                            placeholder="tag…"
+                                            title="Enter — add (comma ok)"
+                                            autoFocus
+                                          />
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setLibraryRawTcTagPlusKey(key);
+                                              setLibraryRawTcTagPlusDraft('');
+                                            }}
+                                            className="inline-flex items-center justify-center w-7 h-7 rounded-full text-[11px] font-semibold border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 shrink-0"
+                                            title="Add tag"
+                                          >
+                                            <Plus size={14} strokeWidth={2.5} />
+                                          </button>
+                                        )
+                                        )}
+                                      {showEllipsis && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            openTagModal();
+                                          }}
+                                          className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold border border-slate-200 dark:border-slate-700 bg-white/60 dark:bg-slate-800 text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 shrink-0"
+                                          title="Show all tags"
+                                        >
+                                          …
+                                        </button>
+                                      )}
+                                    </div>
                                   );
                                 })()}
                               </td>
-                            ))}
-                            <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-center text-slate-600 dark:text-slate-400">
-                              {typeof tc.tryCount === 'number' && tc.tryCount > 0 ? tc.tryCount : 1}
-                            </td>
-                            <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-center">
-                              {(() => {
-                                const status = tc._status || null;
-                                if (status === 'running') {
-                                  return (
-                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200 text-[10px] font-semibold" title="Running in current set(s)">
-                                      Running
-                                    </span>
-                                  );
-                                }
-                                if (status === 'pending') {
-                                  return (
-                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-yellow-100 text-yellow-700 border border-yellow-200 text-[10px] font-semibold" title="Pending in run queue">
-                                      Pending
-                                    </span>
-                                  );
-                                }
-                                if (status === 'error') {
-                                  // Mirrors Job Management's red FAILED chip — last run produced fail/error.
-                                  return (
-                                    <span
-                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-300 dark:bg-red-900/40 dark:text-red-300 dark:border-red-700/60 text-[10px] font-semibold animate-pulse"
-                                      title="Last run failed — open Job Management to inspect / re-run"
-                                    >
-                                      <AlertCircle size={10} className="shrink-0" aria-hidden />
-                                      Error
-                                    </span>
-                                  );
-                                }
-                                if (status === 'completed') {
-                                  return (
-                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 text-[10px] font-semibold" title="Completed in past run(s)">
-                                      Completed
-                                    </span>
-                                  );
-                                }
-                                // Saved-but-not-run — show the set name (whether the row IS a set item,
-                                // or the row is a current TC that is also referenced by saved set(s)).
-                                let setNamesForRow = [];
-                                if (tc._source === 'set' && tc._setId) {
-                                  const sName =
-                                    tc._setName ||
-                                    (savedTestCaseSets || []).find((s) => s.id === tc._setId)?.name ||
-                                    'Set';
-                                  setNamesForRow = [sName];
-                                } else if (tc._source === 'current' && Array.isArray(tc._inSetNames) && tc._inSetNames.length) {
-                                  setNamesForRow = tc._inSetNames;
-                                }
-                                if (setNamesForRow.length) {
-                                  const goSet = (e, sn) => {
-                                    e.stopPropagation();
-                                    if (tc._source === 'set' && tc._setId != null) {
-                                      navigateLibraryToSetByIdOrName({ setId: tc._setId });
-                                    } else {
-                                      navigateLibraryToSetByIdOrName({ setName: sn });
-                                    }
-                                  };
-                                  if (setNamesForRow.length === 1) {
-                                    const sn = setNamesForRow[0];
-                                    return (
-                                      <button
-                                        key={`${key}-setstat-${sn}`}
-                                        type="button"
-                                        onClick={(e) => goSet(e, sn)}
-                                        className="inline-flex items-center max-w-[180px] min-w-0 px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 text-[10px] font-medium hover:bg-slate-200/90 dark:hover:bg-slate-600 cursor-pointer"
-                                        title={`Go to set “${sn}” in the Sets tab`}
-                                      >
-                                        <Layers size={10} className="shrink-0 mr-1 opacity-70" aria-hidden />
-                                        <span className="truncate">{sn}</span>
-                                      </button>
-                                    );
-                                  }
-                                  const firstSn = setNamesForRow[0];
-                                  return (
-                                    <div className="flex flex-nowrap items-center justify-center gap-1 min-w-0 max-w-[220px]">
-                                      <button
-                                        type="button"
-                                        onClick={(e) => goSet(e, firstSn)}
-                                        className="inline-flex items-center min-w-0 max-w-[130px] px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 text-[10px] font-medium hover:bg-slate-200/90 dark:hover:bg-slate-600 cursor-pointer shrink"
-                                        title={`Go to set “${firstSn}” in the Sets tab (${setNamesForRow.length} sets total)`}
-                                      >
-                                        <Layers size={10} className="shrink-0 mr-1 opacity-70" aria-hidden />
-                                        <span className="truncate">{firstSn}</span>
-                                      </button>
+                              <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-center text-slate-500 dark:text-slate-400 text-xs">
+                                {(tc.updatedAt || tc.createdAt) ? new Date(tc.updatedAt || tc.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '—'}
+                              </td>
+                              <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300">
+                                {tc.binName ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      focusFileInLibrary(tc.binName);
+                                    }}
+                                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline hover:text-blue-700 dark:hover:text-blue-300"
+                                    title="View this file in File in Library"
+                                  >
+                                    {tc.binName}
+                                  </button>
+                                ) : (
+                                  '—'
+                                )}
+                              </td>
+                              <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300">
+                                {tc.linName ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      focusFileInLibrary(tc.linName);
+                                    }}
+                                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline hover:text-blue-700 dark:hover:text-blue-300"
+                                    title="View this file in File in Library"
+                                  >
+                                    {tc.linName}
+                                  </button>
+                                ) : (
+                                  '—'
+                                )}
+                              </td>
+                              <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300">
+                                {tc.vcdName ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      focusFileInLibrary(tc.vcdName);
+                                    }}
+                                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline hover:text-blue-700 dark:hover:text-blue-300"
+                                    title="View this file in File in Library"
+                                  >
+                                    {tc.vcdName}
+                                  </button>
+                                ) : (
+                                  '—'
+                                )}
+                              </td>
+                              <td
+                                className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[180px]"
+                                title={Array.isArray(tc.mdiNames) && tc.mdiNames.length > 0 ? tc.mdiNames.join(', ') : undefined}
+                              >
+                                {Array.isArray(tc.mdiNames) && tc.mdiNames.length > 0 ? (
+                                  tc.mdiNames.map((name, idx) => (
+                                    <span key={name}>
                                       <button
                                         type="button"
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          const r = e.currentTarget.getBoundingClientRect();
-                                          const w = 280;
-                                          setRawTcSetsListPopover({
-                                            top: r.bottom + 4,
-                                            left: Math.max(8, Math.min(r.left, window.innerWidth - w - 8)),
-                                            setNames: [...setNamesForRow],
-                                            tc,
-                                          });
+                                          focusFileInLibrary(String(name));
                                         }}
-                                        className="inline-flex items-center justify-center gap-0.5 shrink-0 h-6 px-1.5 rounded-full border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 text-[10px] font-semibold"
-                                        title={`${setNamesForRow.length} sets — view all`}
-                                        aria-label={`View all ${setNamesForRow.length} sets`}
+                                        className="text-xs text-blue-600 dark:text-blue-400 hover:underline hover:text-blue-700 dark:hover:text-blue-300"
+                                        title="View this file in File in Library"
                                       >
-                                        <List size={12} strokeWidth={2.5} className="shrink-0 opacity-80" aria-hidden />
-                                        <span>{setNamesForRow.length}</span>
+                                        {name}
                                       </button>
-                                    </div>
-                                  );
-                                }
-                                return <span className="text-slate-400 dark:text-slate-500 text-[10px]">—</span>;
-                              })()}
-                            </td>
-                            <td className="px-1 py-2 border-r border-slate-100 dark:border-slate-700 text-center">
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openRawTcEditor(tc);
-                                }}
-                                disabled={!canEditRawTcRow(tc)}
-                                className={`inline-flex items-center justify-center p-1.5 rounded-lg transition-colors ${
-                                  canEditRawTcRow(tc)
-                                    ? rawTcEditorKey === key && rawTcEditorMode !== 'duplicate'
-                                      ? 'bg-blue-600 text-white'
-                                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
-                                    : 'text-slate-300 dark:text-slate-600 cursor-not-allowed'
-                                }`}
-                                title={
-                                  canEditRawTcRow(tc)
-                                    ? 'Edit on this page'
-                                    : isTcSystemLocked(tc)
-                                      ? 'Cannot edit while Running/Pending — use Dup to copy'
-                                      : 'Cannot edit (not your profile)'
-                                }
-                              >
-                                <Pencil size={16} />
-                              </button>
-                            </td>
-                            <td className="px-1 py-2 border-r border-slate-100 dark:border-slate-700 text-center">
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openRawTcDuplicateEditor(tc);
-                                }}
-                                disabled={!canDuplicateRawTcRow(tc)}
-                                className={`inline-flex items-center justify-center p-1.5 rounded-lg transition-colors ${
-                                  canDuplicateRawTcRow(tc)
-                                    ? rawTcEditorKey === key && rawTcEditorMode === 'duplicate'
-                                      ? 'bg-blue-600 text-white'
-                                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
-                                    : 'text-slate-300 dark:text-slate-600 cursor-not-allowed'
-                                }`}
-                                title={
-                                  isTcSystemLocked(tc)
-                                    ? 'Duplicate — copy while original is Running/Pending'
-                                    : tc._ownerId != null && String(tc._ownerId) !== String(activeProfileId)
-                                      ? 'Duplicate into your profile as a new test case (change name/files before save)'
-                                      : 'Duplicate as new test case (change before save)'
-                                }
-                              >
-                                <Copy size={16} />
-                              </button>
-                            </td>
-                            <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-center w-20">
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); setTestCaseHistoryFor({ tc }); }}
-                                className="inline-flex items-center justify-center gap-1 px-1 py-0.5 rounded text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
-                                title="View job/set history for this test case"
-                              >
-                                <History size={14} />
-                                {historyCount > 0 && <span className="text-[10px] font-medium">{historyCount}</span>}
-                              </button>
-                            </td>
-                          </tr>,
-                        ];
-                      })
-                    )}
-                  </tbody>
-                </table>
+                                      {idx < tc.mdiNames.length - 1 ? ', ' : ''}
+                                    </span>
+                                  ))
+                                ) : (
+                                  '—'
+                                )}
+                              </td>
+                              {extraCols.map((col) => (
+                                <td
+                                  key={col}
+                                  className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 min-w-[90px] truncate max-w-[140px]"
+                                  title={getExtraVal(tc, col) || undefined}
+                                >
+                                  {(() => {
+                                    const val = getExtraVal(tc, col);
+                                    if (!val) return '—';
+                                    const isFileCol =
+                                      /^VCD\d+$/i.test(col) ||
+                                      /^ERoM\d+$/i.test(col) ||
+                                      /^ULP\d+$/i.test(col) ||
+                                      /^MDI\d+$/i.test(col);
+                                    if (!isFileCol) return val;
+                                    return (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          focusFileInLibrary(String(val));
+                                        }}
+                                        className="text-xs text-blue-600 dark:text-blue-400 hover:underline hover:text-blue-700 dark:hover:text-blue-300"
+                                        title="View this file in File in Library"
+                                      >
+                                        {val}
+                                      </button>
+                                    );
+                                  })()}
+                                </td>
+                              ))}
+                              <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-center text-slate-600 dark:text-slate-400">
+                                {typeof tc.tryCount === 'number' && tc.tryCount > 0 ? tc.tryCount : 1}
+                              </td>
+                              <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-700 text-center">
+                                {(() => {
+                                  const status = tc._status || null;
+                                  if (status === 'running') {
+                                    return (
+                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200 text-[10px] font-semibold" title="Running in current set(s)">
+                                        Running
+                                      </span>
+                                    );
+                                  }
+                                  if (status === 'pending') {
+                                    return (
+                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-yellow-100 text-yellow-700 border border-yellow-200 text-[10px] font-semibold" title="Pending in run queue">
+                                        Pending
+                                      </span>
+                                    );
+                                  }
+                                  if (status === 'error') {
+                                    // Mirrors Job Management's red FAILED chip — last run produced fail/error.
+                                    return (
+                                      <span
+                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-300 dark:bg-red-900/40 dark:text-red-300 dark:border-red-700/60 text-[10px] font-semibold animate-pulse"
+                                        title="Last run failed — open Job Management to inspect / re-run"
+                                      >
+                                        <AlertCircle size={10} className="shrink-0" aria-hidden />
+                                        Error
+                                      </span>
+                                    );
+                                  }
+                                  if (status === 'completed') {
+                                    return (
+                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 text-[10px] font-semibold" title="Completed in past run(s)">
+                                        Completed
+                                      </span>
+                                    );
+                                  }
+                                  // Saved-but-not-run — show the set name (whether the row IS a set item,
+                                  // or the row is a current TC that is also referenced by saved set(s)).
+                                  let setNamesForRow = [];
+                                  if (tc._source === 'set' && tc._setId) {
+                                    const sName =
+                                      tc._setName ||
+                                      (savedTestCaseSets || []).find((s) => s.id === tc._setId)?.name ||
+                                      'Set';
+                                    setNamesForRow = [sName];
+                                  } else if (tc._source === 'current' && Array.isArray(tc._inSetNames) && tc._inSetNames.length) {
+                                    setNamesForRow = tc._inSetNames;
+                                  }
+                                  if (setNamesForRow.length) {
+                                    const goSet = (e, sn) => {
+                                      e.stopPropagation();
+                                      if (tc._source === 'set' && tc._setId != null) {
+                                        navigateLibraryToSetByIdOrName({ setId: tc._setId });
+                                      } else {
+                                        navigateLibraryToSetByIdOrName({ setName: sn });
+                                      }
+                                    };
+                                    if (setNamesForRow.length === 1) {
+                                      const sn = setNamesForRow[0];
+                                      return (
+                                        <button
+                                          key={`${key}-setstat-${sn}`}
+                                          type="button"
+                                          onClick={(e) => goSet(e, sn)}
+                                          className="inline-flex items-center max-w-[180px] min-w-0 px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 text-[10px] font-medium hover:bg-slate-200/90 dark:hover:bg-slate-600 cursor-pointer"
+                                          title={`Go to set “${sn}” in the Sets tab`}
+                                        >
+                                          <Layers size={10} className="shrink-0 mr-1 opacity-70" aria-hidden />
+                                          <span className="truncate">{sn}</span>
+                                        </button>
+                                      );
+                                    }
+                                    const firstSn = setNamesForRow[0];
+                                    return (
+                                      <div className="flex flex-nowrap items-center justify-center gap-1 min-w-0 max-w-[220px]">
+                                        <button
+                                          type="button"
+                                          onClick={(e) => goSet(e, firstSn)}
+                                          className="inline-flex items-center min-w-0 max-w-[130px] px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 text-[10px] font-medium hover:bg-slate-200/90 dark:hover:bg-slate-600 cursor-pointer shrink"
+                                          title={`Go to set “${firstSn}” in the Sets tab (${setNamesForRow.length} sets total)`}
+                                        >
+                                          <Layers size={10} className="shrink-0 mr-1 opacity-70" aria-hidden />
+                                          <span className="truncate">{firstSn}</span>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const r = e.currentTarget.getBoundingClientRect();
+                                            const w = 280;
+                                            setRawTcSetsListPopover({
+                                              top: r.bottom + 4,
+                                              left: Math.max(8, Math.min(r.left, window.innerWidth - w - 8)),
+                                              setNames: [...setNamesForRow],
+                                              tc,
+                                            });
+                                          }}
+                                          className="inline-flex items-center justify-center gap-0.5 shrink-0 h-6 px-1.5 rounded-full border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 text-[10px] font-semibold"
+                                          title={`${setNamesForRow.length} sets — view all`}
+                                          aria-label={`View all ${setNamesForRow.length} sets`}
+                                        >
+                                          <List size={12} strokeWidth={2.5} className="shrink-0 opacity-80" aria-hidden />
+                                          <span>{setNamesForRow.length}</span>
+                                        </button>
+                                      </div>
+                                    );
+                                  }
+                                  return <span className="text-slate-400 dark:text-slate-500 text-[10px]">—</span>;
+                                })()}
+                              </td>
+                              <td className="px-1 py-2 border-r border-slate-100 dark:border-slate-700 text-center">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openRawTcEditor(tc);
+                                  }}
+                                  disabled={!canEditRawTcRow(tc)}
+                                  className={`inline-flex items-center justify-center p-1.5 rounded-lg transition-colors ${canEditRawTcRow(tc)
+                                      ? rawTcEditorKey === key && rawTcEditorMode !== 'duplicate'
+                                        ? 'bg-blue-600 text-white'
+                                        : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+                                      : 'text-slate-300 dark:text-slate-600 cursor-not-allowed'
+                                    }`}
+                                  title={
+                                    canEditRawTcRow(tc)
+                                      ? 'Edit on this page'
+                                      : isTcSystemLocked(tc)
+                                        ? 'Cannot edit while Running/Pending — use Dup to copy'
+                                        : 'Cannot edit (not your profile)'
+                                  }
+                                >
+                                  <Pencil size={16} />
+                                </button>
+                              </td>
+                              <td className="px-1 py-2 border-r border-slate-100 dark:border-slate-700 text-center">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openRawTcDuplicateEditor(tc);
+                                  }}
+                                  disabled={!canDuplicateRawTcRow(tc)}
+                                  className={`inline-flex items-center justify-center p-1.5 rounded-lg transition-colors ${canDuplicateRawTcRow(tc)
+                                      ? rawTcEditorKey === key && rawTcEditorMode === 'duplicate'
+                                        ? 'bg-blue-600 text-white'
+                                        : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+                                      : 'text-slate-300 dark:text-slate-600 cursor-not-allowed'
+                                    }`}
+                                  title={
+                                    isTcSystemLocked(tc)
+                                      ? 'Duplicate — copy while original is Running/Pending'
+                                      : tc._ownerId != null && String(tc._ownerId) !== String(activeProfileId)
+                                        ? 'Duplicate into your profile as a new test case (change name/files before save)'
+                                        : 'Duplicate as new test case (change before save)'
+                                  }
+                                >
+                                  <Copy size={16} />
+                                </button>
+                              </td>
+                              <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-700 text-center w-20">
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); setTestCaseHistoryFor({ tc }); }}
+                                  className="inline-flex items-center justify-center gap-1 px-1 py-0.5 rounded text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+                                  title="View job/set history for this test case"
+                                >
+                                  <History size={14} />
+                                  {historyCount > 0 && <span className="text-[10px] font-medium">{historyCount}</span>}
+                                </button>
+                              </td>
+                            </tr>,
+                          ];
+                        })
+                      )}
+                    </tbody>
+                  </table>
                 </div>
                 {rawTcEditorDraft && (
                   <div className="w-full xl:w-[min(400px,calc(100vw-2rem))] flex-shrink-0 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800/50 p-4 space-y-3 shadow-sm">
@@ -8085,12 +8070,12 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                   const hdrTags = splitTags(rawTcEditorDraft.tag || '');
                                   const displayKey = hdrTags.length
                                     ? normalizeTagColorList(
-                                        {
-                                          tagColor: rawTcEditorDraft.tagColor,
-                                          tagColorList: rawTcEditorDraft.tagColorList,
-                                        },
-                                        hdrTags.length
-                                      )[0]
+                                      {
+                                        tagColor: rawTcEditorDraft.tagColor,
+                                        tagColorList: rawTcEditorDraft.tagColorList,
+                                      },
+                                      hdrTags.length
+                                    )[0]
                                     : TAG_PALETTE_MAP[rawTcEditorDraft.tagColor]
                                       ? rawTcEditorDraft.tagColor
                                       : 'mint';
@@ -8136,7 +8121,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                     </div>
                     {rawTcLibraryFilePathReadOnly && (
                       <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                        
+
                       </p>
                     )}
                     <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
@@ -8432,9 +8417,8 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                               const nextClosed = !isClosed;
                                               setFileVisById((prev) => ({ ...prev, [f.id]: nextClosed ? 'close' : 'open' }));
                                             }}
-                                            className={`inline-flex items-center justify-center p-1 rounded ${
-                                              inUseByBatch ? 'text-blue-500 hover:bg-blue-500/10 cursor-not-allowed opacity-80' : isClosed ? 'text-amber-500 hover:bg-amber-500/10' : 'text-slate-400 hover:bg-slate-500/10'
-                                            }`}
+                                            className={`inline-flex items-center justify-center p-1 rounded ${inUseByBatch ? 'text-blue-500 hover:bg-blue-500/10 cursor-not-allowed opacity-80' : isClosed ? 'text-amber-500 hover:bg-amber-500/10' : 'text-slate-400 hover:bg-slate-500/10'
+                                              }`}
                                             title={
                                               inUseByBatch
                                                 ? 'Locked — referenced by saved content or active job'
@@ -8469,12 +8453,12 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                             setRawTcEditorDraft((d) =>
                               d
                                 ? {
-                                    ...d,
-                                    extraSlots: [
-                                      ...(d.extraSlots || []),
-                                      { id: newRawTcSlotId(), kind: 'vcd', file: '' },
-                                    ],
-                                  }
+                                  ...d,
+                                  extraSlots: [
+                                    ...(d.extraSlots || []),
+                                    { id: newRawTcSlotId(), kind: 'vcd', file: '' },
+                                  ],
+                                }
                                 : d
                             )
                           }
@@ -8498,32 +8482,32 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                             <div className="w-9" />
                           </div>
                           {(rawTcEditorDraft.extraSlots || []).map((slot, slotIndex) => {
-                          const slotsList = rawTcEditorDraft.extraSlots || [];
-                          const ordinalAmongKind = slotsList.slice(0, slotIndex + 1).filter((s) => s.kind === slot.kind).length;
-                          const columnLabel = getExtraSlotColumnLabel(slot.kind, ordinalAmongKind);
-                          const listId =
-                            slot.kind === 'vcd'
-                              ? 'raw-tc-vcd-datalist'
-                              : slot.kind === 'erom'
-                                ? 'raw-tc-bin-datalist'
-                                : slot.kind === 'ulp'
-                                  ? 'raw-tc-lin-datalist'
-                                  : 'raw-tc-mdi-datalist';
-                          return (
-                            <div
-                              key={slot.id}
-                              className={`flex items-center gap-x-3 ${slot.kind === 'mdi' ? 'rounded-lg border border-dashed border-slate-300 dark:border-slate-600 p-2' : ''}`}
-                              onDragOver={
-                                slot.kind === 'mdi'
-                                  ? (e) => {
+                            const slotsList = rawTcEditorDraft.extraSlots || [];
+                            const ordinalAmongKind = slotsList.slice(0, slotIndex + 1).filter((s) => s.kind === slot.kind).length;
+                            const columnLabel = getExtraSlotColumnLabel(slot.kind, ordinalAmongKind);
+                            const listId =
+                              slot.kind === 'vcd'
+                                ? 'raw-tc-vcd-datalist'
+                                : slot.kind === 'erom'
+                                  ? 'raw-tc-bin-datalist'
+                                  : slot.kind === 'ulp'
+                                    ? 'raw-tc-lin-datalist'
+                                    : 'raw-tc-mdi-datalist';
+                            return (
+                              <div
+                                key={slot.id}
+                                className={`flex items-center gap-x-3 ${slot.kind === 'mdi' ? 'rounded-lg border border-dashed border-slate-300 dark:border-slate-600 p-2' : ''}`}
+                                onDragOver={
+                                  slot.kind === 'mdi'
+                                    ? (e) => {
                                       e.preventDefault();
                                       e.stopPropagation();
                                     }
-                                  : undefined
-                              }
-                              onDrop={
-                                slot.kind === 'mdi'
-                                  ? (e) => {
+                                    : undefined
+                                }
+                                onDrop={
+                                  slot.kind === 'mdi'
+                                    ? (e) => {
                                       e.preventDefault();
                                       e.stopPropagation();
                                       const f = e.dataTransfer.files?.[0];
@@ -8531,110 +8515,110 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                       setRawTcEditorDraft((d) =>
                                         d
                                           ? {
-                                              ...d,
-                                              extraSlots: d.extraSlots.map((s) =>
-                                                s.id === slot.id ? { ...s, file: f.name.trim() } : s
-                                              ),
-                                            }
+                                            ...d,
+                                            extraSlots: d.extraSlots.map((s) =>
+                                              s.id === slot.id ? { ...s, file: f.name.trim() } : s
+                                            ),
+                                          }
                                           : d
                                       );
                                     }
-                                  : undefined
-                              }
-                            >
-                              <div
-                                className="box-border flex h-9 w-[4.25rem] flex-shrink-0 items-center text-xs font-bold tabular-nums text-blue-700 dark:text-blue-300"
-                                title="Matches the Raw Test Cases table header for this file"
+                                    : undefined
+                                }
                               >
-                                {columnLabel}
-                              </div>
-                              <select
-                                value={slot.kind}
-                                onChange={(e) => {
-                                  const kind = e.target.value;
-                                  setRawTcEditorDraft((d) =>
-                                    d
-                                      ? {
+                                <div
+                                  className="box-border flex h-9 w-[4.25rem] flex-shrink-0 items-center text-xs font-bold tabular-nums text-blue-700 dark:text-blue-300"
+                                  title="Matches the Raw Test Cases table header for this file"
+                                >
+                                  {columnLabel}
+                                </div>
+                                <select
+                                  value={slot.kind}
+                                  onChange={(e) => {
+                                    const kind = e.target.value;
+                                    setRawTcEditorDraft((d) =>
+                                      d
+                                        ? {
                                           ...d,
                                           extraSlots: d.extraSlots.map((s) =>
                                             s.id === slot.id ? { ...s, kind } : s
                                           ),
                                         }
-                                      : d
-                                  );
-                                }}
-                                className="box-border h-9 w-[5.75rem] flex-shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
-                                title={`Maps to table column ${columnLabel}`}
-                              >
-                                <option value="vcd">VCD</option>
-                                <option value="erom">ERoM</option>
-                                <option value="ulp">ULP</option>
-                                <option value="mdi">MDI</option>
-                              </select>
-                              <div className="relative flex-1 min-w-0">
-                                <input
-                                  type="text"
-                                  list={rawTcLibraryFilePathReadOnly ? undefined : listId}
-                                  value={slot.file}
-                                  readOnly={rawTcLibraryFilePathReadOnly}
-                                  onChange={(e) => {
-                                    if (rawTcLibraryFilePathReadOnly) return;
-                                    setRawTcEditorDraft((d) =>
-                                      d
-                                        ? {
+                                        : d
+                                    );
+                                  }}
+                                  className="box-border h-9 w-[5.75rem] flex-shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                                  title={`Maps to table column ${columnLabel}`}
+                                >
+                                  <option value="vcd">VCD</option>
+                                  <option value="erom">ERoM</option>
+                                  <option value="ulp">ULP</option>
+                                  <option value="mdi">MDI</option>
+                                </select>
+                                <div className="relative flex-1 min-w-0">
+                                  <input
+                                    type="text"
+                                    list={rawTcLibraryFilePathReadOnly ? undefined : listId}
+                                    value={slot.file}
+                                    readOnly={rawTcLibraryFilePathReadOnly}
+                                    onChange={(e) => {
+                                      if (rawTcLibraryFilePathReadOnly) return;
+                                      setRawTcEditorDraft((d) =>
+                                        d
+                                          ? {
                                             ...d,
                                             extraSlots: d.extraSlots.map((s) =>
                                               s.id === slot.id ? { ...s, file: e.target.value } : s
                                             ),
                                           }
-                                        : d
-                                    );
-                                  }}
-                                  className={`box-border h-9 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2 pr-10 text-sm text-slate-900 placeholder:text-slate-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 ${rawTcLibraryFilePathReadOnly ? 'cursor-default bg-slate-50 dark:bg-slate-950' : ''}`}
-                                  placeholder={slot.kind === 'mdi' ? `${columnLabel} — select or drop` : 'select file'}
-                                />
+                                          : d
+                                      );
+                                    }}
+                                    className={`box-border h-9 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2 pr-10 text-sm text-slate-900 placeholder:text-slate-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 ${rawTcLibraryFilePathReadOnly ? 'cursor-default bg-slate-50 dark:bg-slate-950' : ''}`}
+                                    placeholder={slot.kind === 'mdi' ? `${columnLabel} — select or drop` : 'select file'}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const pickerKind =
+                                        slot.kind === 'erom'
+                                          ? 'bin'
+                                          : slot.kind === 'ulp'
+                                            ? 'lin'
+                                            : slot.kind === 'mdi'
+                                              ? 'mdi'
+                                              : 'vcd';
+                                      setRawTcFilePicker({
+                                        kind: pickerKind,
+                                        q: slot.file || '',
+                                        target: { type: 'slot', slotId: slot.id },
+                                      });
+                                    }}
+                                    className="absolute inset-y-0 right-0 px-2 inline-flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                                    title="Browse from Library"
+                                  >
+                                    <ChevronDown size={16} />
+                                  </button>
+                                </div>
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    const pickerKind =
-                                      slot.kind === 'erom'
-                                        ? 'bin'
-                                        : slot.kind === 'ulp'
-                                          ? 'lin'
-                                          : slot.kind === 'mdi'
-                                            ? 'mdi'
-                                            : 'vcd';
-                                    setRawTcFilePicker({
-                                      kind: pickerKind,
-                                      q: slot.file || '',
-                                      target: { type: 'slot', slotId: slot.id },
-                                    });
-                                  }}
-                                  className="absolute inset-y-0 right-0 px-2 inline-flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                                  title="Browse from Library"
-                                >
-                                  <ChevronDown size={16} />
-                                </button>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setRawTcEditorDraft((d) =>
-                                    d
-                                      ? {
+                                    setRawTcEditorDraft((d) =>
+                                      d
+                                        ? {
                                           ...d,
                                           extraSlots: d.extraSlots.filter((s) => s.id !== slot.id),
                                         }
-                                      : d
-                                  );
-                                }}
-                                className="box-border flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
-                                title="delete extra file"
-                              >
-                                <Trash2 size={16} />
-                              </button>
-                            </div>
-                          );
+                                        : d
+                                    );
+                                  }}
+                                  className="box-border flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
+                                  title="delete extra file"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </div>
+                            );
                           })}
                         </>
                       )}
@@ -8773,94 +8757,93 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
               <div className="p-3 flex flex-wrap items-center gap-2 border-b border-slate-200 dark:border-slate-600">
                 {/* Removed label pill (visual clutter) */}
                 <div
-                  className={`w-full mt-2 rounded-xl border-2 border-dashed p-4 flex flex-col sm:flex-row sm:items-center gap-3 cursor-pointer ${
-                    isImportDragging
+                  className={`w-full mt-2 rounded-xl border-2 border-dashed p-4 flex flex-col sm:flex-row sm:items-center gap-3 cursor-pointer ${isImportDragging
                       ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
                       : 'border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/30'
-                  } ${isImporting ? 'pointer-events-none opacity-70' : ''}`}
-                    onClick={(e) => {
-                      if (isImporting) return;
-                      if (e.target.closest('button')) return;
-                      inlineFileImportInputRef.current?.click();
-                    }}
-                    onKeyDown={(e) => {
-                      if (isImporting) return;
-                      if (e.key !== 'Enter' && e.key !== ' ') return;
-                      e.preventDefault();
-                      inlineFileImportInputRef.current?.click();
-                    }}
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setIsImportDragging(true);
-                    }}
-                    onDragLeave={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      if (!e.currentTarget.contains(e.relatedTarget)) setIsImportDragging(false);
-                    }}
-                    onDrop={async (e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setIsImportDragging(false);
-                      const files = await collectFilesFromDataTransfer(e.dataTransfer);
-                      if (files?.length) enqueueImportDrafts(files);
-                    }}
-                    onPaste={(e) => {
-                      const items = e.clipboardData?.items || [];
-                      const files = [];
-                      for (const it of items) {
-                        if (it.kind === 'file') {
-                          const f = it.getAsFile();
-                          if (f) files.push(f);
-                        }
+                    } ${isImporting ? 'pointer-events-none opacity-70' : ''}`}
+                  onClick={(e) => {
+                    if (isImporting) return;
+                    if (e.target.closest('button')) return;
+                    inlineFileImportInputRef.current?.click();
+                  }}
+                  onKeyDown={(e) => {
+                    if (isImporting) return;
+                    if (e.key !== 'Enter' && e.key !== ' ') return;
+                    e.preventDefault();
+                    inlineFileImportInputRef.current?.click();
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsImportDragging(true);
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (!e.currentTarget.contains(e.relatedTarget)) setIsImportDragging(false);
+                  }}
+                  onDrop={async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsImportDragging(false);
+                    const files = await collectFilesFromDataTransfer(e.dataTransfer);
+                    if (files?.length) enqueueImportDrafts(files);
+                  }}
+                  onPaste={(e) => {
+                    const items = e.clipboardData?.items || [];
+                    const files = [];
+                    for (const it of items) {
+                      if (it.kind === 'file') {
+                        const f = it.getAsFile();
+                        if (f) files.push(f);
                       }
-                      if (files.length) enqueueImportDrafts(files);
-                    }}
-                    tabIndex={0}
-                    role="button"
-                    aria-label="Import files: click to browse, or drop and paste here"
-                    title="Click anywhere to browse, or drop files, or paste (Cmd+V)"
+                    }
+                    if (files.length) enqueueImportDrafts(files);
+                  }}
+                  tabIndex={0}
+                  role="button"
+                  aria-label="Import files: click to browse, or drop and paste here"
+                  title="Click anywhere to browse, or drop files, or paste (Cmd+V)"
                 >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0">
-                        <Upload size={18} />
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0">
+                      <Upload size={18} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">
+                        Import files area
                       </div>
-                      <div className="min-w-0">
-                        <div className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">
-                          Import files area
-                        </div>
-                        <div className="text-xs text-slate-500 dark:text-slate-400">
-                          Drag & drop, paste (Cmd+V), or browse files/folder
-                        </div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">
+                        Drag & drop, paste (Cmd+V), or browse files/folder
                       </div>
                     </div>
+                  </div>
 
-                    <div className="flex items-center gap-2 sm:ml-auto">
-                      <input
-                        ref={inlineFileImportInputRef}
-                        type="file"
-                        multiple
-                        accept=".vcd,.erom,.ulp,.txt"
-                        className="hidden"
-                        onChange={(e) => {
-                          const files = e.target.files;
-                          if (files?.length) enqueueImportDrafts(files);
-                          e.target.value = '';
-                        }}
-                      />
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          inlineFileImportInputRef.current?.click();
-                        }}
-                        disabled={isImporting}
-                        className="px-3 py-2 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
-                      >
-                        Browse
-                      </button>
-                    </div>
+                  <div className="flex items-center gap-2 sm:ml-auto">
+                    <input
+                      ref={inlineFileImportInputRef}
+                      type="file"
+                      multiple
+                      accept=".vcd,.erom,.ulp,.txt"
+                      className="hidden"
+                      onChange={(e) => {
+                        const files = e.target.files;
+                        if (files?.length) enqueueImportDrafts(files);
+                        e.target.value = '';
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        inlineFileImportInputRef.current?.click();
+                      }}
+                      disabled={isImporting}
+                      className="px-3 py-2 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      Browse
+                    </button>
+                  </div>
                 </div>
                 {/* Import preview moved to modal */}
                 <div className="w-full mt-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900/40 p-2">
@@ -8873,11 +8856,10 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                             key={k}
                             type="button"
                             onClick={() => setFileFilter(k)}
-                            className={`px-2 py-1 text-[11px] font-semibold border-r last:border-r-0 border-slate-200 dark:border-slate-700 ${
-                              fileFilter === k
+                            className={`px-2 py-1 text-[11px] font-semibold border-r last:border-r-0 border-slate-200 dark:border-slate-700 ${fileFilter === k
                                 ? 'bg-blue-600 text-white'
                                 : 'bg-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70'
-                            }`}
+                              }`}
                           >
                             {k === 'all' ? 'All' : k === 'mdi' ? 'MDI' : k.toUpperCase()}
                           </button>
@@ -8933,163 +8915,163 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                       ))}
                     </datalist>
                     <div className="flex shrink-0 items-center gap-1.5">
-                    <select
-                      value={libraryFileFilter === 'mine' ? '__active__' : libraryFileFilter}
-                      onChange={(e) => setLibraryFileFilter(e.target.value)}
-                      className="shrink-0 h-8 pl-1.5 pr-6 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 min-w-[112px] max-w-[min(180px,32vw)]"
-                      title="Filter files by owner (profile)"
-                    >
-                      <option value="all">All owners</option>
-                      <option value="__active__">
-                        {resolveOwnerDisplayName(activeProfileId, ownerLabelCtx) || activeProfile?.name || 'My profile'}
-                      </option>
-                      {allOwnerProfiles
-                        .filter((p) => String(p?.id) !== String(activeProfileId))
-                        .map((p) => (
-                          <option key={`file-owner-${p.id}`} value={String(p.id)}>
-                            {p.name || p.id}
-                          </option>
-                        ))}
-                      <option value="shared">Shared with me</option>
-                    </select>
-                    <div className="relative shrink-0 min-w-[136px] w-[154px]" data-lib-filter-pick-root>
-                      <input
-                        type="text"
-                        list="lib-filter-h-name"
-                        value={fileSearch}
-                        onChange={(e) => setFileSearch(e.target.value)}
-                        onBlur={() => recordFileLibraryToolbarFilterHistory('name', fileSearch)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') recordFileLibraryToolbarFilterHistory('name', fileSearch);
-                        }}
-                        placeholder="Name"
-                        className="w-full h-8 pl-2 pr-8 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
-                      />
-                      <button
-                        type="button"
-                        aria-label="Suggestions"
-                        title="Suggestions"
-                        className="absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/90 dark:hover:bg-slate-800/80"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleLibraryToolbarFilterPick('name', e.currentTarget);
-                        }}
+                      <select
+                        value={libraryFileFilter === 'mine' ? '__active__' : libraryFileFilter}
+                        onChange={(e) => setLibraryFileFilter(e.target.value)}
+                        className="shrink-0 h-8 pl-1.5 pr-6 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 min-w-[112px] max-w-[min(180px,32vw)]"
+                        title="Filter files by owner (profile)"
                       >
-                        <ChevronDown className="w-3.5 h-3.5 pointer-events-none" strokeWidth={2} />
-                      </button>
-                    </div>
-                    <div className="relative shrink-0 min-w-[96px] w-[112px]" data-lib-filter-pick-root>
-                      <input
-                        type="text"
-                        list="lib-filter-h-tag"
-                        value={fileTagSearch}
-                        onChange={(e) => setFileTagSearch(e.target.value)}
-                        onBlur={() => recordFileLibraryToolbarFilterHistory('tag', fileTagSearch)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') recordFileLibraryToolbarFilterHistory('tag', fileTagSearch);
-                        }}
-                        placeholder="Tag"
-                        className="w-full h-8 pl-2 pr-8 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
-                      />
-                      <button
-                        type="button"
-                        aria-label="Suggestions"
-                        title="Suggestions"
-                        className="absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/90 dark:hover:bg-slate-800/80"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleLibraryToolbarFilterPick('tag', e.currentTarget);
-                        }}
-                      >
-                        <ChevronDown className="w-3.5 h-3.5 pointer-events-none" strokeWidth={2} />
-                      </button>
-                    </div>
+                        <option value="all">All owners</option>
+                        <option value="__active__">
+                          {resolveOwnerDisplayName(activeProfileId, ownerLabelCtx) || activeProfile?.name || 'My profile'}
+                        </option>
+                        {allOwnerProfiles
+                          .filter((p) => String(p?.id) !== String(activeProfileId))
+                          .map((p) => (
+                            <option key={`file-owner-${p.id}`} value={String(p.id)}>
+                              {p.name || p.id}
+                            </option>
+                          ))}
+                        <option value="shared">Shared with me</option>
+                      </select>
+                      <div className="relative shrink-0 min-w-[136px] w-[154px]" data-lib-filter-pick-root>
+                        <input
+                          type="text"
+                          list="lib-filter-h-name"
+                          value={fileSearch}
+                          onChange={(e) => setFileSearch(e.target.value)}
+                          onBlur={() => recordFileLibraryToolbarFilterHistory('name', fileSearch)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') recordFileLibraryToolbarFilterHistory('name', fileSearch);
+                          }}
+                          placeholder="Name"
+                          className="w-full h-8 pl-2 pr-8 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                        />
+                        <button
+                          type="button"
+                          aria-label="Suggestions"
+                          title="Suggestions"
+                          className="absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/90 dark:hover:bg-slate-800/80"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleLibraryToolbarFilterPick('name', e.currentTarget);
+                          }}
+                        >
+                          <ChevronDown className="w-3.5 h-3.5 pointer-events-none" strokeWidth={2} />
+                        </button>
+                      </div>
+                      <div className="relative shrink-0 min-w-[96px] w-[112px]" data-lib-filter-pick-root>
+                        <input
+                          type="text"
+                          list="lib-filter-h-tag"
+                          value={fileTagSearch}
+                          onChange={(e) => setFileTagSearch(e.target.value)}
+                          onBlur={() => recordFileLibraryToolbarFilterHistory('tag', fileTagSearch)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') recordFileLibraryToolbarFilterHistory('tag', fileTagSearch);
+                          }}
+                          placeholder="Tag"
+                          className="w-full h-8 pl-2 pr-8 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                        />
+                        <button
+                          type="button"
+                          aria-label="Suggestions"
+                          title="Suggestions"
+                          className="absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/90 dark:hover:bg-slate-800/80"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleLibraryToolbarFilterPick('tag', e.currentTarget);
+                          }}
+                        >
+                          <ChevronDown className="w-3.5 h-3.5 pointer-events-none" strokeWidth={2} />
+                        </button>
+                      </div>
 
-                    {(() => {
-                      const selectedKey = String(fileTagColorFilter || '').trim();
-                      const dotKey = TAG_PALETTE_MAP[selectedKey] ? selectedKey : 'mint';
-                      const isAll = !selectedKey;
-                      const q = fileTagColorSearch.trim().toLowerCase();
-                      const keys = TAG_PALETTE_KEYS.filter((k) => !q || k.toLowerCase().includes(q));
-                      return (
-                        <div className="relative shrink-0" data-file-tagcolor-dropdown-root>
-                          <button
-                            ref={fileTagColorBtnRef}
-                            type="button"
-                            onClick={() => setFileTagColorDropdownOpen((v) => !v)}
-                            className="h-8 w-8 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 inline-flex items-center justify-center"
-                            title={isAll ? 'Tag color (all)' : `Tag color: ${selectedKey}`}
-                          >
-                            <span
-                              className={`inline-flex w-2.5 h-2.5 rounded-full ${isAll ? 'bg-slate-400 dark:bg-slate-600' : (TAG_SWATCH_DOT_CLASS[dotKey] || TAG_SWATCH_DOT_CLASS.mint)}`}
-                              aria-hidden
-                            />
-                            <span className="sr-only">{isAll ? 'All tag colors' : selectedKey}</span>
-                          </button>
-                          {fileTagColorDropdownOpen && fileTagColorAnchorRect && typeof document !== 'undefined' &&
-                            createPortal(
-                              <div
-                                data-file-tagcolor-dropdown-pop
-                                className="fixed z-[200] bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg w-[200px] max-h-[320px] overflow-y-auto"
-                                style={{
-                                  top: Math.min(
-                                    fileTagColorAnchorRect.bottom + 8,
-                                    window.innerHeight - 340
-                                  ),
-                                  left: Math.max(
-                                    8,
-                                    Math.min(fileTagColorAnchorRect.left, window.innerWidth - 208)
-                                  ),
-                                }}
-                              >
-                                <div className="px-3 py-2 text-[11px] font-semibold text-slate-500 dark:text-slate-400">Tag color</div>
-                                <div className="px-2 pb-2">
-                                  <input
-                                    type="text"
-                                    value={fileTagColorSearch}
-                                    onChange={(e) => setFileTagColorSearch(e.target.value)}
-                                    placeholder="Search color…"
-                                    className="w-full h-8 px-2 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200"
-                                  />
-                                </div>
-                                <div className="p-2 space-y-1">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setFileTagColorFilter('');
-                                      setFileTagColorDropdownOpen(false);
-                                    }}
-                                    className={`w-full flex items-center justify-start px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 ${isAll ? 'bg-slate-100 dark:bg-slate-700' : ''}`}
-                                    title="All tag colors"
-                                  >
-                                    <span className="inline-flex w-2.5 h-2.5 rounded-full bg-slate-400 dark:bg-slate-600" aria-hidden />
-                                    <span className="ml-2 text-xs text-slate-700 dark:text-slate-200">All</span>
-                                  </button>
-                                  {keys.map((k) => {
-                                    const isSelected = selectedKey === k;
-                                    return (
-                                      <button
-                                        key={k}
-                                        type="button"
-                                        onClick={() => {
-                                          setFileTagColorFilter(k);
-                                          setFileTagColorDropdownOpen(false);
-                                        }}
-                                        className={`w-full flex items-center justify-start px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 ${isSelected ? 'bg-slate-100 dark:bg-slate-700' : ''}`}
-                                        title={k}
-                                      >
-                                        <span className={`inline-flex w-2.5 h-2.5 rounded-full ${TAG_SWATCH_DOT_CLASS[k] || TAG_SWATCH_DOT_CLASS.mint}`} aria-hidden />
-                                        <span className="ml-2 text-xs text-slate-700 dark:text-slate-200">{k}</span>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              </div>,
-                              document.body
-                            )}
-                        </div>
-                      );
-                    })()}
+                      {(() => {
+                        const selectedKey = String(fileTagColorFilter || '').trim();
+                        const dotKey = TAG_PALETTE_MAP[selectedKey] ? selectedKey : 'mint';
+                        const isAll = !selectedKey;
+                        const q = fileTagColorSearch.trim().toLowerCase();
+                        const keys = TAG_PALETTE_KEYS.filter((k) => !q || k.toLowerCase().includes(q));
+                        return (
+                          <div className="relative shrink-0" data-file-tagcolor-dropdown-root>
+                            <button
+                              ref={fileTagColorBtnRef}
+                              type="button"
+                              onClick={() => setFileTagColorDropdownOpen((v) => !v)}
+                              className="h-8 w-8 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 inline-flex items-center justify-center"
+                              title={isAll ? 'Tag color (all)' : `Tag color: ${selectedKey}`}
+                            >
+                              <span
+                                className={`inline-flex w-2.5 h-2.5 rounded-full ${isAll ? 'bg-slate-400 dark:bg-slate-600' : (TAG_SWATCH_DOT_CLASS[dotKey] || TAG_SWATCH_DOT_CLASS.mint)}`}
+                                aria-hidden
+                              />
+                              <span className="sr-only">{isAll ? 'All tag colors' : selectedKey}</span>
+                            </button>
+                            {fileTagColorDropdownOpen && fileTagColorAnchorRect && typeof document !== 'undefined' &&
+                              createPortal(
+                                <div
+                                  data-file-tagcolor-dropdown-pop
+                                  className="fixed z-[200] bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg w-[200px] max-h-[320px] overflow-y-auto"
+                                  style={{
+                                    top: Math.min(
+                                      fileTagColorAnchorRect.bottom + 8,
+                                      window.innerHeight - 340
+                                    ),
+                                    left: Math.max(
+                                      8,
+                                      Math.min(fileTagColorAnchorRect.left, window.innerWidth - 208)
+                                    ),
+                                  }}
+                                >
+                                  <div className="px-3 py-2 text-[11px] font-semibold text-slate-500 dark:text-slate-400">Tag color</div>
+                                  <div className="px-2 pb-2">
+                                    <input
+                                      type="text"
+                                      value={fileTagColorSearch}
+                                      onChange={(e) => setFileTagColorSearch(e.target.value)}
+                                      placeholder="Search color…"
+                                      className="w-full h-8 px-2 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200"
+                                    />
+                                  </div>
+                                  <div className="p-2 space-y-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setFileTagColorFilter('');
+                                        setFileTagColorDropdownOpen(false);
+                                      }}
+                                      className={`w-full flex items-center justify-start px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 ${isAll ? 'bg-slate-100 dark:bg-slate-700' : ''}`}
+                                      title="All tag colors"
+                                    >
+                                      <span className="inline-flex w-2.5 h-2.5 rounded-full bg-slate-400 dark:bg-slate-600" aria-hidden />
+                                      <span className="ml-2 text-xs text-slate-700 dark:text-slate-200">All</span>
+                                    </button>
+                                    {keys.map((k) => {
+                                      const isSelected = selectedKey === k;
+                                      return (
+                                        <button
+                                          key={k}
+                                          type="button"
+                                          onClick={() => {
+                                            setFileTagColorFilter(k);
+                                            setFileTagColorDropdownOpen(false);
+                                          }}
+                                          className={`w-full flex items-center justify-start px-2 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 ${isSelected ? 'bg-slate-100 dark:bg-slate-700' : ''}`}
+                                          title={k}
+                                        >
+                                          <span className={`inline-flex w-2.5 h-2.5 rounded-full ${TAG_SWATCH_DOT_CLASS[k] || TAG_SWATCH_DOT_CLASS.mint}`} aria-hidden />
+                                          <span className="ml-2 text-xs text-slate-700 dark:text-slate-200">{k}</span>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>,
+                                document.body
+                              )}
+                          </div>
+                        );
+                      })()}
                     </div>
                     <div
                       className="shrink-0 w-px h-6 self-center bg-slate-200 dark:bg-slate-600"
@@ -9097,110 +9079,110 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                     />
                     <div className="flex shrink-0 items-center gap-1.5">
 
-                    <div className="relative shrink-0 min-w-[80px] w-[92px]" data-lib-filter-pick-root>
-                      <input
-                        type="text"
-                        list="lib-filter-h-tc"
-                        value={fileTcSearch}
-                        onChange={(e) => setFileTcSearch(e.target.value)}
-                        onBlur={() => recordFileLibraryToolbarFilterHistory('tc', fileTcSearch)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') recordFileLibraryToolbarFilterHistory('tc', fileTcSearch);
-                        }}
-                        placeholder="TC"
-                        className="w-full h-8 pl-2 pr-8 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
-                      />
-                      <button
-                        type="button"
-                        aria-label="Suggestions"
-                        title="Suggestions"
-                        className="absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/90 dark:hover:bg-slate-800/80"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleLibraryToolbarFilterPick('tc', e.currentTarget);
-                        }}
-                      >
-                        <ChevronDown className="w-3.5 h-3.5 pointer-events-none" strokeWidth={2} />
-                      </button>
-                    </div>
-                    <div className="relative shrink-0 min-w-[80px] w-[92px]" data-lib-filter-pick-root>
-                      <input
-                        type="text"
-                        list="lib-filter-h-set"
-                        value={fileSetSearch}
-                        onChange={(e) => setFileSetSearch(e.target.value)}
-                        onBlur={() => recordFileLibraryToolbarFilterHistory('set', fileSetSearch)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') recordFileLibraryToolbarFilterHistory('set', fileSetSearch);
-                        }}
-                        placeholder="Set"
-                        className="w-full h-8 pl-2 pr-8 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
-                      />
-                      <button
-                        type="button"
-                        aria-label="Suggestions"
-                        title="Suggestions"
-                        className="absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/90 dark:hover:bg-slate-800/80"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleLibraryToolbarFilterPick('set', e.currentTarget);
-                        }}
-                      >
-                        <ChevronDown className="w-3.5 h-3.5 pointer-events-none" strokeWidth={2} />
-                      </button>
-                    </div>
-                    <div className="relative shrink-0 min-w-[104px] w-[118px]" data-lib-filter-pick-root>
-                      <input
-                        type="text"
-                        list="lib-filter-h-date"
-                        value={fileDateSearch}
-                        onChange={(e) => setFileDateSearch(e.target.value)}
-                        onBlur={() => recordFileLibraryToolbarFilterHistory('date', fileDateSearch)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') recordFileLibraryToolbarFilterHistory('date', fileDateSearch);
-                        }}
-                        placeholder="Date"
-                        className="w-full h-8 pl-2 pr-8 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
-                      />
-                      <button
-                        type="button"
-                        aria-label="Suggestions"
-                        title="Suggestions"
-                        className="absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/90 dark:hover:bg-slate-800/80"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleLibraryToolbarFilterPick('date', e.currentTarget);
-                        }}
-                      >
-                        <ChevronDown className="w-3.5 h-3.5 pointer-events-none" strokeWidth={2} />
-                      </button>
-                    </div>
-                    <div className="relative shrink-0 min-w-[92px] w-[108px]" data-lib-filter-pick-root>
-                      <input
-                        type="text"
-                        list="lib-filter-h-size"
-                        value={fileSizeSearch}
-                        onChange={(e) => setFileSizeSearch(e.target.value)}
-                        onBlur={() => recordFileLibraryToolbarFilterHistory('size', fileSizeSearch)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') recordFileLibraryToolbarFilterHistory('size', fileSizeSearch);
-                        }}
-                        placeholder="Size"
-                        className="w-full h-8 pl-2 pr-8 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
-                      />
-                      <button
-                        type="button"
-                        aria-label="Suggestions"
-                        title="Suggestions"
-                        className="absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/90 dark:hover:bg-slate-800/80"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleLibraryToolbarFilterPick('size', e.currentTarget);
-                        }}
-                      >
-                        <ChevronDown className="w-3.5 h-3.5 pointer-events-none" strokeWidth={2} />
-                      </button>
-                    </div>
+                      <div className="relative shrink-0 min-w-[80px] w-[92px]" data-lib-filter-pick-root>
+                        <input
+                          type="text"
+                          list="lib-filter-h-tc"
+                          value={fileTcSearch}
+                          onChange={(e) => setFileTcSearch(e.target.value)}
+                          onBlur={() => recordFileLibraryToolbarFilterHistory('tc', fileTcSearch)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') recordFileLibraryToolbarFilterHistory('tc', fileTcSearch);
+                          }}
+                          placeholder="TC"
+                          className="w-full h-8 pl-2 pr-8 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                        />
+                        <button
+                          type="button"
+                          aria-label="Suggestions"
+                          title="Suggestions"
+                          className="absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/90 dark:hover:bg-slate-800/80"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleLibraryToolbarFilterPick('tc', e.currentTarget);
+                          }}
+                        >
+                          <ChevronDown className="w-3.5 h-3.5 pointer-events-none" strokeWidth={2} />
+                        </button>
+                      </div>
+                      <div className="relative shrink-0 min-w-[80px] w-[92px]" data-lib-filter-pick-root>
+                        <input
+                          type="text"
+                          list="lib-filter-h-set"
+                          value={fileSetSearch}
+                          onChange={(e) => setFileSetSearch(e.target.value)}
+                          onBlur={() => recordFileLibraryToolbarFilterHistory('set', fileSetSearch)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') recordFileLibraryToolbarFilterHistory('set', fileSetSearch);
+                          }}
+                          placeholder="Set"
+                          className="w-full h-8 pl-2 pr-8 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                        />
+                        <button
+                          type="button"
+                          aria-label="Suggestions"
+                          title="Suggestions"
+                          className="absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/90 dark:hover:bg-slate-800/80"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleLibraryToolbarFilterPick('set', e.currentTarget);
+                          }}
+                        >
+                          <ChevronDown className="w-3.5 h-3.5 pointer-events-none" strokeWidth={2} />
+                        </button>
+                      </div>
+                      <div className="relative shrink-0 min-w-[104px] w-[118px]" data-lib-filter-pick-root>
+                        <input
+                          type="text"
+                          list="lib-filter-h-date"
+                          value={fileDateSearch}
+                          onChange={(e) => setFileDateSearch(e.target.value)}
+                          onBlur={() => recordFileLibraryToolbarFilterHistory('date', fileDateSearch)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') recordFileLibraryToolbarFilterHistory('date', fileDateSearch);
+                          }}
+                          placeholder="Date"
+                          className="w-full h-8 pl-2 pr-8 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                        />
+                        <button
+                          type="button"
+                          aria-label="Suggestions"
+                          title="Suggestions"
+                          className="absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/90 dark:hover:bg-slate-800/80"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleLibraryToolbarFilterPick('date', e.currentTarget);
+                          }}
+                        >
+                          <ChevronDown className="w-3.5 h-3.5 pointer-events-none" strokeWidth={2} />
+                        </button>
+                      </div>
+                      <div className="relative shrink-0 min-w-[92px] w-[108px]" data-lib-filter-pick-root>
+                        <input
+                          type="text"
+                          list="lib-filter-h-size"
+                          value={fileSizeSearch}
+                          onChange={(e) => setFileSizeSearch(e.target.value)}
+                          onBlur={() => recordFileLibraryToolbarFilterHistory('size', fileSizeSearch)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') recordFileLibraryToolbarFilterHistory('size', fileSizeSearch);
+                          }}
+                          placeholder="Size"
+                          className="w-full h-8 pl-2 pr-8 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                        />
+                        <button
+                          type="button"
+                          aria-label="Suggestions"
+                          title="Suggestions"
+                          className="absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/90 dark:hover:bg-slate-800/80"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleLibraryToolbarFilterPick('size', e.currentTarget);
+                          }}
+                        >
+                          <ChevronDown className="w-3.5 h-3.5 pointer-events-none" strokeWidth={2} />
+                        </button>
+                      </div>
                     </div>
 
                     {libraryToolbarFilterPickField && libraryToolbarFilterPickAnchorRect && typeof document !== 'undefined' &&
@@ -9271,7 +9253,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                       </button>
                       {selectedFileSet.size > 0 && (
                         <span className="text-xs text-slate-500">
-                          {selectedFileSet.size} selected{selectedInUse > 0 ?  ' (includes locked rows)' : ''}
+                          {selectedFileSet.size} selected{selectedInUse > 0 ? ' (includes locked rows)' : ''}
                         </span>
                       )}
                     </div>
@@ -9591,28 +9573,28 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                     );
                                     const displayTags = orderedTags;
                                     return displayTags.slice(0, 3).map((t, ti) => {
-                                    const colorKey = resolveFileLibraryRowTagColorKey(f, fileTagColors);
-                                    const palette =
-                                      FILE_TAG_PALETTE_MAP[colorKey] || FILE_TAG_PALETTE_MAP.mint;
-                                    return (
-                                      <button
-                                        key={`${f.id}-tag-${ti}-${t}`}
-                                        type="button"
-                                        disabled={fpBusy}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          if (fpBusy) return;
-                                          const keys = Object.keys(FILE_TAG_PALETTE_MAP);
-                                          const cur = resolveFileLibraryRowTagColorKey(f, fileTagColors);
-                                          const idx = Math.max(0, keys.indexOf(cur));
-                                          setFileTagColor?.(f.id, keys[(idx + 1) % keys.length]);
-                                        }}
-                                        className={`inline-flex items-center justify-center shrink-0 min-h-7 min-w-7 px-2 py-1 rounded-full text-[10px] border font-medium leading-none ${palette} hover:brightness-95 disabled:opacity-40 disabled:pointer-events-none`}
-                                        title={`${t} — click to change color`}
-                                      >
-                                        <span className="pointer-events-none select-none">{t}</span>
-                                      </button>
-                                    );
+                                      const colorKey = resolveFileLibraryRowTagColorKey(f, fileTagColors);
+                                      const palette =
+                                        FILE_TAG_PALETTE_MAP[colorKey] || FILE_TAG_PALETTE_MAP.mint;
+                                      return (
+                                        <button
+                                          key={`${f.id}-tag-${ti}-${t}`}
+                                          type="button"
+                                          disabled={fpBusy}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (fpBusy) return;
+                                            const keys = Object.keys(FILE_TAG_PALETTE_MAP);
+                                            const cur = resolveFileLibraryRowTagColorKey(f, fileTagColors);
+                                            const idx = Math.max(0, keys.indexOf(cur));
+                                            setFileTagColor?.(f.id, keys[(idx + 1) % keys.length]);
+                                          }}
+                                          className={`inline-flex items-center justify-center shrink-0 min-h-7 min-w-7 px-2 py-1 rounded-full text-[10px] border font-medium leading-none ${palette} hover:brightness-95 disabled:opacity-40 disabled:pointer-events-none`}
+                                          title={`${t} — click to change color`}
+                                        >
+                                          <span className="pointer-events-none select-none">{t}</span>
+                                        </button>
+                                      );
                                     });
                                   })()}
                                   {tags.length > 0 && (
@@ -9780,15 +9762,14 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                     setFileVisById((prev) => ({ ...prev, [f.id]: nextClosed ? 'close' : 'open' }));
                                     setSelectedLibraryFileIds((prev) => prev.filter((id) => id !== f.id));
                                   }}
-                                  className={`inline-flex items-center justify-center p-1 rounded ${
-                                    fpBusy
+                                  className={`inline-flex items-center justify-center p-1 rounded ${fpBusy
                                       ? 'text-amber-500/80 cursor-not-allowed opacity-80'
                                       : inUseByBatch
                                         ? 'text-blue-500 hover:bg-blue-500/10 cursor-not-allowed opacity-80'
                                         : isFileClosed
                                           ? 'text-amber-500 hover:bg-amber-500/10'
                                           : 'text-slate-400 hover:bg-slate-500/10'
-                                  }`}
+                                    }`}
                                   title={
                                     fpBusy
                                       ? 'Saving/deleting — please wait'
@@ -9929,7 +9910,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
               </div>
             </div>
           );
-        })() ) }
+        })())}
       {/* Test case history modal */}
       {testCaseHistoryFor && (() => {
         const tc = testCaseHistoryFor.tc;
@@ -9972,12 +9953,12 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                         status === 'completed'
                           ? 'bg-emerald-100 text-emerald-700'
                           : status === 'running'
-                          ? 'bg-blue-100 text-blue-700'
-                          : status === 'stopped'
-                          ? 'bg-red-100 text-red-700'
-                          : status === 'pending'
-                          ? 'bg-yellow-100 text-yellow-700'
-                          : 'bg-slate-100 text-slate-700';
+                            ? 'bg-blue-100 text-blue-700'
+                            : status === 'stopped'
+                              ? 'bg-red-100 text-red-700'
+                              : status === 'pending'
+                                ? 'bg-yellow-100 text-yellow-700'
+                                : 'bg-slate-100 text-slate-700';
                       const canNavigate = typeof onNavigateToJob === 'function' && job.id != null;
                       const goToJob = () => {
                         if (!canNavigate) return;
@@ -9987,20 +9968,19 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                       return (
                         <li
                           key={`${job.id}-${fileIndex}-${i}`}
-                          className={`flex items-center justify-between gap-2 py-2 px-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700 ${
-                            canNavigate
+                          className={`flex items-center justify-between gap-2 py-2 px-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700 ${canNavigate
                               ? 'cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-600 transition-colors'
                               : ''
-                          }`}
+                            }`}
                           onClick={canNavigate ? goToJob : undefined}
                           onKeyDown={
                             canNavigate
                               ? (e) => {
-                                  if (e.key === 'Enter' || e.key === ' ') {
-                                    e.preventDefault();
-                                    goToJob();
-                                  }
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault();
+                                  goToJob();
                                 }
+                              }
                               : undefined
                           }
                           role={canNavigate ? 'button' : undefined}
