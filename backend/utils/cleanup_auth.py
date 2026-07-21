@@ -24,6 +24,6 @@ def require_cleanup_passcode(
     if not expected:
         raise HTTPException(status_code=403, detail="Cleanup is disabled")
     provided = x_cleanup_passcode or ""
-    if not hmac.compare_digest(provided, expected):
+    if not hmac.compare_digest(provided.encode("utf-8"), expected.encode("utf-8")):
         raise HTTPException(status_code=401, detail="Invalid passcode")
     return None

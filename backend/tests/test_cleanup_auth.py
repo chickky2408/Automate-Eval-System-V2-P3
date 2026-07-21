@@ -44,6 +44,12 @@ class TestCleanupPasscode(unittest.TestCase):
         os.environ["CLEANUP_PASSCODE"] = "secret"
         self.assertIsNone(require_cleanup_passcode(x_cleanup_passcode="secret"))
 
+    def test_non_ascii_passcode_rejected(self):
+        os.environ["CLEANUP_PASSCODE"] = "secret"
+        with self.assertRaises(HTTPException) as ctx:
+            require_cleanup_passcode(x_cleanup_passcode="ผิดรหัส")
+        self.assertEqual(ctx.exception.status_code, 401)
+
 
 if __name__ == "__main__":
     unittest.main()
