@@ -265,7 +265,24 @@ async def stage_unreferenced_deletion_candidates():
 
 @router.delete("/deletion-candidates/{candidate_id}/approve", dependencies=[Depends(require_cleanup_passcode)])
 async def approve_deletion_candidate(candidate_id: str):
-    """Confirm deletion: delete from disk/DB and purge candidate registry entry."""
+    """Confirm deletion. For unreferenced_file candidates, re-verify the file is
+    still not referenced by any test case (guards against a test case attaching
+    the file after it was staged)."""
+    candidate = await file_store.get_deletion_candidate(candidate_id)
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    if candidate.get("reason") == "unreferenced_file" and candidate.get("file_id"):
+        referencing = await test_case_store.find_test_cases_referencing_file(candidate["file_id"])
+        if referencing:
+            names = ", ".join(tc["name"] for tc in referencing[:5])
+            if len(referencing) > 5:
+                names += f", +{len(referencing) - 5} more"
+            raise HTTPException(
+                status_code=409,
+                detail=f"File is now referenced by {len(referencing)} test case(s): {names}. Not deleted.",
+            )
+
     success = await file_store.approve_deletion(candidate_id)
     if not success:
         raise HTTPException(status_code=404, detail="Candidate not found")
