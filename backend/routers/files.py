@@ -250,6 +250,19 @@ async def scan_deletion_candidates():
     return await file_store.scan_orphaned_files()
 
 
+@router.post("/deletion-candidates/scan-missing", dependencies=[Depends(require_cleanup_passcode)])
+async def scan_missing_deletion_candidates():
+    """Stage DB records whose disk file is missing (reason=missing_disk_file)."""
+    return await file_store.scan_missing_files()
+
+
+@router.post("/deletion-candidates/stage-unreferenced", dependencies=[Depends(require_cleanup_passcode)])
+async def stage_unreferenced_deletion_candidates():
+    """Stage library files not referenced by any test case (reason=unreferenced_file)."""
+    referenced_ids = await test_case_store.get_referenced_file_ids()
+    return await file_store.stage_unreferenced_files(referenced_ids)
+
+
 @router.delete("/deletion-candidates/{candidate_id}/approve", dependencies=[Depends(require_cleanup_passcode)])
 async def approve_deletion_candidate(candidate_id: str):
     """Confirm deletion: delete from disk/DB and purge candidate registry entry."""
