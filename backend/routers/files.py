@@ -1,7 +1,7 @@
 """File upload and management endpoints."""
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Header
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Header, Depends
 from fastapi.responses import Response
 from typing import Optional, Set
 from datetime import datetime
@@ -11,12 +11,15 @@ from utils.file_type_utils import classify_file_type_from_filename
 from services.profile_lookup import batch_profile_names_by_ids
 from services.job_queue import job_queue_service
 from services.fe_job_store import fe_job_store
+from services.test_case_store import test_case_store
+from utils.cleanup_auth import require_cleanup_passcode
 from models.job import JobState
 
 router = APIRouter()
 
 ACTIVE_JOB_STATES = {JobState.PENDING, JobState.CONFIGURING, JobState.FLASHING, JobState.RUNNING}
 ALLOWED_UPLOAD_EXTENSIONS = {"vcd", "erom", "ulp", "txt"}
+LIBRARY_VISIBLE_FILE_TYPES = {"VCD", "EROM", "ULP"}
 
 
 async def _file_names_in_use_by_active_jobs() -> Set[str]:
@@ -45,18 +48,32 @@ class FileLibraryTagsUpdate(BaseModel):
 class FileCheckPayload(BaseModel):
     """Metadata only: for compare-before-upload. Frontend sends filename, signature (checksum), size, modifyDate."""
     filename: Optional[str] = None
-    signature: Optional[str] = None  # SHA-256 checksum (or MD5/CRC per requirement)
+    signature: Optional[str] = None  # SHA-256 checksum
     size: Optional[int] = None
     modifyDate: Optional[str] = None
 
 
 @router.post("/check")
 async def check_file(payload: FileCheckPayload):
-    """Compare by signature (checksum) before upload. Returns duplicate + existing file if found."""
+    """Compare by SHA-256 + filename + size before upload. Returns duplicate + existing file if found.
+
+    All three fields (signature/SHA-256, filename, size) must match and the
+    content on disk is re-verified via checksum to guard against stale records.
+    Providing filename and size makes the duplicate detection stricter:
+    - A file with the same checksum but a different name/size is NOT flagged as duplicate.
+    - Only when all three match AND the disk file still hashes to the same SHA-256
+      is the file considered an exact duplicate.
+    """
     checksum = (payload.signature or "").strip()
     if not checksum:
         return {"duplicate": False}
-    existing = await file_store.find_by_checksum(checksum, set_id=None)
+
+    # Pass filename and size so find_by_checksum narrows the DB query to
+    # SHA-256 + filename + size_bytes, then re-verifies disk content.
+    name = (payload.filename or "").strip() or None
+    size = payload.size if isinstance(payload.size, int) and payload.size >= 0 else None
+
+    existing = await file_store.find_by_checksum(checksum, set_id=None, name=name, size=size)
     if existing:
         return {
             "duplicate": True,
@@ -149,6 +166,7 @@ async def upload_file(
 @router.get("")
 async def list_files():
     files = await file_store.list_files()
+    files = [f for f in files if str(f.get("type") or "").upper() in LIBRARY_VISIBLE_FILE_TYPES]
     owner_ids = {f.get("ownerId") for f in files if f.get("ownerId")}
     name_map = await batch_profile_names_by_ids(owner_ids)
     result = []
@@ -190,6 +208,57 @@ async def patch_file_library_tags(file_id: str, payload: FileLibraryTagsUpdate):
     return {"success": True}
 
 
+@router.get("/unreferenced", dependencies=[Depends(require_cleanup_passcode)])
+async def get_unreferenced_files():
+    """List library files that no test case references (any of the 4 slots).
+
+    Read-only report — does NOT delete or stage anything. A freshly uploaded file
+    with no test case yet is a legitimate unused library file, not garbage, so the
+    human decides. Delete via the guarded DELETE /files/{id} (a truly unreferenced
+    file passes the parent guard and deletes cleanly).
+    """
+    referenced_ids = await test_case_store.get_referenced_file_ids()
+    files = await file_store.list_files()
+    result = []
+    for f in files:
+        if str(f.get("type") or "").upper() not in LIBRARY_VISIBLE_FILE_TYPES:
+            continue
+        if f["id"] in referenced_ids:
+            continue
+        result.append(
+            {
+                "id": f["id"],
+                "name": f["name"],
+                "size": f["size"],
+                "type": f["type"],
+                "uploadDate": f["uploadDate"],
+                "ownerId": f.get("ownerId"),
+            }
+        )
+    return result
+
+
+@router.get("/deletion-candidates", dependencies=[Depends(require_cleanup_passcode)])
+async def get_deletion_candidates():
+    """List all pending deletion candidates."""
+    return await file_store.get_deletion_candidates()
+
+
+@router.post("/deletion-candidates/scan", dependencies=[Depends(require_cleanup_passcode)])
+async def scan_deletion_candidates():
+    """Scan upload storage and stage orphaned disk files for manual deletion."""
+    return await file_store.scan_orphaned_files()
+
+
+@router.delete("/deletion-candidates/{candidate_id}/approve", dependencies=[Depends(require_cleanup_passcode)])
+async def approve_deletion_candidate(candidate_id: str):
+    """Confirm deletion: delete from disk/DB and purge candidate registry entry."""
+    success = await file_store.approve_deletion(candidate_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    return {"success": True}
+
+
 @router.get("/{file_id}")
 async def get_file(file_id: str):
     record = await file_store.get_file(file_id)
@@ -228,6 +297,16 @@ async def delete_file(
         raise HTTPException(
             status_code=409,
             detail="File is in use by a running or pending batch. Wait for the batch to finish or remove the batch first.",
+        )
+    # Parent lookup: block deletion if any test case still references this file.
+    referencing = await test_case_store.find_test_cases_referencing_file(file_id)
+    if referencing:
+        names = ", ".join(tc["name"] for tc in referencing[:5])
+        if len(referencing) > 5:
+            names += f", +{len(referencing) - 5} more"
+        raise HTTPException(
+            status_code=409,
+            detail=f"File is referenced by {len(referencing)} test case(s): {names}. Remove or update them before deleting this file.",
         )
     success = await file_store.delete_file(file_id)
     if not success:
