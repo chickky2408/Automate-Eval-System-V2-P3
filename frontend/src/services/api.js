@@ -273,7 +273,17 @@ export const updateJob = (jobId, jobData) => {
  * Start a job
  * Expected Response: { success: true, message: string }
  */
-export const startJob = (id) => apiRequest(API_ENDPOINTS.JOB_START(id), { method: 'POST' });
+export const startJob = (id, priority) => {
+  const base = API_ENDPOINTS.JOB_START(id);
+  const url = priority ? `${base}?priority=${encodeURIComponent(priority)}` : base;
+  return apiRequest(url, { method: 'POST' });
+};
+
+/**
+ * Save an existing job as draft (revert pending -> draft; not queued)
+ * Expected Response: { success: true, message: string }
+ */
+export const saveJobAsDraft = (id) => apiRequest(API_ENDPOINTS.JOB_SAVE_DRAFT(id), { method: 'POST' });
 
 /**
  * Stop a job
@@ -495,6 +505,36 @@ export const deleteFile = (id, opts = {}) => {
   return apiRequest(API_ENDPOINTS.FILE_DELETE(id), { method: 'DELETE', headers });
 };
 
+// ============================================
+// CLEANUP APIs (passcode-gated; header X-Cleanup-Passcode)
+// ============================================
+
+const cleanupHeaders = (passcode) => ({ 'X-Cleanup-Passcode': passcode || '' });
+
+/** List unreferenced library files (C). 200 also doubles as passcode verification. */
+export const getUnreferencedFiles = (passcode) =>
+  apiRequest(API_ENDPOINTS.FILE_UNREFERENCED, { headers: cleanupHeaders(passcode) });
+
+/** List all staged deletion candidates (A/B/C). Used to verify passcode on unlock. */
+export const getDeletionCandidates = (passcode) =>
+  apiRequest(API_ENDPOINTS.FILE_DELETION_CANDIDATES, { headers: cleanupHeaders(passcode) });
+
+/** Stage disk-orphan files (A). */
+export const scanDiskOrphans = (passcode) =>
+  apiRequest(API_ENDPOINTS.FILE_DELETION_SCAN, { method: 'POST', headers: cleanupHeaders(passcode) });
+
+/** Stage missing-file records (B). */
+export const scanMissingFiles = (passcode) =>
+  apiRequest(API_ENDPOINTS.FILE_DELETION_SCAN_MISSING, { method: 'POST', headers: cleanupHeaders(passcode) });
+
+/** Stage unreferenced library files (C). */
+export const stageUnreferenced = (passcode) =>
+  apiRequest(API_ENDPOINTS.FILE_DELETION_STAGE_UNREF, { method: 'POST', headers: cleanupHeaders(passcode) });
+
+/** Approve (delete) a staged candidate. */
+export const approveDeletionCandidate = (id, passcode) =>
+  apiRequest(API_ENDPOINTS.FILE_DELETION_APPROVE(id), { method: 'DELETE', headers: cleanupHeaders(passcode) });
+
 /**
  * Update library file tags / pill color (server-wide, all profiles see the same).
  * Body: only include fields to change (e.g. { tags: 'a, b' } or { tagColor: 'mint' }).
@@ -665,6 +705,12 @@ export const getResultById = (id) => apiRequest(API_ENDPOINTS.RESULT_BY_ID(id));
  */
 export const getResultWaveform = (id) => apiRequest(API_ENDPOINTS.RESULT_WAVEFORM(id));
 
+export const getResultWaveformPreview = (id, maxSamples = 2000) =>
+  apiRequest(API_ENDPOINTS.RESULT_WAVEFORM_PREVIEW(id, maxSamples));
+
+export const getResultWaveformExportUrl = (id, format = 'h5') =>
+  API_ENDPOINTS.RESULT_WAVEFORM_EXPORT(id, format);
+
 /**
  * Get result log
  * Expected Response: log text or object
@@ -792,6 +838,7 @@ export default {
   createJob,
   updateJob,
   startJob,
+  saveJobAsDraft,
   stopJob,
   stopAllJobs,
   exportJob,
@@ -836,6 +883,8 @@ export default {
   getResults,
   getResultById,
   getResultWaveform,
+  getResultWaveformPreview,
+  getResultWaveformExportUrl,
   getResultLog,
   deleteResult,
   

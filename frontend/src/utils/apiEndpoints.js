@@ -8,7 +8,8 @@
  * current browser origin (not localhost on each teammate's machine).
  */
 
-const configuredApiBase = import.meta.env.VITE_API_BASE_URL;
+const viteEnv = import.meta.env || {};
+const configuredApiBase = viteEnv.VITE_API_BASE_URL;
 const API_BASE_URL = configuredApiBase || 'http://localhost:8000/api';
 
 const API_ORIGIN = (() => {
@@ -19,7 +20,7 @@ const API_ORIGIN = (() => {
   return u.replace(/\/api\/?$/, '') || 'http://localhost:8000';
 })();
 
-const configuredWsBase = import.meta.env.VITE_WS_BASE_URL;
+const configuredWsBase = viteEnv.VITE_WS_BASE_URL;
 const WS_BASE_URL =
   configuredWsBase ||
   (() => {
@@ -105,6 +106,7 @@ export const API_ENDPOINTS = {
   JOB_BY_ID: (id) => `${API_BASE_URL}/jobs/${id}`,
   JOB_CREATE: `${API_BASE_URL}/jobs`,
   JOB_START: (id) => `${API_BASE_URL}/jobs/${id}/start`,
+  JOB_SAVE_DRAFT: (id) => `${API_BASE_URL}/jobs/${id}/save-draft`,
   JOB_STOP: (id) => `${API_BASE_URL}/jobs/${id}/stop`,
   JOB_STOP_ALL: `${API_BASE_URL}/jobs/stop-all`,
   JOB_EXPORT: (id) => `${API_BASE_URL}/jobs/${id}/export`,
@@ -136,8 +138,10 @@ export const API_ENDPOINTS = {
   // Test Cases/Sets
   TEST_CASES: `${API_BASE_URL}/test-management/test-cases`,
   TEST_CASES_BY_ID: (id) => `${API_BASE_URL}/test-management/test-cases/${id}`,
-  TEST_SETS: `${API_BASE_URL}/test-management/test-sets`,
-  TEST_SETS_BY_ID: (id) => `${API_BASE_URL}/test-management/test-sets/${id}`,
+  RUN_SETS: `${API_BASE_URL}/test-management/run-sets`,
+  RUN_SETS_BY_ID: (id) => `${API_BASE_URL}/test-management/run-sets/${id}`,
+  TEST_SETS: `${API_BASE_URL}/test-management/run-sets`,
+  TEST_SETS_BY_ID: (id) => `${API_BASE_URL}/test-management/run-sets/${id}`,
   TEST_SETS_ITEMS: (setId) => `${API_BASE_URL}/test-management/test-sets/${setId}/items`,
   TEST_SETS_ADD_ITEM: (setId) => `${API_BASE_URL}/test-management/test-sets/${setId}/items`,
   TEST_SETS_REMOVE_ITEM: (setId, testCaseId) => `${API_BASE_URL}/test-management/test-sets/${setId}/items/${testCaseId}`,
@@ -151,6 +155,14 @@ export const API_ENDPOINTS = {
   FILE_DELETE: (id) => `${API_BASE_URL}/files/${id}`,
   /** PATCH body: { tags?: string, tagColor?: string } — shared across all profiles */
   FILE_LIBRARY_TAGS_PATCH: (id) => `${API_BASE_URL}/files/${id}/library-tags`,
+
+  // Cleanup (passcode-gated; header X-Cleanup-Passcode)
+  FILE_UNREFERENCED: `${API_BASE_URL}/files/unreferenced`,
+  FILE_DELETION_CANDIDATES: `${API_BASE_URL}/files/deletion-candidates`,
+  FILE_DELETION_SCAN: `${API_BASE_URL}/files/deletion-candidates/scan`,
+  FILE_DELETION_SCAN_MISSING: `${API_BASE_URL}/files/deletion-candidates/scan-missing`,
+  FILE_DELETION_STAGE_UNREF: `${API_BASE_URL}/files/deletion-candidates/stage-unreferenced`,
+  FILE_DELETION_APPROVE: (id) => `${API_BASE_URL}/files/deletion-candidates/${id}/approve`,
 
   // Set-scoped files (บันทึก/กู้คืนไฟล์ตาม Set)
   SETS_SAVE_FILES: (setId) => `${API_BASE_URL}/sets/${setId}/files/save`,
@@ -173,6 +185,8 @@ export const API_ENDPOINTS = {
   RESULTS: `${API_BASE_URL}/results`,
   RESULT_BY_ID: (id) => `${API_BASE_URL}/results/${id}`,
   RESULT_WAVEFORM: (id) => `${API_BASE_URL}/results/${id}/waveform`,
+  RESULT_WAVEFORM_PREVIEW: (id, maxSamples = 2000) => `${API_BASE_URL}/results/${id}/preview?max_samples=${encodeURIComponent(maxSamples)}`,
+  RESULT_WAVEFORM_EXPORT: (id, format = 'h5') => `${API_BASE_URL}/results/${id}/export?format=${encodeURIComponent(format)}`,
   RESULT_LOG: (id) => `${API_BASE_URL}/results/${id}/log`,
   RESULT_DELETE: (id) => `${API_BASE_URL}/results/${id}`,
   
