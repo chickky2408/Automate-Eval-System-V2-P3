@@ -68,6 +68,28 @@ class TestApproveReverify(unittest.IsolatedAsyncioTestCase):
             row = (await s.execute(select(FileORM).where(FileORM.id == "f-2"))).scalar_one_or_none()
         self.assertIsNone(row)
 
+    async def test_approve_missing_file_blocked_when_referenced(self):
+        async with async_session() as s:
+            s.add(FileORM(id="f-3", filename="h.vcd", file_type=FileType.VCD,
+                          storage_path="uploads/h-gone.vcd", checksum_sha256="x", size_bytes=1))
+            await s.commit()
+        cand = await file_store.register_deletion_candidate(
+            filename="h.vcd", storage_path="uploads/h-gone.vcd", checksum="x",
+            size_bytes=1, reason="missing_disk_file", file_id="f-3",
+        )
+        async with async_session() as s:
+            s.add(TestCaseORM(id=str(uuid.uuid4()), name="Uses Missing", vcd_file_id="f-3"))
+            await s.commit()
+
+        with self.assertRaises(HTTPException) as ctx:
+            await files.approve_deletion_candidate(cand["id"])
+        self.assertEqual(ctx.exception.status_code, 409)
+
+        async with async_session() as s:
+            from sqlalchemy import select
+            row = (await s.execute(select(FileORM).where(FileORM.id == "f-3"))).scalar_one_or_none()
+        self.assertIsNotNone(row)
+
 
 if __name__ == "__main__":
     unittest.main()
