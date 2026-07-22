@@ -31,6 +31,7 @@ import {
 } from '../utils/tagPalette';
 import TagColorSwatchPicker from '../components/TagColorSwatchPicker';
 import UploadChoiceModal from '../components/UploadChoiceModal';
+import CleanupModal from '../components/CleanupModal';
 import { isTestCasePrimaryFileSetComplete } from '../utils/testCasePrimaryFiles';
 
 /** localStorage-backed datalist hints for toolbar text filters */
@@ -97,6 +98,9 @@ const getSetNamesUsingFile = (fileName, savedTestCaseSets) => {
 
 /** Pill classes for a saved set name, from job status map (running / pending / completed) or idle */
 const getSetJobStatusPillClass = (status) => {
+  if (status === 'draft') {
+    return 'bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-800/80 dark:text-slate-300 dark:border-slate-600';
+  }
   if (status === 'running') {
     return 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-900/35 dark:text-blue-200 dark:border-blue-600';
   }
@@ -782,6 +786,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
   const [isImporting, setIsImporting] = useState(false);
   const [importDrafts, setImportDrafts] = useState([]); // [{ id, file, name, tag }]
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
   /** After import from modal, optionally go to Run Set (same intent as old "Save and go") */
   const pendingNavigateToRunSetAfterImportRef = useRef(false);
   const fileLibraryUploadChoiceRef = useRef(null);
@@ -3545,6 +3550,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
         onConfirm={handleFileLibraryUploadChoiceConfirm}
         onCancel={handleFileLibraryUploadChoiceCancel}
       />
+      <CleanupModal open={cleanupOpen} onClose={() => setCleanupOpen(false)} />
       {rawTcSetsListPopover &&
         createPortal(
           <>
@@ -5258,6 +5264,14 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
               Go to Create Test Case <ChevronRight size={14} />
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => setCleanupOpen(true)}
+            className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-medium hover:bg-slate-200 dark:hover:bg-slate-600"
+            title="จัดการไฟล์กำพร้า (ต้องมี passcode)"
+          >
+            🧹 Cleanup
+          </button>
         </div>
       </div>
 
@@ -9950,7 +9964,9 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                       const date = getJobDate(job);
                       // Use the same palette as Job Management status column
                       const statusCls =
-                        status === 'completed'
+                        status === 'draft'
+                          ? 'bg-slate-100 text-slate-700'
+                          : status === 'completed'
                           ? 'bg-emerald-100 text-emerald-700'
                           : status === 'running'
                             ? 'bg-blue-100 text-blue-700'
