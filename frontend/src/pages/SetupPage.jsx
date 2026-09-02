@@ -1271,7 +1271,7 @@ const SetupPage = ({ editJobId, onEditComplete }) => {
               ref={fileInputRef}
               type="file"
               multiple
-              accept=".ist,.vcd,.erom,.bin,.hex,.elf,.ulp,.lin,.txt,.sh,.py,.json"
+              accept=".ist,.erom,.ulp,.bin,.txt"
               onChange={handleFileInputChange}
               className="hidden"
             />
