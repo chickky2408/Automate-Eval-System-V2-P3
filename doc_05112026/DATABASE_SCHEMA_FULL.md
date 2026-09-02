@@ -1,7 +1,24 @@
 # รายละเอียดโครงสร้างฐานข้อมูลเชิงลึก (Authoritative Database Schema)
-**วันที่อัปเดต:** 12 พฤษภาคม 2026 | **อ้างอิง:** `backend/db/orm_models.py`
+**วันที่อัปเดต:** 18 พฤษภาคม 2026 | **อ้างอิง:** `backend/db/orm_models.py` | **สถานะ:** Current Schema ไม่ใช่ Target Redesign
 
 [กลับสู่หน้าหลักสถาปัตยกรรมระบบ (System Architecture & Data Mapping)](./FE_MENU_API_DB_MAPPING.md)
+
+---
+
+## 0. หมายเหตุเรื่อง Current Schema vs Target Schema
+
+เอกสารนี้อธิบาย schema ที่มีอยู่จริงใน source code ปัจจุบัน เพื่อใช้ตรวจสอบ migration และ API compatibility เท่านั้น ไม่ควรถือว่าทุกตาราง/ฟิลด์ในเอกสารนี้ต้องคงอยู่ระยะยาว
+
+รายการที่ควรลดบทบาทหลัง redesign:
+
+- `job_files` จะถูกแทนด้วย `job_items`
+- `jobs.pairs_data` จะเป็น input/cache ชั่วคราว ไม่ใช่ source of truth
+- real-time fields ใน `boards` จะถูกย้ายไป `board_status`
+- `profiles.data.savedTestCases` และ `profiles.data.savedTestCaseSets` จะถูก backfill ไป `test_cases`, `test_sets`, `test_set_items`
+- tag fields ที่กระจายในหลายตารางควรถูกรวมเป็น `tags` + `tags_map` เมื่อ execution model เสถียรแล้ว
+- output ขนาดใหญ่ เช่น log/waveform/report ควรแยกไป `result_files` แทนการเก็บรวมใน `results`
+
+ดู target schema และ migration strategy ได้ที่ [PROPOSED_DATABASE_REDESIGN.md](./PROPOSED_DATABASE_REDESIGN.md)
 
 ---
 

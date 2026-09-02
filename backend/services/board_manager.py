@@ -4,23 +4,28 @@ Handles discovery, status tracking, and control of boards.
 Communicates with Zybo Agent via HTTP.
 """
 from typing import List, Optional
+import os
 import asyncio
 import httpx
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import select, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.board import BoardInfo, BoardStatus, BoardState
 from db.database import async_session
-from db.orm_models import BoardORM, BoardStatusORM
+from db.orm_models import BoardORM, BoardStatusORM, BoardTelemetryLogORM
 
 class BoardManager:
     """Manages the fleet of Zybo boards."""
 
     def __init__(self):
-        self.agent_port = 8000
+        # Port the board agent listens on. Same on every board in production;
+        # overridable for local testing where backend + agent share a host.
+        self.agent_port = int(os.getenv("AGENT_PORT", "8000"))
         self.http_client = httpx.AsyncClient(timeout=5.0)
+        # Store board_id -> timestamp when reboot was initiated to ignore racing final heartbeats
+        self._rebooting_boards = {}
 
     def _orm_to_model(self, orm: BoardORM, status_orm: Optional[BoardStatusORM] = None) -> BoardInfo:
         """Convert ORM object to BoardInfo."""
@@ -183,19 +188,37 @@ class BoardManager:
         board_id: str,
         ip: str,
         temp: float,
+        cpu_load: Optional[float] = None,
+        ram_usage: Optional[float] = None,
         fpga_status: Optional[str] = None,
         arm_status: Optional[str] = None,
     ) -> bool:
         """Process heartbeat from board."""
+        import time
+        # If the board was recently requested to reboot, ignore heartbeats for 35 seconds
+        reboot_time = self._rebooting_boards.get(board_id)
+        if reboot_time and (time.time() - reboot_time < 35):
+            # Return True so the agent thinks it succeeded, but do not update status back to online in DB
+            return True
+            
+        # Clear rebooting flag if we've passed the cooldown
+        if board_id in self._rebooting_boards:
+            del self._rebooting_boards[board_id]
+            
         async with async_session() as session:
             values = {
                 "ip_address": ip,
+                "state": BoardState.ONLINE.value,
             }
             status_values = {
                 "cpu_temp": temp,
                 "last_heartbeat": datetime.utcnow(),
                 "state": BoardState.ONLINE.value,
             }
+            if cpu_load is not None:
+                status_values["cpu_load"] = cpu_load
+            if ram_usage is not None:
+                status_values["ram_usage"] = ram_usage
             if fpga_status is not None:
                 status_values["fpga_status"] = fpga_status
             if arm_status is not None:
@@ -208,8 +231,40 @@ class BoardManager:
                 await session.execute(update(BoardStatusORM).where(BoardStatusORM.board_id == board_id).values(**status_values))
             else:
                 session.add(BoardStatusORM(board_id=board_id, **status_values))
+                
+            # Log telemetry history
+            log_entry = BoardTelemetryLogORM(
+                board_id=board_id,
+                cpu_temp=temp,
+                cpu_load=cpu_load,
+                ram_usage=ram_usage,
+                fpga_status=fpga_status,
+                arm_status=arm_status,
+                recorded_at=datetime.utcnow()
+            )
+            session.add(log_entry)
+            
+            # Prune telemetry log: keep last 100 records
+            # Find the recorded_at timestamp of the 100th record
+            cutoff_q = (
+                select(BoardTelemetryLogORM.recorded_at)
+                .where(BoardTelemetryLogORM.board_id == board_id)
+                .order_by(BoardTelemetryLogORM.recorded_at.desc())
+                .offset(100)
+                .limit(1)
+            )
+            cutoff_res = await session.execute(cutoff_q)
+            cutoff = cutoff_res.scalar()
+            if cutoff:
+                await session.execute(
+                    delete(BoardTelemetryLogORM)
+                    .where(BoardTelemetryLogORM.board_id == board_id)
+                    .where(BoardTelemetryLogORM.recorded_at <= cutoff)
+                )
+                
             await session.commit()
             return result.rowcount > 0
+
 
     async def set_board_busy(self, board_id: str, job_id: str) -> bool:
         """Mark a board as busy."""
@@ -236,6 +291,44 @@ class BoardManager:
             await session.commit()
             return result.rowcount
 
+    async def execute_job(
+        self,
+        board_id: str,
+        *,
+        job_id: str,
+        result_id: str,
+        fw_file_id: Optional[str],
+        binary_file_id: Optional[str] = None,
+        params: Optional[dict] = None,
+    ) -> bool:
+        """Dispatch a single test run to the board agent's /execute endpoint.
+
+        The agent resolves the file IDs against its own backend base URL and runs
+        download -> flash -> capture -> upload asynchronously, reporting completion
+        back via POST /api/boards/{id}/measurements and the result upload.
+        """
+        board = await self.get_board(board_id)
+        if not board or not board.ip_address:
+            return False
+
+        url = f"http://{board.ip_address}:{self.agent_port}/execute"
+        body = {
+            "job_id": job_id,
+            "result_id": result_id,
+            "fw_file_id": fw_file_id,
+            "binary_file_id": binary_file_id,
+            "params": params or {},
+        }
+        try:
+            resp = await self.http_client.post(url, json=body)
+            if resp.status_code not in (200, 202):
+                print(f"Dispatch to {board_id} returned {resp.status_code}: {resp.text}")
+                return False
+            return bool(resp.json().get("accepted", False))
+        except httpx.RequestError as e:
+            print(f"Failed to dispatch job to {board_id}: {e}")
+            return False
+
     async def reboot_board(self, board_id: str) -> bool:
         """Send reboot command to Agent via HTTP."""
         board = await self.get_board(board_id)
@@ -245,7 +338,11 @@ class BoardManager:
         url = f"http://{board.ip_address}:{self.agent_port}/system/reboot"
         try:
             resp = await self.http_client.post(url)
-            return resp.status_code == 200
+            if resp.status_code == 200:
+                import time
+                self._rebooting_boards[board_id] = time.time()
+                return True
+            return False
         except httpx.RequestError as e:
             print(f"Failed to reboot {board_id}: {e}")
             return False
@@ -262,5 +359,64 @@ class BoardManager:
             return resp.status_code == 200
         except httpx.RequestError:
             return False
+
+    async def mark_stale_boards_offline(
+        self,
+        timeout_seconds: int = 60,
+    ) -> int:
+        """
+        Background watchdog: mark boards offline if no heartbeat within timeout.
+
+        Called periodically (every 30 s) from main.py lifespan.
+        Only flips boards that are currently 'online' or 'busy' — avoids
+        repeatedly touching boards already marked 'offline' or 'error'.
+
+        Returns the number of boards flipped to offline.
+        """
+        cutoff = datetime.utcnow() - timedelta(seconds=timeout_seconds)
+        async with async_session() as session:
+            # Find board_status rows where state is online/busy AND last_heartbeat
+            # is older than cutoff (or NULL which means never heard from).
+            stale = (await session.execute(
+                select(BoardStatusORM).where(
+                    BoardStatusORM.state.in_(["online", "busy"]),
+                    (BoardStatusORM.last_heartbeat == None) |  # noqa: E711
+                    (BoardStatusORM.last_heartbeat < cutoff),
+                )
+            )).scalars().all()
+
+            if not stale:
+                return 0
+
+            stale_ids = [row.board_id for row in stale]
+            now = datetime.utcnow()
+
+            # Update board_status table — also clear telemetry so stale
+            # sensor values don't show alongside an "offline" state badge.
+            await session.execute(
+                update(BoardStatusORM)
+                .where(BoardStatusORM.board_id.in_(stale_ids))
+                .values(
+                    state=BoardState.OFFLINE.value,
+                    last_heartbeat=now,
+                    cpu_temp=None,
+                    cpu_load=None,
+                    ram_usage=None,
+                    fpga_status=None,
+                    arm_status=None,
+                )
+            )
+            # Keep boards table in sync
+            await session.execute(
+                update(BoardORM)
+                .where(BoardORM.id.in_(stale_ids))
+                .values(state=BoardState.OFFLINE.value)
+            )
+            await session.commit()
+
+            for board_id in stale_ids:
+                print(f"[watchdog] Board {board_id} marked offline (no heartbeat for >{timeout_seconds}s)")
+
+            return len(stale_ids)
 
 board_manager = BoardManager()

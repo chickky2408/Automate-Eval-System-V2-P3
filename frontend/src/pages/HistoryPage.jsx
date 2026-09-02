@@ -16,7 +16,7 @@ import { useTestStore } from '../store/useTestStore';
 // 5. HISTORY PAGE
 const isDemoHistoryJob = (job) => typeof job?.id === 'string' && String(job.id).startsWith('demo-');
 
-const HistoryPage = ({ onViewJob }) => {
+const HistoryPage = ({ onViewJob, onNavigateToWaveform }) => {
   const { jobs, exportJobToJSON, exportAllFailedLogs, loading, errors, deleteJob, addToast } = useTestStore();
   const [downloadMenuOpenJobId, setDownloadMenuOpenJobId] = useState(null);
   const [downloadMenuAnchorRect, setDownloadMenuAnchorRect] = useState(null);
@@ -193,8 +193,8 @@ const HistoryPage = ({ onViewJob }) => {
     [completedJobs]
   );
 
-  const displayCompletedColumn = [DEMO_COMPLETED_JOB, DEMO_COMPLETED_JOB_2, ...completedSuccessSource];
-  const displayErrorColumn = [DEMO_FAILED_JOB, DEMO_FAILED_JOB_2, ...errorColumnSource];
+  const displayCompletedColumn = completedSuccessSource;
+  const displayErrorColumn = errorColumnSource;
 
   const matchesHistoryFilters = useCallback((job) => {
     if (statusFilter === 'passed' && jobHasExecutionFailure(job)) return false;
@@ -831,6 +831,21 @@ Summary:
                 <Trash2 size={16} />
               </button>
             )}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (typeof onNavigateToWaveform === 'function') {
+                  onNavigateToWaveform(job.id);
+                } else {
+                  useTestStore.getState().setWaveformFocusResultId(job.id);
+                }
+              }}
+              className="p-1.5 rounded-md text-slate-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/30 dark:hover:text-purple-300 transition-colors"
+              title="Open Waveform Viewer for this job"
+            >
+              <Activity size={16} />
+            </button>
             {typeof onViewJob === 'function' && (
               <button
                 type="button"

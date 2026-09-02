@@ -55,6 +55,10 @@ Thumbs.db
 **/*.tmp
 **/*.temp
 .cache/
+.omc/
+**/.omc/
+backend/tmp/
+*.bkp
 
 # Playwright regression
 /test-results/

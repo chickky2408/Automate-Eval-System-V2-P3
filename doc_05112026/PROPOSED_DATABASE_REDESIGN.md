@@ -17,7 +17,7 @@ erDiagram
     profiles ||--o{ notifications : "receives"
     profiles ||--o{ files         : "owns"
     profiles ||--o{ test_cases    : "owns"
-    profiles ||--o{ test_suites    : "owns"
+    profiles ||--o{ run_sets      : "owns"
     profiles ||--o{ jobs          : "created by"
 
     %% ── Hardware ──────────────────────────────────────
@@ -28,7 +28,7 @@ erDiagram
     tags ||--o{ tags_map          : "defines"
     tags_map }o--|| files         : "tags FILE"
     tags_map }o--|| test_cases    : "tags TEST_CASE"
-    tags_map }o--|| test_suites    : "tags TEST_SUITE"
+    tags_map }o--|| run_sets      : "tags RUN_SET"
     tags_map }o--|| jobs          : "tags JOB"
     tags_map }o--|| results       : "tags RESULT"
     tags_map }o--|| boards        : "tags BOARD"
@@ -39,19 +39,14 @@ erDiagram
     test_cases }o--|| files : "uses lin_file_id"
     test_cases }o--|| files : "uses mdi_file_id"
 
-    %% ── Test Definitions ──────────────────────────────
-    test_suites     ||--o{ test_suite_items : "contains"
-    test_suite_items }o--|| test_cases    : "links"
-
     %% ── Execution ─────────────────────────────────────
     jobs        ||--o{ job_targets : "targets boards via"
     boards      ||--o{ job_targets : "requested or actual board"
-    job_targets ||--o{ job_items   : "executes"
-    job_items   }o--|| test_cases  : "instance of"
-    job_items   ||--o| results     : "produces"
+    job_targets ||--o{ results     : "executes"
+    results     }o--|| test_cases  : "instance of"
 
     %% ── Result Files ──────────────────────────────────
-    results ||--o{ result_files : "has output files"
+    results ||--o{ files : "produces output files"
 
     %% ══════════════════════════════════════════════════
     %% TABLE DEFINITIONS
@@ -111,14 +106,25 @@ erDiagram
     files {
         uuid         id           PK  "File identifier"
         varchar(255) filename         "Original uploaded filename"
-        enum         file_type        "VCD | EROM | ULP | TXT | SCRIPT | OTHER"
-        varchar(512) storage_path     "Absolute server path to file"
+        enum         file_type        "VCD | EROM | ULP | TXT | SCRIPT | LOG | WAVEFORM | REPORT | OTHER"
+        varchar(512) storage_path     "Relative path to file (under storage base)"
         char(64)     checksum         "SHA-256 for dedup and integrity check"
         bigint       size_bytes       "File size in bytes"
         uuid         owner_id     FK  "→ profiles.id (uploader)"
-        enum         visibility       "private | public"
-        datetime     uploaded_at      "Upload timestamp"
-        datetime     updated_at       "Metadata last modified timestamp"
+        uuid         result_id    FK  "→ results.id (NULL if not output file)"
+        datetime     uploaded_at      "Upload/creation timestamp"
+        datetime     modified_at      "Metadata last modified timestamp"
+    }
+
+    deletion_candidates {
+        uuid         id           PK  "Removal job identifier"
+        uuid         file_id      FK  "→ files.id (NULL if file record already deleted)"
+        varchar(255) filename         "Original filename for logging"
+        varchar(512) storage_path     "Relative storage path"
+        char(64)     checksum         "SHA-256 integrity hash"
+        bigint       size_bytes       "File size in bytes"
+        datetime     marked_at        "Timestamp when added to deletion queue"
+        varchar(100) reason           "Reason for candidate status e.g. ORPHANED_FILE"
     }
 
     tags {
@@ -130,8 +136,8 @@ erDiagram
 
     tags_map {
         uuid        tag_id      PK,FK "→ tags.id"
-        varchar(64) entity_id   PK    "ID of the tagged record (uuid 36-char for FILE/JOB etc.; MAC 17-char for BOARD)"
-        enum        entity_type PK    "FILE | TEST_CASE | TEST_SUITE | JOB | RESULT | BOARD"
+        varchar(64) entity_id   PK    "ID of the tagged record (uuid or MAC)"
+        enum        entity_type PK    "FILE | TEST_CASE | RUN_SET | JOB | RESULT | BOARD"
         datetime    created_at        "Tagged-at timestamp"
     }
 
@@ -139,40 +145,32 @@ erDiagram
         uuid         id           PK  "Test case identifier"
         varchar(255) name             "Test case label"
         uuid         vcd_file_id  FK  "→ files.id (VCD stimulus file)"
-        uuid         bin_file_id  FK  "→ files.id (EROM firmware binary)"
-        uuid         lin_file_id  FK  "→ files.id (ULP logic file)"
-        uuid         mdi_file_id  FK  "→ files.id (TXT command file)"
+        uuid         bin_file_id  FK  "→ files.id (EROM firmware binary, NULLABLE)"
+        uuid         lin_file_id  FK  "→ files.id (ULP logic file, NULLABLE)"
+        uuid         mdi_file_id  FK  "→ files.id (TXT command file, NULLABLE)"
         uuid         owner_id     FK  "→ profiles.id (creator)"
-        smallint     try_count        "Retry attempts per execution (default 1)"
-        enum         visibility       "private | public"
-        datetime     updated_at       "Last modified timestamp"
+        jsonb        config_options   "JSON config options e.g. sampling_rate, voltage_limit"
+        datetime     created_at       "Creation timestamp"
     }
 
-    test_suites {
-        uuid         id          PK  "Suite identifier"
-        varchar(255) name            "Suite label"
+    run_sets {
+        uuid         id          PK  "Run set identifier"
+        varchar(255) name            "Run set label"
         uuid         owner_id    FK  "→ profiles.id (creator)"
-        enum         visibility      "private | public"
-        datetime     updated_at      "Last modified timestamp"
-    }
-
-    test_suite_items {
-        uuid    id               PK  "Item identifier"
-        uuid    suite_id         FK  "→ test_suites.id"
-        uuid    test_case_id     FK  "→ test_cases.id"
-        integer execution_order      "Run sequence in suite (gap pattern e.g. 10,20,30 — allows reorder without renumber)"
+        jsonb        test_case_ids   "Array of test cases with execution settings"
+        datetime     created_at      "Creation timestamp"
     }
 
     jobs {
         uuid         id               PK  "Job identifier"
         varchar(255) name                 "Job label"
-        enum         status               "pending | running | completed | cancelled | failed"
+        enum         status               "draft | pending | running | completed | cancelled | failed"
         uuid         profile_id       FK  "→ profiles.id (requester)"
         varchar(255) config_name          "Named configuration used for this run"
-        smallint     progress             "Aggregate progress 0-100% (denormalized from job_items)"
+        smallint     progress             "Aggregate progress 0-100% (denormalized from results)"
         smallint     priority             "Queue priority — higher value runs first"
-        integer      timeout_seconds      "Max execution time per board in seconds (default 60) — integer to support long-running tests > 9h"
-        boolean      enable_picoscope     "Record waveform signal via Picoscope (default false)"
+        integer      timeout_seconds      "Max execution time per board in seconds"
+        boolean      enable_picoscope     "Record waveform signal via Picoscope"
         varchar(255) current_step         "Human-readable current execution step"
         text         error_message        "Top-level error summary if job failed"
         datetime     created_at           "Job creation timestamp"
@@ -184,77 +182,54 @@ erDiagram
         uuid        id                 PK  "Target identifier"
         uuid        job_id             FK  "→ jobs.id"
         enum        target_type            "specific | any"
-        varchar(17) requested_board_id FK  "→ boards.id — board user requested (NULL if type=any)"
-        varchar(17) actual_board_id    FK  "→ boards.id — board engine assigned at runtime"
+        varchar(17) requested_board_id FK  "→ boards.id (NULL if type=any)"
+        varchar(17) actual_board_id    FK  "→ boards.id (set at runtime)"
         enum        status                 "pending | running | completed | failed | board_lost | timed_out | retrying | cancelled"
         datetime    board_assigned_at      "Timestamp engine dispatched work to board"
         datetime    board_lost_at          "Timestamp board disconnected mid-run"
         smallint    retry_count            "Number of retry attempts due to board failure"
         enum        retry_reason           "BOARD_LOST | TIMED_OUT | NULL"
-        datetime    started_at             "Timestamp first job_item started on this board"
-        datetime    completed_at           "Timestamp last job_item finished on this board"
-    }
-
-    job_items {
-        uuid         id              PK  "Item identifier"
-        uuid         job_id          FK  "→ jobs.id (shortcut — avoid 2-level JOIN)"
-        uuid         job_target_id   FK  "→ job_targets.id (which board runs this)"
-        uuid         test_case_id    FK  "→ test_cases.id (template reference)"
-        enum         status              "pending | running | completed | stopped | error"
-        integer      execution_order     "Run sequence — frozen at job creation time (gap pattern e.g. 10,20,30)"
-        smallint     try_count           "Actual run attempts performed"
-        text         error_message       "Execution error detail for this test case"
-        datetime     started_at          "Test case execution start timestamp"
-        datetime     completed_at        "Test case execution end timestamp"
+        datetime    started_at             "Timestamp first test_case started on this board"
+        datetime    completed_at           "Timestamp last test_case finished on this board"
     }
 
     results {
-        uuid        id            PK  "Result identifier"
-        uuid        job_item_id   FK  "→ job_items.id"
-        uuid        job_id        FK  "→ jobs.id (shortcut — avoid 2-level JOIN)"
-        varchar(17) board_id      FK  "→ boards.id (shortcut — avoid 3-level JOIN)"
-        boolean     passed            "Test outcome: true=pass, false=fail"
-        float       duration          "Execution duration in seconds"
-        datetime    started_at        "Test start timestamp"
-        datetime    completed_at      "Test end timestamp"
-        jsonb       metrics_json      "Numeric metrics e.g. CRC errors, packet count"
-        jsonb       snapshot_data     "Snapshot of filenames, checksums, config at run time"
-        datetime    created_at        "Record creation timestamp"
-    }
-
-    result_files {
-        uuid         id             PK  "File record identifier"
-        uuid         result_id      FK  "→ results.id"
-        enum         file_type          "LOG | WAVEFORM | REPORT"
-        varchar(512) storage_path       "Absolute server path to output file"
-        varchar(255) filename           "Display filename for download"
-        bigint       size_bytes         "File size in bytes"
-        char(64)     checksum           "SHA-256 integrity check"
-        datetime     created_at         "File record creation timestamp"
+        uuid         id              PK  "Result/Run item identifier"
+        uuid         job_id          FK  "→ jobs.id"
+        uuid         job_target_id   FK  "→ job_targets.id"
+        uuid         test_case_id    FK  "→ test_cases.id"
+        enum         status              "pending | running | completed | stopped | error"
+        integer      execution_order     "Run sequence (frozen at job creation time)"
+        smallint     try_count           "Actual run attempts performed"
+        boolean      passed              "Test outcome: true=pass, false=fail, NULL=running/pending"
+        float        duration            "Execution duration in seconds"
+        text         error_message       "Execution error detail"
+        jsonb        metrics_json        "Numeric metrics e.g. CRC errors, packet count"
+        jsonb        snapshot_data       "Snapshot of filenames, checksums, config at run time"
+        datetime     started_at          "Test case execution start timestamp"
+        datetime     completed_at        "Test case execution end timestamp"
+        datetime     created_at          "Record creation timestamp"
     }
 ```
 
 ---
 
 ## 2. นิยาม Ownership และ Visibility (Access Control)
-ตารางหลักทั้งหมด (`files`, `test_cases`, `test_suites`) จะต้องระบุ `owner_id` (อ้างอิง `profiles.id`) และมีกฎการมองเห็นดังนี้:
-*   **`public`**: Profiles ทุกคนสามารถค้นเจอ, ดูรายละเอียด, และนำไปใช้รันได้ (Read-Only)
-*   **`private`**: เฉพาะ `owner_id` ที่สร้างเท่านั้นถึงจะเห็นและใช้งานได้
+ระบบสถาปัตยกรรมใหม่เน้นการใช้งานร่วมกันภายในทีม (Team-wide access by default) เพื่อความเรียบง่ายและลดความซับซ้อนในการจัดการสิทธิ์ จึงนำฟิลด์ `visibility` ออกจากทุกตารางหลัก (`files`, `test_cases`, `run_sets`) ข้อมูลทั้งหมดในระบบสามารถถูกเรียกดูและนำไปใช้งานร่วมกันได้ภายในโครงการ
 
-*(หมายเหตุ: Profiles Data จะทำหน้าที่เก็บแค่ Preferences หรือ Config ของ User ไม่ใช่แหล่งเก็บ Test Case หลักอีกต่อไป)*
+*(หมายเหตุ: Profiles Data ทำหน้าที่เก็บข้อมูลการระบุตัวตนและค่าปรับแต่งส่วนตัวของผู้ใช้เท่านั้น ไม่ทำหน้าที่เก็บข้อมูลทรัพยากรหลักเพื่อหลีกเลี่ยง redundancy)*
 
 ---
 
 ## 3. Execution Model และ Snapshot Data
-โครงสร้างใหม่ยกเลิกการใช้ `job_files` และ `pairs_data` (Frontend Cache) และเปลี่ยนมาใช้โครงสร้างที่แข็งแรง:
-*   **`jobs`**: คำสั่งรันระดับบนสุด (Batch/Run Request) — 1 Job ต่อ 1 การกดปุ่ม Run
+โครงสร้างใหม่ยกเลิกการใช้ `job_files` และ `pairs_data` (Frontend Cache) รวมถึงตารางพักย่อย `job_items` และ `result_files` โดยรวบระบบเป็นลำดับชั้นที่ชัดเจนดังนี้:
+*   **`jobs`**: คำสั่งรันระดับบนสุด (Batch/Run Request) — 1 Job ต่อ 1 การกดปุ่ม Run โดยสามารถเริ่มในสถานะ `draft` ได้
 *   **`job_targets`**: ตัวแทนการรันต่อ 1 Board — 1 Job สามารถมีได้หลาย Target (Multi-Board)
     *   `target_type = 'specific'` → user เจาะจง Board (`requested_board_id`) — Engine รอ board นั้น online
     *   `target_type = 'any'` → Engine หา Board ว่างใดก็ได้ อัตโนมัติ
     *   `actual_board_id` set ตอน runtime ทั้ง 2 กรณี
-*   **`job_items`**: Test Case Instances ภายใน 1 Job Target — แต่ละ Target มี set ของ `job_items` แยกกัน
-*   **`results`**: ผลลัพธ์จากการรันของ Job Item นั้นๆ (ผูกกับ Board จริงผ่าน `job_target_id`)
-*   **`result_files`**: ไฟล์ Output (Log/Waveform) ที่แยกออกมา ไม่เก็บรวมใน Database
+*   **`results`**: รวมบทบาทของ `job_items` และ `results` เดิมเข้าด้วยกัน ทำหน้าที่เป็นทั้งคิวรันย่อยราย Test Case และเป็นที่เก็บผลลัพธ์การทดสอบ โดยผูกเชื่อมโยงโดยตรงกับ `job_targets` (`job_target_id`) และ `test_cases` (`test_case_id`)
+*   **`files`**: สำหรับไฟล์ผลลัพธ์ขนาดใหญ่ (เช่น waveform, log, report) จะถูกบันทึกเป็นเรคอร์ดในตาราง `files` เดียวกัน โดยมีคอลัมน์ `result_id` ชี้กลับไปยังผลลัพธ์ที่เกี่ยวข้อง
 
 **Job Status Aggregation:**
 `jobs.status` คำนวณจาก `job_targets.status` ทั้งหมด:
@@ -269,7 +244,7 @@ erDiagram
 
 **Snapshot Data ใน `results`:**
 เพื่อให้ผลลัพธ์ย้อนหลังมีความถูกต้องแม้ File หรือ Profile จะถูกแก้ไขในภายหลัง จะมีการเก็บ Snapshot ลง `snapshot_data` (JSONB) เสมอ เช่น:
-*   ชื่อไฟล์ตอนรัน (`vcd_filename`, `bin_filename`)
+*   ชื่อไฟล์ตอนรัน (`vcd_filename`, `bin_filename`, `lin_filename`)
 *   Checksum ของไฟล์ตอนรัน
 *   ชื่อ Board ตอนรัน
 *   ชื่อ Profile Display Name ตอนรัน
@@ -301,8 +276,9 @@ erDiagram
 *   `job_targets(job_id, status)` - ดึง targets ทั้งหมดของ Job เพื่อ aggregate status
 *   `job_targets(status, target_type)` - Engine หา pending targets ที่ยังรอ board อยู่
 *   `job_targets(actual_board_id)` - รู้ว่า board นั้นรัน target ไหนอยู่
-*   `job_items(job_target_id, execution_order)` - ดึง test sequence ของ target ได้ถูกลำดับ
-*   `results(job_id)` และ `results(job_item_id)` - สรุปผล Job
+*   `results(job_target_id, execution_order)` - ดึงลำดับคิวและ Test Sequence ในการรันของ target ได้ถูกลำดับ
+*   `results(job_id)` และ `results(test_case_id)` - ดึงประวัติผลการทดสอบอย่างรวดเร็ว
+*   `files(result_id)` - ดึงไฟล์ผลลัพธ์ (Output Files) ทั้งหมดที่เกี่ยวข้องกับผลการทดสอบ
 *   `files(checksum)` - ตรวจสอบไฟล์ซ้ำซ้อน
 *   `board_status(last_heartbeat)` - Watchdog ค้นหา Board ที่หายไปได้เร็ว
 *   `board_telemetry_log(board_id, recorded_at DESC)` - ดึง graph ย้อนหลังของ board ได้เร็ว
@@ -320,7 +296,7 @@ erDiagram
 กระบวนการย้ายจากโครงสร้างเก่า (`eval_system_demo.db`) สู่โครงสร้างใหม่:
 
 *   **Phase 1: Schema Setup** - สร้างตารางใหม่ทั้งหมด และเพิ่มคอลัมน์ที่ขาดในตารางเดิม
-*   **Phase 2: Dual-write** - แก้ API ให้ตอนบันทึกข้อมูล จะเขียนลงทั้งตารางเก่า (เช่น `job_files`, `pairs_data`) และตารางใหม่ (เช่น `job_items`)
+*   **Phase 2: Dual-write** - แก้ API ให้ตอนบันทึกข้อมูล จะเขียนลงทั้งตารางเก่า (เช่น `job_files`, `pairs_data`) และตารางใหม่ (เช่น `results` และ `job_targets`)
 *   **Phase 3: Backfill** - รัน Script ทยอยดึงข้อมูลจากตารางเก่า/Profiles JSON มา Map ลงตารางใหม่ให้ครบ 100%
 *   **Phase 4: Switch Reads** - เปลี่ยน API ให้เริ่มอ่าน (Query) ข้อมูลจากตารางใหม่ทั้งหมด
 *   **Phase 5: Cleanup** - ลบตารางและคอลัมน์ตกค้าง (Legacy Fields) ทิ้งไป
@@ -332,17 +308,17 @@ erDiagram
 
 | โครงสร้างเก่า (Legacy) | โครงสร้างใหม่ (Normalized Schema) |
 | :--- | :--- |
-| `job_files` | `job_items` |
-| `jobs.pairs_data` | แปลงเป็น `job_items` หลายๆ Row |
+| `job_files` | `results` |
+| `jobs.pairs_data` | แปลงเป็น `results` หลายๆ Row |
 | `jobs.target_board_id` (single) | `job_targets` 1 row — `target_type='specific'`, `requested_board_id` |
 | `jobs.target_board_ids` (JSON array) | `job_targets` N rows — `target_type='specific'`, `requested_board_id` per row |
 | `jobs.assigned_board_id` | `job_targets.actual_board_id` |
 | `library_tags`, `file_tags`, `jobs.tag` | `tags` และ `tags_map` |
 | `boards.tag` (single string) | `tags` และ `tags_map` (`entity_type='BOARD'`) — 1 string → 1 tags row + 1 tags_map row |
 | `boards.connections` (JSON) | `boards.connections` (คงไว้ — array ของ Protocol/Interface) |
-| `results.waveform_hdf5_path`, `results.console_log` | `result_files` |
+| `results.waveform_hdf5_path`, `results.console_log` | บันทึกในตาราง `files` โดยระบุ `result_id` และ `file_type` เป็น WAVEFORM, LOG ตามลำดับ |
 | `profiles.data.savedTestCases` (JSON Blob) | `test_cases` |
-| `profiles.data.savedTestCaseSets` (JSON Blob)| `test_suites` และ `test_suite_items` |
+| `profiles.data.savedTestCaseSets` (JSON Blob)| `run_sets` (บันทึกรายการลงในฟิลด์ `test_case_ids` JSONB) |
 
 ---
 
@@ -520,7 +496,7 @@ erDiagram
 | :--- | :--- | :--- |
 | `id` | uuid (PK) | รหัสอ้างอิง Job |
 | `name` | varchar(255) | ชื่อเรียก Job |
-| `status` | enum | pending, running, completed, cancelled, failed |
+| `status` | enum | draft, pending, running, completed, cancelled, failed |
 | `profile_id` | uuid (FK → **profiles.id**) | Profile ID ผู้สั่งรัน |
 | `config_name` | varchar(255) | ชื่อ Configuration ที่ใช้รัน |
 | `progress` | smallint | ความคืบหน้ารวม 0-100% (aggregate จาก job_targets) |
@@ -560,48 +536,24 @@ CHECK (
 )
 ```
 
-#### ตาราง: `job_items`
-**วัตถุประสงค์:** Test Case Instance ภายใน 1 Job Target — แต่ละ Target มี set ของ job_items แยกกัน
-> **หมายเหตุ:** ไม่มี `result` field — derive จาก `results` table แทน: `NULL=unknown`, `passed=true→pass`, `passed=false→fail`
-
-| ฟิลด์ (Field) | ประเภท (Type) | คำอธิบายวัตถุประสงค์ |
-| :--- | :--- | :--- |
-| `id` | uuid (PK) | รหัสอ้างอิง Job Item |
-| `job_id` | uuid (FK → **jobs.id**) | อ้างอิง Job หลัก (shortcut สำหรับ query) |
-| `job_target_id` | uuid (FK → **job_targets.id**) | อ้างอิง Target (รู้ว่ารันบน Board ไหน) |
-| `test_case_id` | uuid (FK → **test_cases.id**) | อ้างอิง Test Case ต้นแบบ |
-| `status` | enum | pending, running, completed, stopped, error |
-| `execution_order` | integer | ลำดับการรัน (freeze ตอนสร้าง Job ไม่เปลี่ยนระหว่างรัน — gap pattern 10,20,30) |
-| `try_count` | smallint | จำนวนรอบที่รันจริง |
-| `error_message` | text | ข้อความแสดงความผิดพลาดระดับ Test Case |
-| `started_at` | datetime | เวลาเริ่มรัน Test Case นี้ |
-| `completed_at` | datetime | เวลาจบ Test Case นี้ |
-
 #### ตาราง: `results`
-**วัตถุประสงค์:** รายละเอียดและเมตริกผลการทดสอบ
+**วัตถุประสงค์:** รายละเอียดและเมตริกผลการทดสอบ (รวมถึงทำหน้าที่เป็น Execution Queue Item ราย Test Case ภายหลังจากยุบรวมตาราง job_items)
 
 | ฟิลด์ (Field) | ประเภท (Type) | คำอธิบายวัตถุประสงค์ |
 | :--- | :--- | :--- |
-| `id` | uuid (PK) | รหัสอ้างอิงผลลัพธ์ |
-| `job_item_id` | uuid (FK → **job_items.id**) | อ้างอิงรายการงานย่อย |
+| `id` | uuid (PK) | รหัสอ้างอิงผลลัพธ์ / รายการรันย่อย |
 | `job_id` | uuid (FK → **jobs.id**) | อ้างอิง Job หลัก |
-| `board_id` | varchar(17) (FK → **boards.id**) | บอร์ดที่ทำการทดสอบ |
-| `passed` | boolean | ผลลัพธ์รวม (True/False) |
-| `duration` | float | เวลาที่ใช้รัน (วินาที) |
+| `job_target_id` | uuid (FK → **job_targets.id**) | อ้างอิง Job Target (รหัสบอร์ดที่ได้รับมอบหมาย) |
+| `test_case_id` | uuid (FK → **test_cases.id**) | อ้างอิง Test Case ที่รัน (ต้นแบบ) |
+| `status` | enum | pending, running, completed, stopped, error (สถานะการรันระดับ Test Case) |
+| `execution_order` | integer | ลำดับการรันงาน |
+| `try_count` | smallint | จำนวนรอบการรันจริง (actual execution attempts) |
+| `passed` | boolean | ผลลัพธ์การรัน (true=ผ่าน, false=ไม่ผ่าน, NULL=กำลังรันหรือรอรัน) |
+| `duration` | float | ระยะเวลาที่ใช้รัน (วินาที) |
+| `error_message` | text | รายละเอียดความผิดพลาดระดับ Test Case |
 | `metrics_json` | jsonb | ข้อมูลเชิงตัวเลข (CRC, Packet Count ฯลฯ) |
-| `snapshot_data` | jsonb | **สำคัญ:** สำเนาชื่อไฟล์/สเปก ณ วันที่รัน |
+| `snapshot_data` | jsonb | **สำคัญ:** สำเนาชื่อไฟล์/สเปก ณ วันที่รัน (เช่น filenames, checksums, config_options) |
+| `started_at` | datetime | วันเวลาที่เริ่มรัน Test Case นี้ |
+| `completed_at` | datetime | วันเวลาที่จบการรัน Test Case นี้ |
 | `created_at` | datetime | วันที่บันทึกผล |
 
-#### ตาราง: `result_files`
-**วัตถุประสงค์:** เก็บ Path และ Metadata ของไฟล์ Output ขนาดใหญ่
-
-| ฟิลด์ (Field) | ประเภท (Type) | คำอธิบายวัตถุประสงค์ |
-| :--- | :--- | :--- |
-| `id` | uuid (PK) | รหัสอ้างอิงไฟล์ผลลัพธ์ |
-| `result_id` | uuid (FK → **results.id**) | อ้างอิงผลลัพธ์หลัก |
-| `file_type` | enum | LOG, WAVEFORM, REPORT |
-| `storage_path` | varchar(512) | ที่อยู่ไฟล์จริงบน Server |
-| `filename` | varchar(255) | ชื่อไฟล์สำหรับแสดงผลตอน Download |
-| `size_bytes` | bigint | ขนาดไฟล์ |
-| `checksum` | char(64) | SHA-256 สำหรับตรวจสอบไฟล์ |
-| `created_at` | datetime | วันที่สร้างไฟล์ |

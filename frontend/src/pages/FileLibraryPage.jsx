@@ -3680,7 +3680,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                     ref={fileImportInputRef}
                     type="file"
                     multiple
-                    accept=".vcd,.erom,.ulp,.txt"
+                    accept=".ist,.erom,.ulp"
                     className="hidden"
                     onChange={(e) => {
                       const files = e.target.files;
@@ -8838,7 +8838,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                       ref={inlineFileImportInputRef}
                       type="file"
                       multiple
-                      accept=".vcd,.erom,.ulp,.txt"
+                      accept=".ist,.erom,.ulp"
                       className="hidden"
                       onChange={(e) => {
                         const files = e.target.files;

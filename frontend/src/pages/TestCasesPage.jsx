@@ -26,6 +26,91 @@ import TagColorSwatchPicker from '../components/TagColorSwatchPicker';
 import LibraryFileTagColorFilter from '../components/LibraryFileTagColorFilter';
 import { isTestCasePrimaryFileSetComplete } from '../utils/testCasePrimaryFiles';
 
+const DEFAULT_MEASUREMENT_SETTINGS = {
+  samplingRate: '',
+  durationMs: '',
+  channels: '',
+  triggerMode: '',
+  voltageRange: '',
+};
+
+const MEASUREMENT_EXTRA_KEYS = new Set([
+  'measurementSettings',
+  'measurement_settings',
+  'config_options',
+]);
+
+const isMeasurementExtraKey = (key) => MEASUREMENT_EXTRA_KEYS.has(String(key || ''));
+
+const normalizeMeasurementSettings = (raw) => {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  return {
+    samplingRate: src.samplingRate ?? src.sampling_rate ?? '',
+    durationMs: src.durationMs ?? src.duration_ms ?? '',
+    channels: Array.isArray(src.channels) ? src.channels.join(',') : (src.channels ?? ''),
+    triggerMode: src.triggerMode ?? src.trigger_mode ?? '',
+    voltageRange: src.voltageRange ?? src.voltage_range ?? '',
+  };
+};
+
+const getTcMeasurementSettings = (tc) => {
+  const config = tc?.config_options && typeof tc.config_options === 'object' ? tc.config_options : {};
+  const extra = tc?.extraColumns && typeof tc.extraColumns === 'object' ? tc.extraColumns : {};
+  return normalizeMeasurementSettings(
+    tc?.measurementSettings ||
+      config.measurement_settings ||
+      config.measurementSettings ||
+      extra.measurementSettings ||
+      extra.measurement_settings ||
+      {}
+  );
+};
+
+const compactMeasurementSettings = (settings) => (
+  Object.fromEntries(
+    Object.entries(normalizeMeasurementSettings(settings)).filter(([, value]) => String(value ?? '').trim() !== '')
+  )
+);
+
+const buildMeasurementSettingsPatch = (tc, key, value) => {
+  const nextSettings = compactMeasurementSettings({
+    ...getTcMeasurementSettings(tc),
+    [key]: value,
+  });
+  const prevExtra = tc?.extraColumns && typeof tc.extraColumns === 'object' ? tc.extraColumns : {};
+  const nextExtra = { ...prevExtra };
+  if (Object.keys(nextSettings).length > 0) {
+    nextExtra.measurementSettings = nextSettings;
+  } else {
+    delete nextExtra.measurementSettings;
+    delete nextExtra.measurement_settings;
+  }
+  return {
+    measurementSettings: nextSettings,
+    extraColumns: nextExtra,
+  };
+};
+
+const SAMPLING_RATE_OPTIONS = [
+  '100kS/s',
+  '250kS/s',
+  '500kS/s',
+  '1MS/s',
+  '2MS/s',
+  '5MS/s',
+  '10MS/s',
+];
+
+const formatMeasurementSummary = (tc) => {
+  const settings = getTcMeasurementSettings(tc);
+  const parts = [
+    settings.samplingRate,
+    settings.durationMs ? `${settings.durationMs}ms` : '',
+    settings.channels ? `CH ${settings.channels}` : '',
+  ].filter(Boolean);
+  return parts.length ? parts.join(' · ') : 'Not set';
+};
+
 /** จัดกลุ่มไฟล์เช่น TC0008.vcd + TC0008_erom_1.erom → คีย์ TC0008 */
 function extractTcGroupKeyFromFileName(filename) {
   const base = String(filename || '').replace(/\.[^.]+$/, '');
@@ -405,6 +490,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
   const loadedSetTable = useTestStore((s) => s.loadedSetTable);
   const [pendingDraftTestCases, setPendingDraftTestCases] = useState([]);
   const [tableClearedMode, setTableClearedMode] = useState(false);
+  const [measurementSettingsModalTcId, setMeasurementSettingsModalTcId] = useState(null);
 
   // Tag history for test cases only (ไม่ปนกับ tag ของไฟล์หรือ Set)
   const tcTagHistory = useMemo(() => {
@@ -624,6 +710,61 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
     } else {
       updateSavedTestCase(id, updates);
     }
+  };
+  const updateDisplayedMeasurementSetting = (tc, key, value) => {
+    if (!tc || isViewingShared) return;
+    updateDisplayedTestCase(tc.id, buildMeasurementSettingsPatch(tc, key, value));
+  };
+  const measurementSettingsModalTc = useMemo(
+    () => displayedSavedTestCases.find((t) => String(t.id) === String(measurementSettingsModalTcId)) || null,
+    [displayedSavedTestCases, measurementSettingsModalTcId]
+  );
+  const renderMeasurementSettingsControls = (tc, compact = false) => {
+    const settings = { ...DEFAULT_MEASUREMENT_SETTINGS, ...getTcMeasurementSettings(tc) };
+    const disabled = isTestCaseInUseByBatch(tc) || isViewingShared;
+    const inputClass = `${compact ? 'min-w-[90px]' : 'w-full'} px-1.5 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800 ${disabled ? 'opacity-70 cursor-not-allowed' : ''}`;
+    const samplingValue = String(settings.samplingRate || '');
+    const fields = [
+      ['samplingRate', 'Sampling', 'e.g. 1MS/s'],
+      ['durationMs', 'Duration ms', 'e.g. 1000'],
+      ['channels', 'Channels', 'A,B'],
+      ['triggerMode', 'Trigger', 'auto'],
+      ['voltageRange', 'Voltage', '5V'],
+    ];
+    return (
+      <div className={`grid ${compact ? 'grid-cols-2 md:grid-cols-5' : 'grid-cols-1'} gap-1 min-w-[220px]`} title="Measurement settings saved per test case">
+        {fields.map(([key, label, placeholder]) => (
+          <label key={key} className="min-w-0">
+            <span className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400">{label}</span>
+            {key === 'samplingRate' ? (
+              <select
+                value={samplingValue}
+                onChange={(e) => updateDisplayedMeasurementSetting(tc, key, e.target.value)}
+                disabled={disabled}
+                className={inputClass}
+              >
+                <option value="">— Select —</option>
+                {samplingValue && !SAMPLING_RATE_OPTIONS.includes(samplingValue) && (
+                  <option value={samplingValue}>Current: {samplingValue}</option>
+                )}
+                {SAMPLING_RATE_OPTIONS.map((rate) => (
+                  <option key={rate} value={rate}>{rate}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={settings[key] ?? ''}
+                onChange={(e) => updateDisplayedMeasurementSetting(tc, key, e.target.value)}
+                disabled={disabled}
+                className={inputClass}
+                placeholder={placeholder}
+              />
+            )}
+          </label>
+        ))}
+      </div>
+    );
   };
   const removeDisplayedTestCase = (id, rowIndex) => {
     if (isViewingShared) return;
@@ -876,7 +1017,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
           .slice(0, 5);
         addToast({
           type: 'warning',
-          message: `Each test case needs VCD, ERoM, and ULP — ${incomplete.length} row(s) incomplete: ${names.join(', ')}${incomplete.length > 5 ? '…' : ''}`,
+          message: `Each test case needs a VCD file; ERoM and ULP are optional — ${incomplete.length} row(s) incomplete: ${names.join(', ')}${incomplete.length > 5 ? '…' : ''}`,
         });
         return;
       }
@@ -887,6 +1028,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
         linName: tc?.linName || null,
         tryCount: typeof tc?.tryCount === 'number' && tc.tryCount > 0 ? tc.tryCount : 1,
         boardId: tc?.boardId || null,
+        measurementSettings: compactMeasurementSettings(getTcMeasurementSettings(tc)),
         extraColumns: tc?.extraColumns && typeof tc.extraColumns === 'object' ? { ...tc.extraColumns } : {},
         createdAt: tc?.createdAt || new Date().toISOString(),
       }));
@@ -916,7 +1058,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
   }, []);
 
   const getTableExtraColKeysForTc = useCallback((t) => {
-    const fromExtra = Object.keys(t.extraColumns || {});
+    const fromExtra = Object.keys(t.extraColumns || {}).filter((key) => !isMeasurementExtraKey(key));
     const fromCmds = [];
     (t.commands || []).filter((c) => c.type === 'vcd' && (c.file || '').trim()).forEach((_, i) => fromCmds.push(`VCD${i + 2}`));
     (t.commands || []).filter((c) => c.type === 'erom' && (c.file || '').trim()).forEach((_, i) => fromCmds.push(`ERoM${i + 2}`));
@@ -979,7 +1121,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
         const names = badRows.map((t) => String(t.name || '—').trim() || '—').slice(0, 5);
         addToast({
           type: 'warning',
-          message: `Each test case needs VCD, ERoM, and ULP — not saved (${badRows.length} row(s)): ${names.join(', ')}${badRows.length > 5 ? '…' : ''}`,
+          message: `Each test case needs a VCD file; ERoM and ULP are optional — not saved (${badRows.length} row(s)): ${names.join(', ')}${badRows.length > 5 ? '…' : ''}`,
         });
         if (sendToRunSetAfterSaveRef.current) {
           sendToRunSetAfterSaveRef.current = false;
@@ -1101,7 +1243,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
     ensureUniqueTestCaseName(baseName, excludeId, { extraTestCaseLists: [pendingDraftTestCases] });
 
   const isTestCaseLocked = (tcId) => {
-    // Locked if this test case is part of any saved set (to avoid surprising changes to sets/runs)
+    // Locked if this test case is part of any run set (to avoid surprising changes to sets/runs)
     return (savedTestCaseSets || []).some((set) =>
       (Array.isArray(set.items) ? set.items : []).some((t) => t.id === tcId)
     );
@@ -1354,7 +1496,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
     prevUploadedCountRef.current = curr;
   }, [uploadedFiles.length, savedTestCases.length, pendingDraftTestCases.length, activeProfileId]);
 
-  // Auto-pair: เมื่อเลือกไฟล์ (VCD + ERoM + ULP) ให้สร้าง test case อัตโนมัติ — ใส่ draft จนกว่าจะกด Save
+  // Auto-pair: เมื่อเลือกไฟล์ (VCD required, ERoM/ULP optional) ให้สร้าง test case อัตโนมัติ — ใส่ draft จนกว่าจะกด Save
   useEffect(() => {
     const orderedFiles = selectedFiles;
     if (orderedFiles.length === 0) return;
@@ -1919,6 +2061,49 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
   };
   const handleRowDragEnd = () => { draggingRowIndexRef.current = null; setDraggingRowIndex(null); setDropTargetRowIndex(null); };
 
+  const parseCsvLine = (line) => {
+    const res = [];
+    let cur = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (c === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          cur += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (c === ',' && !inQuotes) {
+        res.push(cur.trim());
+        cur = '';
+      } else {
+        cur += c;
+      }
+    }
+    res.push(cur.trim());
+    return res;
+  };
+
+  const downloadCsvTemplate = () => {
+    const header = ['name', 'ist_file', 'erom_file', 'ulp_file', 'tag', 'try'];
+    const sampleRows = [
+      ['TC_REG_WRITE_01', 'reg_write.ist', 'firmware.erom', 'config.ulp', 'Regression', '1'],
+      ['TC_REG_READ_01', 'reg_read.ist', 'firmware.erom', '', 'SmokeTest', '2'],
+      ['TC_DMA_STREAM_01', 'dma_test.ist', '', '', 'DMA', '1'],
+    ];
+    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const lines = [header.map(esc).join(','), ...sampleRows.map((r) => r.map(esc).join(','))];
+    const blob = new Blob([`${lines.join('\n')}\n`], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'test_cases_template.csv';
+    link.click();
+    URL.revokeObjectURL(url);
+    addToast({ type: 'info', message: 'Downloaded CSV template with .ist, .erom, and .ulp columns' });
+  };
+
   const handleCsvFileInput = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1926,27 +2111,38 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
       const text = await file.text();
       const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '');
       if (lines.length < 2) {
-        addToast({ type: 'warning', message: 'CSV must have at least 1 data row' });
+        addToast({ type: 'warning', message: 'CSV must have at least 1 header row and 1 data row' });
         return;
       }
-      const headerRaw = lines[0].split(',').map((h) => h.trim());
-      const header = headerRaw.map((h) => h.toLowerCase());
-      const knownKeys = new Set(['name', 'testcase', 'test_case', 'vcd', 'bin', 'erom', 'firmware', 'lin', 'ulp', 'try', 'tries', 'retry', 'tag']);
-      const extraColumnIndices = header
-        .map((h, idx) => ({ key: headerRaw[idx] || h, idx }))
+      const headerRaw = parseCsvLine(lines[0]);
+      const normalizeH = (h) => (h || '').trim().toLowerCase().replace(/[\s_-]+/g, '_');
+      const knownKeys = new Set([
+        'name', 'testcase', 'test_case', 'tc_name',
+        'ist', 'ist_file', 'stimulus', 'stimulus_file', 'instructions', 'instruction', 'vcd', 'vcd_file',
+        'erom', 'erom_file', 'app', 'app_file', 'firmware', 'firmware_file', 'bin', 'bin_file', 'hex',
+        'ulp', 'ulp_file', 'lin', 'lin_file',
+        'try', 'tries', 'retry', 'try_count', 'tag', 'tags', 'category', 'date'
+      ]);
+
+      const extraColumnIndices = headerRaw
+        .map((key, idx) => ({ key, idx }))
         .filter(({ key }) => {
-          const k = (key || '').trim().toLowerCase();
+          const k = normalizeH(key);
           return k && !knownKeys.has(k);
         });
 
-      const idxName = header.findIndex((h) => h === 'name' || h === 'testcase' || h === 'test_case');
-      const idxVcd = header.findIndex((h) => h === 'vcd');
-      const idxBin = header.findIndex((h) => h === 'bin' || h === 'erom' || h === 'firmware');
-      const idxLin = header.findIndex((h) => h === 'lin' || h === 'ulp');
-      const idxTry = header.findIndex((h) => h === 'try' || h === 'tries' || h === 'retry');
+      const idxName = headerRaw.findIndex((h) => ['name', 'testcase', 'test_case', 'tc_name'].includes(normalizeH(h)));
+      const idxStimulus = headerRaw.findIndex((h) => ['ist', 'ist_file', 'stimulus', 'stimulus_file', 'instructions', 'instruction', 'vcd', 'vcd_file'].includes(normalizeH(h)));
+      const idxErom = headerRaw.findIndex((h) => ['erom', 'erom_file', 'app', 'app_file', 'firmware', 'firmware_file', 'bin', 'bin_file', 'hex'].includes(normalizeH(h)));
+      const idxUlp = headerRaw.findIndex((h) => ['ulp', 'ulp_file', 'lin', 'lin_file'].includes(normalizeH(h)));
+      const idxTag = headerRaw.findIndex((h) => ['tag', 'tags', 'category'].includes(normalizeH(h)));
+      const idxTry = headerRaw.findIndex((h) => ['try', 'tries', 'retry', 'try_count'].includes(normalizeH(h)));
 
-      if (idxVcd === -1 || idxBin === -1 || idxLin === -1) {
-        addToast({ type: 'error', message: 'CSV must have VCD, BIN/EROM, and ULP (or LIN) columns' });
+      if (idxStimulus === -1) {
+        addToast({
+          type: 'error',
+          message: 'CSV must have an "ist_file" (or stimulus_file / ist / vcd) column; erom and ulp are optional',
+        });
         return;
       }
 
@@ -1972,13 +2168,14 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
       };
 
       for (let i = 1; i < lines.length; i++) {
-        const cols = lines[i].split(',');
-        if (!cols.some((c) => c.trim() !== '')) continue;
-        const vcdName = (cols[idxVcd] || '').trim();
-        const binName = (cols[idxBin] || '').trim();
-        const linName = (cols[idxLin] || '').trim();
-        if (!vcdName || !binName || !linName) continue;
-        const rawName = idxName >= 0 ? cols[idxName] : vcdName;
+        const cols = parseCsvLine(lines[i]);
+        if (!cols.some((c) => (c || '').trim() !== '')) continue;
+        const vcdName = (cols[idxStimulus] || '').trim();
+        const binName = idxErom >= 0 ? (cols[idxErom] || '').trim() : '';
+        const linName = idxUlp >= 0 ? (cols[idxUlp] || '').trim() : '';
+        const tagValue = idxTag >= 0 ? (cols[idxTag] || '').trim() : '';
+        if (!vcdName) continue;
+        const rawName = idxName >= 0 && (cols[idxName] || '').trim() ? cols[idxName] : vcdName;
         const name = makeUniqueName(rawName);
         let tryCount = 1;
         if (idxTry >= 0) {
@@ -1996,8 +2193,9 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
           id: loadedSetId ? `tc-${Date.now()}-${Math.random().toString(36).slice(2, 9)}` : `tc-draft-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
           name,
           vcdName,
-          binName,
+          binName: binName || '',
           linName: linName || '',
+          tag: tagValue || '',
           tryCount,
           createdAt: new Date().toISOString(),
           ...(Object.keys(extraColumns).length > 0 ? { extraColumns } : {}),
@@ -2005,7 +2203,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
       }
 
       if (created.length === 0) {
-        addToast({ type: 'warning', message: 'No rows in CSV have VCD, BIN/EROM, and ULP/LIN (all three required)' });
+        addToast({ type: 'warning', message: 'No rows in CSV have a valid stimulus (.ist) file; ERoM and ULP are optional' });
         return;
       }
 
@@ -2047,7 +2245,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
       }, new Set())
     );
 
-    const headers = ['Name', 'Tag', 'Date', 'ERoM', 'ULP', 'VCD', 'Try', ...extraKeys];
+    const headers = ['Name', 'Tag', 'Date', 'ERoM', 'ULP', 'Stimulus_IST', 'Try', ...extraKeys];
     const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const lines = [headers.map(esc).join(',')];
 
@@ -2088,7 +2286,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
         const names = bad.map((t) => String(t.name || '—').trim() || '—').slice(0, 5);
         addToast({
           type: 'warning',
-          message: `Each test case needs VCD, ERoM, and ULP — select files (${bad.length} row(s)): ${names.join(', ')}${bad.length > 5 ? '…' : ''}`,
+          message: `Each test case needs a VCD file; ERoM and ULP are optional — select files (${bad.length} row(s)): ${names.join(', ')}${bad.length > 5 ? '…' : ''}`,
         });
         return;
       }
@@ -2724,7 +2922,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                       <th className="px-3 py-2.5 font-bold min-w-[100px]">Used by TC</th>
                       <th
                         className="px-3 py-2.5 font-bold min-w-[120px]"
-                        title="Saved jobs that reference this file (color follows job status when available)"
+                        title="Run Sets that reference this file (color follows job status when available)"
                       >
                         Jobs
                       </th>
@@ -2900,7 +3098,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                                         setLibraryPickerSetsOverflowFileName(f.name);
                                       }}
                                       className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold border border-slate-200 dark:border-slate-700 bg-white/60 dark:bg-slate-800 text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 shrink-0"
-                                      title={`All saved jobs: ${setNames.join(', ')}`}
+                                      title={`All run sets: ${setNames.join(', ')}`}
                                     >
                                       …
                                     </button>
@@ -3366,7 +3564,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                         <li
                           key={`browse-set-all-${libraryPickerSetsOverflowFileName}-${sn}`}
                           className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${getSetJobStatusPillClass(st)}`}
-                          title={st ? `Job status: ${st}` : 'No active job for this saved job name'}
+                          title={st ? `Job status: ${st}` : 'No active job for this run set name'}
                         >
                           {sn}
                         </li>
@@ -3572,6 +3770,14 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
             <button onClick={clearAllTestCases} disabled={(savedTestCases.length === 0 && workingCount === 0) || isViewingShared} className={`px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2 ${(savedTestCases.length === 0 && workingCount === 0) || isViewingShared ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-red-600 text-white hover:bg-red-700'}`}><X size={14} /> Clear</button>
             <div className="h-6 w-px bg-slate-300 dark:bg-slate-600 mx-1" />
             <button
+              onClick={downloadCsvTemplate}
+              className="px-3 py-2 rounded-lg text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1.5 transition-colors"
+              title="Download sample CSV template for Excel"
+            >
+              <FileDown size={14} />
+              <span>CSV Template</span>
+            </button>
+            <button
               onClick={() => csvInputRef.current?.click()}
               className="px-3 py-2 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 flex items-center gap-1.5"
             >
@@ -3599,7 +3805,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
         {loadedSetId && displayedSavedTestCaseSets?.find((s) => s.id === loadedSetId) && !isViewingShared && (
           <div className="mb-3 flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700">
             <span className="text-xs font-semibold text-amber-800 dark:text-amber-200">
-              Editing saved job: {displayedSavedTestCaseSets.find((s) => s.id === loadedSetId)?.name}
+              Editing run set: {displayedSavedTestCaseSets.find((s) => s.id === loadedSetId)?.name}
             </span>
             <button
               onClick={() => {
@@ -3616,7 +3822,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                   const names = badUpdate.map((t) => String(t.name || '—').trim() || '—').slice(0, 5);
                   addToast({
                     type: 'warning',
-                    message: `Each test case needs VCD, ERoM, and ULP before updating the job — ${badUpdate.length} row(s): ${names.join(', ')}${badUpdate.length > 5 ? '…' : ''}`,
+                    message: `Each test case needs a VCD file before updating the job; ERoM and ULP are optional — ${badUpdate.length} row(s): ${names.join(', ')}${badUpdate.length > 5 ? '…' : ''}`,
                   });
                   return;
                 }
@@ -3655,7 +3861,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                 updateSavedTestCaseSet(loadedSetId, { items: normalized, fileLibrarySnapshot });
                 const setName = displayedSavedTestCaseSets.find((s) => s.id === loadedSetId)?.name || 'Job';
                 restoreSavedTestCasesFromProfile();
-                addToast({ type: 'success', message: `Updated saved job "${setName}"` });
+                addToast({ type: 'success', message: `Updated run set "${setName}"` });
               }}
               className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 text-white hover:bg-amber-700"
             >
@@ -3688,7 +3894,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                     selectedTestCaseIds.some((tid) => isTcStorePending(tid))
                       ? 'Wait for the pending action on the selected test case(s) to finish'
                       : loadedSetId
-                        ? 'Remove selected rows from this saved job (saved rows may delete from library)'
+                        ? 'Remove selected rows from this run set (saved rows may delete from library)'
                         : 'Remove selected rows from this table only — does not delete from Library'
                   }
                 >
@@ -3783,7 +3989,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                 <th className="w-28 px-2 py-2 border-r border-slate-200 dark:border-slate-600 text-center">Date</th>
                 <th className="px-2 py-2 border-r border-slate-200 dark:border-slate-600">ERoM</th>
                 <th className="px-2 py-2 border-r border-slate-200 dark:border-slate-600">ULP</th>
-                <th className="px-2 py-2 border-r border-slate-200 dark:border-slate-600">VCD</th>
+                <th className="px-2 py-2 border-r border-slate-200 dark:border-slate-600">Stimulus (IST)</th>
                 {(() => {
                   const allCols = [...new Set(displayedSavedTestCases.flatMap(getTableExtraColKeysForTc))].sort();
                   const extraCols = allCols.filter((col) => !isExtraColumnHiddenFromLibraryTable(col));
@@ -3883,7 +4089,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                         className="w-full min-w-0 px-1.5 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800"
                         title={
                           isTestCaseLocked(tc.id)
-                            ? 'Files are locked because this test case is used in a saved job. Duplicate this test case to change files.'
+                            ? 'Files are locked because this test case is used in a run set. Duplicate this test case to change files.'
                             : isTestCaseInUseByBatch(tc)
                               ? 'Files are locked because this test case is in a running or pending job. Duplicate this test case to change files.'
                             : 'Select ERoM file'
@@ -3910,10 +4116,10 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                           })
                         }
                         disabled={isTestCaseLocked(tc.id) || isTestCaseInUseByBatch(tc) || isViewingShared}
-                        className="w-full min-w-0 px-1.5 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800"
+                        className="w-full min-w-0 px-1.5 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100"
                         title={
                           isTestCaseLocked(tc.id)
-                            ? 'Files are locked because this test case is used in a saved job. Duplicate this test case to change files.'
+                            ? 'Files are locked because this test case is used in a run set. Duplicate this test case to change files.'
                             : isTestCaseInUseByBatch(tc)
                             ? 'Files are locked because this test case is in a running or pending set. Duplicate this test case to change files.'
                             : 'Select ULP file'
@@ -3938,16 +4144,16 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                           updateDisplayedTestCase(tc.id, { vcdName: e.target.value })
                         }
                         disabled={isTestCaseLocked(tc.id) || isTestCaseInUseByBatch(tc) || isViewingShared}
-                        className="w-full min-w-0 px-1.5 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800"
+                        className="w-full min-w-0 px-1.5 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100"
                         title={
                           isTestCaseLocked(tc.id)
-                            ? 'Files are locked because this test case is used in a saved job. Duplicate this test case to change files.'
+                            ? 'Files are locked because this test case is used in a run set. Duplicate this test case to change files.'
                             : isTestCaseInUseByBatch(tc)
                             ? 'Files are locked because this test case is in a running or pending set. Duplicate this test case to change files.'
-                            : 'Select VCD file'
+                            : 'Select Stimulus (.ist) file'
                         }
                       >
-                        <option value="">— VCD —</option>
+                        <option value="">— Stimulus (.ist) —</option>
                         {vcdFilesList.map((f) => (
                           <option key={f.id} value={f.name}>
                             {f.name}
@@ -3975,7 +4181,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                               className="w-full min-w-0 px-1.5 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800"
                               title={
                                 isTestCaseLocked(tc.id)
-                                ? 'Files are locked because this test case is used in a saved job. Duplicate this test case to change files.'
+                                ? 'Files are locked because this test case is used in a run set. Duplicate this test case to change files.'
                                 : isTestCaseInUseByBatch(tc)
                                   ? 'Files are locked because this test case is in a running or pending job. Duplicate this test case to change files.'
                                   : `Select file for ${col}`
@@ -4067,6 +4273,14 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                           <Plus size={14} />
                         </button>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => setMeasurementSettingsModalTcId(tc.id)}
+                        className="px-1.5 py-1 text-[10px] font-semibold rounded border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 max-w-[90px] truncate"
+                        title={`Measurement Settings: ${formatMeasurementSummary(tc)}`}
+                      >
+                        {formatMeasurementSummary(tc)}
+                      </button>
                       <button
                         type="button"
                         onClick={() => moveDisplayedTestCaseUp(tc.id)}
@@ -4206,6 +4420,14 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                       </button>
                       <button
                         type="button"
+                        onClick={() => setMeasurementSettingsModalTcId(tc.id)}
+                        className="px-1.5 py-1 text-[10px] font-semibold rounded border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 max-w-[90px] truncate"
+                        title={`Measurement Settings: ${formatMeasurementSummary(tc)}`}
+                      >
+                        {formatMeasurementSummary(tc)}
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => moveDisplayedTestCaseUp(tc.id)}
                         disabled={originalIndex === 0 || tcPending}
                         className="p-1 text-slate-500 hover:text-slate-700 disabled:opacity-30"
@@ -4265,7 +4487,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                           className="w-full min-w-0 px-1.5 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800"
                           title={
                             isTestCaseLocked(tc.id)
-                              ? 'Files are locked because this test case is used in a saved job. Use “Save as new test case” to change files.'
+                              ? 'Files are locked because this test case is used in a run set. Use “Save as new test case” to change files.'
                               : 'Select ERoM file'
                           }
                         >
@@ -4289,7 +4511,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                           className="w-full min-w-0 px-1.5 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800"
                           title={
                             isTestCaseLocked(tc.id)
-                              ? 'Files are locked because this test case is used in a saved job. Use “Save as new test case” to change files.'
+                              ? 'Files are locked because this test case is used in a run set. Use “Save as new test case” to change files.'
                               : 'Select ULP file'
                           }
                         >
@@ -4313,7 +4535,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                           className="w-full min-w-0 px-1.5 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800"
                           title={
                             isTestCaseLocked(tc.id)
-                              ? 'Files are locked because this test case is used in a saved job. Use “Save as new test case” to change files.'
+                              ? 'Files are locked because this test case is used in a run set. Use “Save as new test case” to change files.'
                               : 'Select VCD file'
                           }
                         >
@@ -4350,6 +4572,16 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                           Locked in set
                         </span>
                       )}
+                    </div>
+                    <div className="pt-2 mt-1 border-t border-slate-100 dark:border-slate-800/90">
+                      <button
+                        type="button"
+                        onClick={() => setMeasurementSettingsModalTcId(tc.id)}
+                        className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-left text-xs font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                        title="Edit Measurement Settings"
+                      >
+                        Measurement: {formatMeasurementSummary(tc)}
+                      </button>
                     </div>
                     {(() => {
                       const verticalExtraRows = Object.entries(tc.extraColumns || {}).filter(([col, val]) => {
@@ -4411,7 +4643,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                                   className="flex-1 min-w-0 px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800"
                                   title={
                                     isTestCaseLocked(tc.id)
-                                      ? 'Files are locked because this test case is used in a saved job. Use “Save as new test case” to change files.'
+                                      ? 'Files are locked because this test case is used in a run set. Use “Save as new test case” to change files.'
                                       : `Select file for ${col}`
                                   }
                                 >
@@ -4508,6 +4740,45 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
         )}
         </div>
         </div>
+
+        {measurementSettingsModalTc && createPortal(
+          <div className="fixed inset-0 z-[260] flex items-center justify-center bg-slate-950/45 p-4">
+            <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+              <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Measurement Settings</h3>
+                  <p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400" title={measurementSettingsModalTc.name || ''}>
+                    {measurementSettingsModalTc.name || 'Unnamed test case'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMeasurementSettingsModalTcId(null)}
+                  className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                  title="Close"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="px-5 py-4">
+                {renderMeasurementSettingsControls(measurementSettingsModalTc, true)}
+                <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+                  Saved per test case. Summary shown in the table actions column.
+                </p>
+              </div>
+              <div className="flex justify-end border-t border-slate-200 px-5 py-3 dark:border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => setMeasurementSettingsModalTcId(null)}
+                  className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700"
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
 
         <div className="mt-4 flex shrink-0 justify-end gap-2 border-t border-slate-200 pt-3 dark:border-slate-700">
           <button

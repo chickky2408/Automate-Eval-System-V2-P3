@@ -101,7 +101,7 @@ async def _ensure_postgres_filetype_enum_values() -> None:
 
     async with engine.begin() as conn:
         typ = await conn.run_sync(_pg_filetype_enum_name)
-        for val in ("EROM", "ULP", "TXT"):
+        for val in ("EROM", "ULP", "TXT", "SCRIPT", "LOG", "WAVEFORM", "REPORT", "OTHER"):
             try:
                 await conn.execute(text(f'ALTER TYPE "{typ}" ADD VALUE IF NOT EXISTS \'{val}\''))
             except Exception:
@@ -467,11 +467,13 @@ async def init_db():
                     ("test_cases", "mdi_text_filename", "VARCHAR(255)", "VARCHAR(255)"),
                     ("test_cases", "try_count", "INTEGER", "INTEGER"),
                     ("test_cases", "status_cached", "VARCHAR(64)", "VARCHAR(64)"),
+                    ("results", "created_at", "DATETIME", "TIMESTAMP"),
                 ]
                 if is_sqlite:
                     existing = {}
-                    cur = sync_conn.execute(text("PRAGMA table_info(test_cases)"))
-                    existing["test_cases"] = {row[1] for row in cur.fetchall()}
+                    for table in {t[0] for t in targets}:
+                        cur = sync_conn.execute(text(f"PRAGMA table_info({table})"))
+                        existing[table] = {row[1] for row in cur.fetchall()}
                     for table, col, sqlite_type, _ in targets:
                         if col not in existing.get(table, set()):
                             sync_conn.execute(

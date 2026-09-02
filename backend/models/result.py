@@ -38,6 +38,7 @@ class TestResult(BaseModel):
     crc_errors: int = 0
     console_log: Optional[str] = None
     waveform_available: bool = False
+    waveform_filename: Optional[str] = None
 
     class Config:
         from_attributes = True

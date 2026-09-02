@@ -6,6 +6,7 @@ from datetime import datetime
 
 
 class JobState(str, Enum):
+    DRAFT = "draft"
     PENDING = "pending"
     CONFIGURING = "configuring"
     FLASHING = "flashing"

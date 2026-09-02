@@ -213,72 +213,7 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
   }, [systemOwnerFilter, activeProfileId, setDashboardSystemSummary]);
 
   const dashboardDemoBoards = useMemo(
-    () => [
-      {
-        id: 'BOARD-1',
-        name: 'Demo Board 1',
-        status: 'online',
-        ip: '192.168.0.10',
-        mac: '00:11:22:33:44:55',
-        firmware: 'v1.0.0',
-        model: 'Zybo',
-        tag: 'paused',
-        fpgaStatus: 'unknown',
-        armStatus: 'online',
-        currentJob: 'Idle',
-        voltage: '3.3',
-        queuePaused: true,
-        isDemo: true,
-      },
-      {
-        id: 'BOARD-2',
-        name: 'Line A – Ready',
-        status: 'online',
-        ip: '192.168.0.11',
-        mac: '00:11:22:33:44:66',
-        firmware: 'v1.0.3',
-        model: 'Zybo',
-        tag: 'line-a',
-        fpgaStatus: 'active',
-        armStatus: 'online',
-        currentJob: 'Idle',
-        voltage: '3.3',
-        queuePaused: false,
-        isDemo: true,
-      },
-      {
-        id: 'BOARD-3',
-        name: 'Burn-in Tester 1',
-        status: 'busy',
-        ip: '192.168.0.21',
-        mac: '00:11:22:33:44:88',
-        firmware: 'v1.1.0',
-        model: 'Zybo',
-        tag: 'burn-in',
-        fpgaStatus: 'active',
-        armStatus: 'busy',
-        currentJob: '10Mar ',
-        voltage: '3.3',
-        queuePaused: false,
-        isDemo: true,
-      },
-      {
-        id: 'BOARD-ERR',
-        name: 'Demo Error Board',
-        status: 'error',
-        ip: '192.168.0.31',
-        mac: '00:11:22:33:44:77',
-        firmware: 'v1.0.0',
-        model: 'Zybo',
-        tag: 'error',
-        fpgaStatus: 'error',
-        armStatus: 'offline',
-        currentJob: 'Idle',
-        voltage: '3.3',
-        queuePaused: false,
-        isDemo: true,
-      },
-    ],
+    () => [],
     []
   );
 
@@ -672,7 +607,9 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
   let systemModalSummaryText = '';
   if (systemModalJob) {
     const status = (systemModalJob.status || '').toLowerCase();
-    if (status === 'pending') {
+    if (status === 'draft') {
+      systemModalSummaryText = 'Draft — not queued';
+    } else if (status === 'pending') {
       systemModalSummaryText = 'Pending — waiting to start';
     } else if (status === 'running') {
       if (systemModalRunningFiles.length > 0) {
@@ -881,6 +818,7 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
                 className="px-3 py-1.5 text-[11px] border border-slate-200 dark:border-slate-600 rounded-full bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 title="Batch status"
               >
+                <option value="draft">Draft</option>
                 <option value="running">Running</option>
                 <option value="pending">Pending</option>
                 <option value="completed">Completed</option>
@@ -1011,7 +949,9 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
               {(isSystemSummaryExpanded ? systemSummary : systemSummary.slice(0, 3)).map((sys) => {
                 const status = (sys.status || '').toLowerCase();
                 const statusColors =
-                  status === 'completed'
+                  status === 'draft'
+                    ? 'border-slate-200 bg-slate-50/50'
+                    : status === 'completed'
                     ? 'border-emerald-200 bg-emerald-50/40'
                     : status === 'pending'
                       ? 'border-amber-200 bg-amber-50/40'
@@ -1019,7 +959,9 @@ const DashboardPage = ({ onNavigateBoards, onNavigateJobs, onManageTags }) => {
                         ? 'border-red-200 bg-red-50/40'
                         : 'border-blue-200 bg-blue-50/40';
                 const dotColor =
-                  status === 'completed'
+                  status === 'draft'
+                    ? 'bg-slate-500'
+                    : status === 'completed'
                     ? 'bg-emerald-500'
                     : status === 'pending'
                       ? 'bg-amber-500'

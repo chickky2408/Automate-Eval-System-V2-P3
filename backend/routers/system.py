@@ -51,7 +51,7 @@ async def get_system_health():
     error = sum(1 for b in boards if b.status.state.value in {"error", "offline"})
     # Stale = expected-to-be-live boards (online/busy) with missing/old heartbeat only.
     # Do not count offline/error inventory as "stale" — they are already in errorBoards.
-    STALE_THRESHOLD_SEC = 60
+    STALE_THRESHOLD_SEC = 30
     stale = sum(
         1
         for b in boards

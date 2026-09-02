@@ -18,7 +18,7 @@ from models.job import JobState
 router = APIRouter()
 
 ACTIVE_JOB_STATES = {JobState.PENDING, JobState.CONFIGURING, JobState.FLASHING, JobState.RUNNING}
-ALLOWED_UPLOAD_EXTENSIONS = {"vcd", "erom", "ulp", "txt"}
+ALLOWED_UPLOAD_EXTENSIONS = {"ist", "erom", "ulp"}
 LIBRARY_VISIBLE_FILE_TYPES = {"VCD", "EROM", "ULP"}
 
 
@@ -117,7 +117,7 @@ async def upload_file(
     if ext not in ALLOWED_UPLOAD_EXTENSIONS:
         raise HTTPException(
             status_code=400,
-            detail="Unsupported file type. Allowed extensions: .vcd, .erom, .ulp, .txt",
+            detail="Unsupported file type. Allowed extensions: .ist, .erom, .ulp",
         )
     # Stored in DB as enum: VCD, EROM, ULP, TXT, … (not raw extension / OTHER for .erom/.ulp/.txt)
     file_type = classify_file_type_from_filename(filename)

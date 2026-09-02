@@ -18,39 +18,40 @@ import {
 } from 'lucide-react';
 import { useTestStore } from '../store/useTestStore';
 import API_ENDPOINTS from '../utils/apiEndpoints';
+import { filterH5WaveformResults, resultWaveformExportUrl, resultWaveformPreviewUrl } from '../utils/resultWaveformExport';
 
 const MAX_WAVEFORM_SAMPLES = 3000;
 const DISPLAY_WAVEFORM_SAMPLES = 800;
 const WAVEFORM_CANVAS_HEIGHT = 320;
 const STACKED_STRIP_MIN = 80;
 const STACKED_LABEL_COL = 28;
-const STACKED_LANE_COUNT = 4;
+const STACKED_LANE_COUNT = 8;
 const SNAPSHOT_MAX = 12;
 
 const WaveformPage = () => {
-  const boards = useTestStore((state) => state.boards || []);
   const theme = useTestStore((state) => state.theme);
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
+  const minimapCanvasRef = useRef(null);
+  const minimapContainerRef = useRef(null);
   const fullscreenRootRef = useRef(null);
-  const bufferRef = useRef({ CH1: [], CH2: [], CH3: [], CH4: [] });
+  const bufferRef = useRef({ CH1: [], CH2: [], CH3: [], CH4: [], CH5: [], CH6: [], CH7: [], CH8: [] });
   const rafRef = useRef(null);
-  const wsRef = useRef(null);
-  const connectedRef = useRef(false);
   const fsRef = useRef(4000);
   const showWaveformRef = useRef(true);
-  const showPlayheadRef = useRef(true);
-  const playheadFracRef = useRef(0); // remember last running position (0..1)
+  const showPlayheadRef = useRef(false);
+  const playheadFracRef = useRef(0);
   const showGridRef = useRef(true);
-  const visibleSignalsRef = useRef({ ch1: true, ch2: true, ch3: true, ch4: true });
-  const [connected, setConnected] = useState(false);
+  const showMinimapRef = useRef(true);
+  const visibleSignalsRef = useRef({
+    ch1: true, ch2: true, ch3: true, ch4: true,
+    ch5: true, ch6: true, ch7: true, ch8: true,
+  });
   const [meta, setMeta] = useState({ freq_hz: 125000, fs: 4000 });
-  const [lastChunkAt, setLastChunkAt] = useState(null);
   const [sampleCount, setSampleCount] = useState(0);
-  const [runProgress, setRunProgress] = useState(0);
   const [showWaveform, setShowWaveform] = useState(true);
-  const [showPlayhead, setShowPlayhead] = useState(true);
   const [showGrid, setShowGrid] = useState(true);
+  const [showMinimap, setShowMinimap] = useState(true);
   const [showStats, setShowStats] = useState(true);
   const [zoomLevel, setZoomLevel] = useState(1);
   const zoomLevelRef = useRef(1);
@@ -59,14 +60,14 @@ const WaveformPage = () => {
   const [layoutMode, setLayoutMode] = useState('overlay');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const layoutModeRef = useRef('overlay');
-  const [scaleMode, setScaleMode] = useState('manual');
+  const [scaleMode, setScaleMode] = useState('auto');
   const [yMinManual, setYMinManual] = useState(-1);
   const [yMaxManual, setYMaxManual] = useState(1);
   const scaleModeRef = useRef(scaleMode);
   const yMinManualRef = useRef(yMinManual);
   const yMaxManualRef = useRef(yMaxManual);
-  const [paused, setPaused] = useState(false);
-  const pausedRef = useRef(false);
+  const [paused, setPaused] = useState(true);
+  const pausedRef = useRef(true);
   const [scrollOffset, setScrollOffset] = useState(0);
   const scrollOffsetRef = useRef(0);
   const [viewPanelOpen, setViewPanelOpen] = useState(false);
@@ -75,13 +76,19 @@ const WaveformPage = () => {
   const [viewPopoverPos, setViewPopoverPos] = useState({ top: 0, left: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const panRef = useRef({ active: false, startX: 0, startOffset: 0 });
-  const [visibleSignals, setVisibleSignals] = useState({ ch1: true, ch2: true, ch3: true, ch4: true });
+  const [visibleSignals, setVisibleSignals] = useState({
+    ch1: true, ch2: true, ch3: true, ch4: true,
+    ch5: true, ch6: true, ch7: true, ch8: true,
+  });
   const [showCursor, setShowCursor] = useState(true);
   const [cursorFrac, setCursorFrac] = useState(0.35);
   const [cursor2Frac, setCursor2Frac] = useState(0.65);
   const [showCursor2, setShowCursor2] = useState(true);
   const [cursorChannel, setCursorChannel] = useState('ch1');
-  const [selectedBoardId, setSelectedBoardId] = useState('');
+  const [waveformResults, setWaveformResults] = useState([]);
+  const [selectedResultId, setSelectedResultId] = useState('');
+  const [resultLoading, setResultLoading] = useState(false);
+  const [resultPreviewError, setResultPreviewError] = useState('');
   const [snapshots, setSnapshots] = useState([]);
   const snapshotsRef = useRef([]);
   const showCursorRef = useRef(true);
@@ -91,13 +98,40 @@ const WaveformPage = () => {
   const cursorChannelRef = useRef('ch1');
   const isDraggingCursorRef = useRef(false);
   const activeCursorRef = useRef(1);
-  const [, setTick] = useState(0);
-  const onlineBoards = boards.filter((b) => b.status === 'online');
-  connectedRef.current = connected;
+
+  const [channelAliases, setChannelAliases] = useState(() => {
+    try {
+      const saved = localStorage.getItem('waveform_channel_aliases');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {
+      ch1: 'CH0', ch2: 'CH1', ch3: 'CH2', ch4: 'CH3',
+      ch5: 'CH4', ch6: 'CH5', ch7: 'CH6', ch8: 'CH7',
+    };
+  });
+
+  const handleAliasChange = (key, val) => {
+    const next = { ...channelAliases, [key]: val || '' };
+    setChannelAliases(next);
+    try {
+      localStorage.setItem('waveform_channel_aliases', JSON.stringify(next));
+    } catch {}
+  };
+
+  const waveformFocusResultId = useTestStore((state) => state.waveformFocusResultId);
+  const setWaveformFocusResultId = useTestStore((state) => state.setWaveformFocusResultId);
+
+  useEffect(() => {
+    if (waveformFocusResultId) {
+      setSelectedResultId(waveformFocusResultId);
+      setWaveformFocusResultId(null);
+    }
+  }, [waveformFocusResultId, setWaveformFocusResultId]);
+
   fsRef.current = meta.fs || 4000;
   showWaveformRef.current = showWaveform;
-  showPlayheadRef.current = showPlayhead;
   showGridRef.current = showGrid;
+  showMinimapRef.current = showMinimap;
   zoomLevelRef.current = zoomLevel;
   scaleModeRef.current = scaleMode;
   yMinManualRef.current = yMinManual;
@@ -118,11 +152,26 @@ const WaveformPage = () => {
     48 + STACKED_STRIP_MIN * STACKED_LANE_COUNT + 36
   );
 
-  useEffect(() => {
-    if (!selectedBoardId && onlineBoards.length > 0) {
-      setSelectedBoardId(onlineBoards[0].id);
+  const loadWaveformResults = async () => {
+    setResultLoading(true);
+    setResultPreviewError('');
+    try {
+      const res = await fetch(`${API_ENDPOINTS.RESULTS}?limit=200`);
+      if (!res.ok) throw new Error(`Load results failed (${res.status})`);
+      const rows = await res.json();
+      const withWaveform = filterH5WaveformResults(rows);
+      setWaveformResults(withWaveform);
+      if (!selectedResultId && withWaveform[0]?.id) setSelectedResultId(withWaveform[0].id);
+    } catch (err) {
+      setResultPreviewError(err.message || 'Load results failed');
+    } finally {
+      setResultLoading(false);
     }
-  }, [onlineBoards, selectedBoardId]);
+  };
+
+  useEffect(() => {
+    loadWaveformResults();
+  }, []);
 
   useEffect(
     () => () => {
@@ -212,104 +261,7 @@ const WaveformPage = () => {
     setScrollOffset((o) => Math.max(0, Math.min(maxOffset, o)));
   }, [paused, zoomLevel, sampleCount]);
 
-  useEffect(() => {
-    const id = setInterval(() => {
-      setRunProgress((p) => (p >= 100 ? 0 : p + 1));
-    }, 20);
-    return () => clearInterval(id);
-  }, []);
 
-  useEffect(() => {
-    if (!connected) return;
-    const id = setInterval(() => setTick((t) => t + 1), 300);
-    return () => clearInterval(id);
-  }, [connected]);
-
-  const RECONNECT_MS = 3000;
-
-  useEffect(() => {
-    const baseUrl = API_ENDPOINTS.WS_WAVEFORM || 'ws://localhost:8000/ws/waveform';
-    const url = selectedBoardId
-      ? `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}boardId=${encodeURIComponent(selectedBoardId)}`
-      : baseUrl;
-    let cancelled = false;
-    let reconnectTimeoutId = null;
-
-    const connect = () => {
-      if (cancelled) return;
-      const ws = new WebSocket(url);
-      wsRef.current = ws;
-
-      ws.onopen = () => setConnected(true);
-      ws.onclose = () => {
-        setConnected(false);
-        bufferRef.current = { CH1: [], CH2: [], CH3: [], CH4: [] };
-        setSampleCount(0);
-        setLastChunkAt(null);
-        if (!cancelled) {
-          reconnectTimeoutId = setTimeout(connect, RECONNECT_MS);
-        }
-      };
-      ws.onerror = () => setConnected(false);
-
-      ws.onmessage = (event) => {
-        if (pausedRef.current) return;
-        try {
-          const msg = JSON.parse(event.data);
-          if (msg.type === 'waveform') {
-            const buffers = bufferRef.current;
-            let ch1Count = 0;
-
-            if (Array.isArray(msg.data?.channels)) {
-              msg.data.channels.forEach((ch, idx) => {
-                const id = ch?.id || `CH${idx + 1}`;
-                if (!Array.isArray(ch?.samples)) return;
-                if (!buffers[id]) buffers[id] = [];
-                const arr = buffers[id];
-                ch.samples.forEach((s) => {
-                  arr.push(Number(s));
-                  if (arr.length > MAX_WAVEFORM_SAMPLES) arr.shift();
-                });
-              });
-              ch1Count = buffers.CH1 ? buffers.CH1.length : 0;
-            } else if (Array.isArray(msg.data?.samples)) {
-              if (!buffers.CH1) buffers.CH1 = [];
-              const arr = buffers.CH1;
-              msg.data.samples.forEach((s) => {
-                arr.push(Number(s));
-                if (arr.length > MAX_WAVEFORM_SAMPLES) arr.shift();
-              });
-              ch1Count = arr.length;
-            }
-
-            if (ch1Count > 0) {
-              setLastChunkAt(Date.now());
-              setSampleCount(ch1Count);
-            }
-            if (msg.data?.freq_hz != null) {
-              setMeta((m) => ({
-                ...m,
-                freq_hz: msg.data.freq_hz,
-                fs: msg.data.fs ?? m.fs,
-              }));
-            }
-          }
-        } catch (_) {}
-      };
-    };
-
-    connect();
-
-    return () => {
-      cancelled = true;
-      if (reconnectTimeoutId) clearTimeout(reconnectTimeoutId);
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -322,6 +274,14 @@ const WaveformPage = () => {
     canvas.height = h * dpr;
     canvas.style.width = `${w}px`;
     canvas.style.height = `${h}px`;
+
+    if (minimapCanvasRef.current) {
+      const mc = minimapCanvasRef.current;
+      mc.width = Math.floor(w * dpr);
+      mc.height = Math.floor(48 * dpr);
+      mc.style.width = `${w}px`;
+      mc.style.height = '48px';
+    }
 
     const autoYRange = (segment) => {
       if (!segment || segment.length < 2) return { yMin: -1, yMax: 1 };
@@ -400,6 +360,7 @@ const WaveformPage = () => {
       const plotW = plotRight - plotLeft;
 
       const bufHasData = buf.length >= 2;
+      const canDrawWaveform = bufHasData;
       const zoom = zoomLevelRef.current;
       const displayCount = Math.max(2, Math.min(buf.length, Math.round(DISPLAY_WAVEFORM_SAMPLES / zoom)));
       const endIndex = Math.max(0, Math.min(buf.length, buf.length - (pausedRef.current ? (scrollOffsetRef.current || 0) : 0)));
@@ -413,10 +374,14 @@ const WaveformPage = () => {
       const step = n > 1 ? plotW / (n - 1) : plotW;
 
       const chDefs = [
-        { key: 'ch1', id: 'CH1', short: 'CH1', color: isDark ? '#38bdf8' : '#0369a1', width: 2.2 },
-        { key: 'ch2', id: 'CH2', short: 'CH2', color: isDark ? '#fb923c' : '#ea580c', width: 1.6 },
-        { key: 'ch3', id: 'CH3', short: 'CH3', color: isDark ? '#4ade80' : '#16a34a', width: 1.6 },
-        { key: 'ch4', id: 'CH4', short: 'CH4', color: isDark ? '#a78bfa' : '#7c3aed', width: 1.6 },
+        { key: 'ch1', id: 'CH1', short: channelAliases.ch1 || 'CH0', color: isDark ? '#38bdf8' : '#0284c7', width: 2.0 },
+        { key: 'ch2', id: 'CH2', short: channelAliases.ch2 || 'CH1', color: isDark ? '#fb923c' : '#ea580c', width: 1.6 },
+        { key: 'ch3', id: 'CH3', short: channelAliases.ch3 || 'CH2', color: isDark ? '#4ade80' : '#16a34a', width: 1.6 },
+        { key: 'ch4', id: 'CH4', short: channelAliases.ch4 || 'CH3', color: isDark ? '#a78bfa' : '#7c3aed', width: 1.6 },
+        { key: 'ch5', id: 'CH5', short: channelAliases.ch5 || 'CH4', color: isDark ? '#f43f5e' : '#e11d48', width: 1.6 },
+        { key: 'ch6', id: 'CH6', short: channelAliases.ch6 || 'CH5', color: isDark ? '#eab308' : '#ca8a04', width: 1.6 },
+        { key: 'ch7', id: 'CH7', short: channelAliases.ch7 || 'CH6', color: isDark ? '#06b6d4' : '#0891b2', width: 1.6 },
+        { key: 'ch8', id: 'CH8', short: channelAliases.ch8 || 'CH7', color: isDark ? '#ec4899' : '#db2777', width: 1.6 },
       ];
       const stripChannels = chDefs;
 
@@ -517,7 +482,7 @@ const WaveformPage = () => {
 
         drawXAxis();
 
-        if (showWaveformRef.current && connectedRef.current && bufHasData && toDraw) {
+        if (showWaveformRef.current && canDrawWaveform && bufHasData && toDraw) {
           const drawChannel = (arr, color, lineW = 2) => {
             if (!arr || arr.length < 2) return;
             const seg = arr.slice(startIndex, endIndex);
@@ -536,10 +501,11 @@ const WaveformPage = () => {
             }
             ctx.stroke();
           };
-          if (visibleSignalsRef.current.ch1) drawChannel(buffers.CH1, chDefs[0].color, chDefs[0].width);
-          if (visibleSignalsRef.current.ch2) drawChannel(buffers.CH2, chDefs[1].color, chDefs[1].width);
-          if (visibleSignalsRef.current.ch3) drawChannel(buffers.CH3, chDefs[2].color, chDefs[2].width);
-          if (visibleSignalsRef.current.ch4) drawChannel(buffers.CH4, chDefs[3].color, chDefs[3].width);
+          chDefs.forEach((cd) => {
+            if (visibleSignalsRef.current[cd.key]) {
+              drawChannel(buffers[cd.id], cd.color, cd.width);
+            }
+          });
         }
 
         if (showPlayheadRef.current) {
@@ -558,7 +524,10 @@ const WaveformPage = () => {
         }
 
         if (showCursorRef.current && bufHasData && toDraw && n >= 2) {
-          const chMap = { ch1: 'CH1', ch2: 'CH2', ch3: 'CH3', ch4: 'CH4' };
+          const chMap = {
+            ch1: 'CH1', ch2: 'CH2', ch3: 'CH3', ch4: 'CH4',
+            ch5: 'CH5', ch6: 'CH6', ch7: 'CH7', ch8: 'CH8',
+          };
           const arr = buffers[chMap[cursorChannelRef.current]];
           const seg = arr && arr.length >= 2 ? arr.slice(startIndex, endIndex) : null;
 
@@ -739,7 +708,7 @@ const WaveformPage = () => {
 
           if (
             showWaveformRef.current &&
-            connectedRef.current &&
+            canDrawWaveform &&
             bufHasData &&
             toDraw &&
             visibleSignalsRef.current[cd.key] &&
@@ -764,7 +733,10 @@ const WaveformPage = () => {
 
         drawXAxis();
 
-        const chMap = { ch1: 'CH1', ch2: 'CH2', ch3: 'CH3', ch4: 'CH4' };
+        const chMap = {
+          ch1: 'CH1', ch2: 'CH2', ch3: 'CH3', ch4: 'CH4',
+          ch5: 'CH5', ch6: 'CH6', ch7: 'CH7', ch8: 'CH8',
+        };
         const cursorCh = cursorChannelRef.current;
         const cursorIdx = stripChannels.findIndex((c) => c.key === cursorCh);
         if (cursorIdx >= 0) {
@@ -865,22 +837,104 @@ const WaveformPage = () => {
         }
       }
 
-      if (buf.length < 2 || !connectedRef.current) {
+      if (buf.length < 2 || !canDrawWaveform) {
         ctx.fillStyle = pal.labelMuted;
         ctx.font = '14px system-ui, sans-serif';
         ctx.textAlign = 'center';
-        const msg = !connectedRef.current ? 'Lost of signal /  Backend Disconnected' : 'Waiting for samples…';
-        ctx.fillText(msg, cw / 2, ch / 2);
+        ctx.fillText('Select a completed test result above to view waveform', cw / 2, ch / 2);
       } else if (!showWaveformRef.current) {
         ctx.fillStyle = pal.labelMuted;
         ctx.font = '14px system-ui, sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('Waveform display paused', cw / 2, ch / 2);
-      } else if (pausedRef.current) {
-        ctx.fillStyle = pal.labelMuted;
-        ctx.font = '12px system-ui, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('Acquisition paused', cw / 2, waveTop + 12);
+        ctx.fillText('Waveform display hidden (check signals in View options)', cw / 2, ch / 2);
+      }
+
+      // Draw Minimap Canvas
+      if (minimapCanvasRef.current && showMinimapRef.current) {
+        const mc = minimapCanvasRef.current;
+        const mctx = mc.getContext('2d');
+        if (mctx) {
+          mctx.setTransform(1, 0, 0, 1, 0, 0);
+          mctx.scale(dpr, dpr);
+          const mw = w;
+          const mh = 48;
+          mctx.clearRect(0, 0, mw, mh);
+          mctx.fillStyle = isDark ? '#090d16' : '#f8fafc';
+          mctx.fillRect(0, 0, mw, mh);
+
+          const totalSamples = buf.length;
+          if (totalSamples >= 2) {
+            const padL = 4;
+            const padR = 4;
+            const trkW = Math.max(1, mw - padL - padR);
+            const stepM = Math.max(1, Math.floor(totalSamples / trkW));
+            const midYM = mh / 2;
+
+            chDefs.forEach((cd) => {
+              if (visibleSignalsRef.current[cd.key] === false) return;
+              const arr = buffers[cd.id];
+              if (!arr || arr.length < 2) return;
+              mctx.strokeStyle = cd.color;
+              mctx.lineWidth = 1;
+              mctx.globalAlpha = 0.55;
+              mctx.beginPath();
+              for (let x = 0; x < trkW; x++) {
+                const idx = Math.min(totalSamples - 1, x * stepM);
+                const val = Number(arr[idx] || 0);
+                const ym = Math.max(2, Math.min(mh - 2, midYM - val * (mh / 3.5)));
+                if (x === 0) mctx.moveTo(padL + x, ym);
+                else mctx.lineTo(padL + x, ym);
+              }
+              mctx.stroke();
+            });
+            mctx.globalAlpha = 1.0;
+
+            // Viewport Lens
+            const startFrac = Math.max(0, Math.min(1, startIndex / totalSamples));
+            const endFrac = Math.max(0, Math.min(1, endIndex / totalSamples));
+            const lensX1 = padL + startFrac * trkW;
+            const lensX2 = padL + endFrac * trkW;
+            const lensW = Math.max(6, lensX2 - lensX1);
+
+            // Shading outside visible window
+            mctx.fillStyle = isDark ? 'rgba(0, 0, 0, 0.65)' : 'rgba(15, 23, 42, 0.35)';
+            if (lensX1 > 0) mctx.fillRect(0, 0, lensX1, mh);
+            if (lensX2 < mw) mctx.fillRect(lensX2, 0, mw - lensX2, mh);
+
+            // Viewport Box
+            mctx.fillStyle = isDark ? 'rgba(56, 189, 248, 0.18)' : 'rgba(2, 132, 199, 0.15)';
+            mctx.fillRect(lensX1, 1, lensW, mh - 2);
+            mctx.strokeStyle = isDark ? '#38bdf8' : '#0284c7';
+            mctx.lineWidth = 1.5;
+            mctx.strokeRect(lensX1, 1, lensW, mh - 2);
+
+            // Left & Right grip handles
+            mctx.fillStyle = isDark ? '#38bdf8' : '#0284c7';
+            mctx.fillRect(lensX1 - 2, mh / 2 - 8, 4, 16);
+            mctx.fillRect(lensX2 - 2, mh / 2 - 8, 4, 16);
+
+            // Global Cursor Markers on minimap
+            if (showCursorRef.current && toDraw && n >= 2) {
+              const c1X = padL + ((startIndex + cursorFracRef.current * (n - 1)) / totalSamples) * trkW;
+              mctx.strokeStyle = '#f59e0b';
+              mctx.lineWidth = 1.5;
+              mctx.beginPath();
+              mctx.moveTo(c1X, 0);
+              mctx.lineTo(c1X, mh);
+              mctx.stroke();
+
+              if (showCursor2Ref.current) {
+                const c2X = padL + ((startIndex + cursor2FracRef.current * (n - 1)) / totalSamples) * trkW;
+                mctx.strokeStyle = '#60a5fa';
+                mctx.lineWidth = 1.5;
+                mctx.beginPath();
+                mctx.moveTo(c2X, 0);
+                mctx.lineTo(c2X, mh);
+                mctx.stroke();
+              }
+            }
+          }
+        }
       }
 
       rafRef.current = requestAnimationFrame(draw);
@@ -890,7 +944,7 @@ const WaveformPage = () => {
       stopped = true;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [connected, showWaveform, zoomLevel, containerWidth, chartHeight, paused, theme, layoutMode, visibleSignals]);
+  }, [connected, showWaveform, zoomLevel, containerWidth, chartHeight, paused, theme, layoutMode, visibleSignals, viewerMode]);
 
   const isLive = connected && lastChunkAt != null && Date.now() - lastChunkAt < 500;
   const LIVE_PULSE = 'animate-pulse';
@@ -980,7 +1034,8 @@ const WaveformPage = () => {
     const startIndex = Math.max(0, endIndex - displayCount);
     const n = endIndex - startIndex;
     const fsVal = meta.fs || 4000;
-    const rows = [['sample_index', 'time_ms', 'CH1', 'CH2', 'CH3', 'CH4']];
+    const chKeys = ['CH1', 'CH2', 'CH3', 'CH4', 'CH5', 'CH6', 'CH7', 'CH8'];
+    const rows = [['sample_index', 'time_ms', ...chKeys]];
     for (let i = 0; i < n; i++) {
       const idx = startIndex + i;
       const tMs = (idx / fsVal) * 1000;
@@ -988,11 +1043,60 @@ const WaveformPage = () => {
         const arr = buffers[id];
         return arr && idx < arr.length && arr[idx] != null ? String(Number(arr[idx])) : '';
       };
-      rows.push([String(i), String(tMs), cell('CH1'), cell('CH2'), cell('CH3'), cell('CH4')]);
+      rows.push([String(i), String(tMs), ...chKeys.map((k) => cell(k))]);
     }
     const csv = rows.map((r) => r.join(',')).join('\n');
     const bom = '\uFEFF';
     triggerDownloadBlob(new Blob([bom + csv], { type: 'text/csv;charset=utf-8' }), `${exportFilenameBase()}.csv`);
+  };
+
+  const loadSelectedResultPreview = async () => {
+    if (!selectedResultId) return;
+    setResultLoading(true);
+    setResultPreviewError('');
+    try {
+      const res = await fetch(resultWaveformPreviewUrl(selectedResultId, MAX_WAVEFORM_SAMPLES));
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `Preview failed (${res.status})`);
+      }
+      const preview = await res.json();
+      const nextBuffers = {
+        CH1: [], CH2: [], CH3: [], CH4: [],
+        CH5: [], CH6: [], CH7: [], CH8: [],
+      };
+      (preview.channels || []).slice(0, 8).forEach((channel, index) => {
+        const id = `CH${index + 1}`;
+        nextBuffers[id] = Array.isArray(channel.data) ? channel.data.map(Number) : [];
+      });
+      bufferRef.current = nextBuffers;
+      const count = nextBuffers.CH1.length || Number(preview.preview_count || preview.sample_count || 0);
+      setSampleCount(count);
+      setMeta((m) => ({ ...m, fs: Number(preview.sample_rate_hz || m.fs || 1) }));
+      setScaleMode('auto');
+      setPaused(true);
+      setScrollOffset(0);
+    } catch (err) {
+      setResultPreviewError(err.message || 'Preview failed');
+    } finally {
+      setResultLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!selectedResultId) return;
+    loadSelectedResultPreview();
+  }, [selectedResultId]);
+
+  const downloadSelectedResult = (format) => {
+    if (!selectedResultId) return;
+    const a = document.createElement('a');
+    a.href = resultWaveformExportUrl(selectedResultId, format);
+    a.download = `result_${selectedResultId}.${format === 'csv' ? 'csv' : 'h5'}`;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   };
 
   const removeSnapshot = (id) => {
@@ -1020,7 +1124,10 @@ const WaveformPage = () => {
     a.remove();
   };
 
-  const measureChannelMap = { ch1: 'CH1', ch2: 'CH2', ch3: 'CH3', ch4: 'CH4' };
+  const measureChannelMap = {
+    ch1: 'CH1', ch2: 'CH2', ch3: 'CH3', ch4: 'CH4',
+    ch5: 'CH5', ch6: 'CH6', ch7: 'CH7', ch8: 'CH8',
+  };
   const measureBuf = bufferRef.current[measureChannelMap[cursorChannel]] || [];
   const measureEndIndex = Math.max(0, Math.min(measureBuf.length, measureBuf.length - (paused ? scrollOffset : 0)));
   const measureStartIndex = Math.max(0, measureEndIndex - displayCountUI);
@@ -1089,50 +1196,89 @@ const WaveformPage = () => {
                 </div>
                 <div className="min-w-0">
                   <div className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-50 truncate">
-                    Realtime Waveform
+                    Waveform Viewer
                   </div>
                   <div className="text-xs text-slate-600 dark:text-slate-300 truncate">
-                    {selectedBoardId
-                      ? `Streaming from ${onlineBoards.find((b) => b.id === selectedBoardId)?.name || selectedBoardId}`
-                      : 'Streaming from simulated node'}
+                    Preview and analyze stored HDF5 / VCD waveform results
                   </div>
                 </div>
               </div>
-              {connected ? (
-                isLive ? (
-                  <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-500/15 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200 border border-emerald-300/60 dark:border-emerald-700/80 ${LIVE_PULSE}`}>
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50" />
-                    Live
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-amber-500/15 text-amber-800 dark:bg-amber-900/35 dark:text-amber-200 border border-amber-300/60 dark:border-amber-700/80">
-                    <span className="w-2 h-2 rounded-full bg-amber-500" />
-                    Waiting for data…
-                  </span>
-                )
-              ) : (
-                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-200/80 text-slate-700 dark:bg-slate-800 dark:text-slate-200 border border-slate-300/60 dark:border-slate-600">
-                  <span className="w-2 h-2 rounded-full bg-slate-400 dark:bg-slate-500" />
-                  Disconnected
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-blue-500/15 text-blue-800 dark:bg-blue-900/35 dark:text-blue-200 border border-blue-300/60 dark:border-blue-700/80">
+                Result Preview
+              </span>
+              {sampleCount > 0 && (
+                <span className="hidden md:inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                  {sampleCount.toLocaleString()} samples @ {meta.fs ? (meta.fs >= 1e6 ? `${(meta.fs/1e6).toFixed(1)} MHz` : `${(meta.fs/1e3).toFixed(1)} kHz`) : '—'}
                 </span>
               )}
             </div>
 
-            <div className="shrink-0 flex items-center gap-2">
-              <span className="text-xs font-medium text-slate-600 dark:text-slate-300">Streaming from</span>
-              <select
-                value={selectedBoardId || ''}
-                onChange={(e) => setSelectedBoardId(e.target.value)}
-                className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={loadWaveformResults}
+                disabled={resultLoading}
+                className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 transition-colors"
+                title="Refresh results list"
               >
-                <option value="">Simulated Node</option>
-                {onlineBoards.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name || b.id}
-                  </option>
-                ))}
-              </select>
+                Refresh List
+              </button>
             </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50/70 dark:bg-blue-950/30 px-3 py-2">
+            <span className="text-xs font-bold text-blue-900 dark:text-blue-100 shrink-0">Stored Result:</span>
+            <select
+              value={selectedResultId}
+              onChange={(e) => setSelectedResultId(e.target.value)}
+              className="min-w-[220px] flex-1 px-2.5 py-1.5 rounded-lg border border-blue-200 dark:border-blue-700 bg-white dark:bg-slate-900 text-xs text-slate-800 dark:text-slate-100 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">— Select waveform result —</option>
+              {waveformResults.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {(r.job_name || r.vcd_filename || r.id)} · {r.completed_at ? new Date(r.completed_at).toLocaleString() : r.id}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={loadSelectedResultPreview}
+              disabled={!selectedResultId || resultLoading}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors shrink-0"
+            >
+              {resultLoading ? 'Loading…' : 'Reload Preview'}
+            </button>
+            <button
+              type="button"
+              onClick={() => downloadSelectedResult('h5')}
+              disabled={!selectedResultId}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-100 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 disabled:opacity-50 transition-colors shrink-0"
+              title="Download full resolution HDF5 dataset"
+            >
+              Download H5
+            </button>
+            <button
+              type="button"
+              onClick={() => downloadSelectedResult('vcd')}
+              disabled={!selectedResultId}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-purple-300 dark:border-purple-700 bg-purple-50 dark:bg-purple-950/60 text-purple-800 dark:text-purple-100 hover:bg-purple-100 dark:hover:bg-purple-900/50 disabled:opacity-50 transition-colors shrink-0"
+              title="Download VCD waveform for GTKWave / Surfer"
+            >
+              Download VCD
+            </button>
+            <button
+              type="button"
+              onClick={() => downloadSelectedResult('csv')}
+              disabled={!selectedResultId}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-100 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 disabled:opacity-50 transition-colors shrink-0"
+            >
+              Export CSV
+            </button>
+            {resultPreviewError && (
+              <span className="text-xs font-semibold text-red-600 dark:text-red-300 ml-2">
+                {resultPreviewError}
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3 flex-nowrap overflow-x-auto overflow-y-visible max-w-full pr-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -1182,14 +1328,14 @@ const WaveformPage = () => {
                     <button
                       type="button"
                       onClick={() => setLayoutMode('stacked')}
-                      className={`flex-1 px-2 py-1.5 text-xs font-semibold transition-all ${
+                      className={`flex-1 py-1 px-2 rounded-md font-semibold transition-all ${
                         layoutMode === 'stacked'
-                          ? 'bg-cyan-600 text-white'
+                          ? 'bg-white dark:bg-slate-700 text-sky-600 dark:text-sky-300 shadow-sm'
                           : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
                       }`}
-                      title="Four stacked lanes (CH1 top … CH4 bottom), same time axis for all"
+                      title="Eight stacked lanes (CH0 top … CH7 bottom), same time axis for all"
                     >
-                      4 tracks
+                      8 tracks
                     </button>
                   </div>
                   <div className="text-xs font-bold text-slate-600 dark:text-slate-200 mb-2">Show on chart</div>
@@ -1197,6 +1343,10 @@ const WaveformPage = () => {
                     <label className="flex items-center gap-2 py-1.5 text-sm text-slate-800 dark:text-slate-100 select-none">
                       <input type="checkbox" checked={showWaveform} onChange={(e) => setShowWaveform(e.target.checked)} className="w-4 h-4 shrink-0 rounded border-slate-300 dark:border-slate-600 text-sky-600 focus:ring-sky-500" />
                       Trace
+                    </label>
+                    <label className="flex items-center gap-2 py-1.5 text-sm text-slate-800 dark:text-slate-100 select-none">
+                      <input type="checkbox" checked={showMinimap} onChange={(e) => setShowMinimap(e.target.checked)} className="w-4 h-4 shrink-0 rounded border-slate-300 dark:border-slate-600 text-cyan-600 focus:ring-cyan-500" />
+                      Overview Minimap
                     </label>
                     <label className="flex items-center gap-2 py-1.5 text-sm text-slate-800 dark:text-slate-100 select-none">
                       <input type="checkbox" checked={showPlayhead} onChange={(e) => setShowPlayhead(e.target.checked)} className="w-4 h-4 shrink-0 rounded border-slate-300 dark:border-slate-600 text-rose-600 focus:ring-rose-500" />
@@ -1223,34 +1373,61 @@ const WaveformPage = () => {
                         <div className="flex items-center gap-2 py-1 pl-6">
                           <span className="text-xs text-slate-600 dark:text-slate-300">Measure:</span>
                           <select value={cursorChannel} onChange={(e) => setCursorChannel(e.target.value)} className="text-xs border border-slate-200 dark:border-slate-600 rounded px-2 py-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100">
-                            <option value="ch1">CH1</option>
-                            <option value="ch2">CH2</option>
-                            <option value="ch3">CH3</option>
-                            <option value="ch4">CH4</option>
+                            {[
+                              { key: 'ch1', default: 'CH0' },
+                              { key: 'ch2', default: 'CH1' },
+                              { key: 'ch3', default: 'CH2' },
+                              { key: 'ch4', default: 'CH3' },
+                              { key: 'ch5', default: 'CH4' },
+                              { key: 'ch6', default: 'CH5' },
+                              { key: 'ch7', default: 'CH6' },
+                              { key: 'ch8', default: 'CH7' },
+                            ].map((ch) => (
+                              <option key={ch.key} value={ch.key}>
+                                {channelAliases[ch.key] ? `${ch.default} (${channelAliases[ch.key]})` : ch.default}
+                              </option>
+                            ))}
                           </select>
                         </div>
                       </>
                     )}
                   </div>
                   <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-700">
-                    <div className="text-xs font-bold text-slate-600 dark:text-slate-200 mb-1">Signals (analog)</div>
-                    <div className="space-y-1">
-                      <label className="flex items-center gap-2 py-1.5 text-sm text-slate-800 dark:text-slate-100 select-none">
-                        <input type="checkbox" checked={visibleSignals.ch1} onChange={(e) => setVisibleSignals((prev) => ({ ...prev, ch1: e.target.checked }))} className="w-4 h-4 shrink-0 rounded border-slate-300 dark:border-slate-600 text-sky-600 focus:ring-sky-500" />
-                        CH1
-                      </label>
-                      <label className="flex items-center gap-2 py-1.5 text-sm text-slate-800 dark:text-slate-100 select-none">
-                        <input type="checkbox" checked={visibleSignals.ch2} onChange={(e) => setVisibleSignals((prev) => ({ ...prev, ch2: e.target.checked }))} className="w-4 h-4 shrink-0 rounded border-slate-300 dark:border-slate-600 text-orange-500 focus:ring-orange-500" />
-                        CH2
-                      </label>
-                      <label className="flex items-center gap-2 py-1.5 text-sm text-slate-800 dark:text-slate-100 select-none">
-                        <input type="checkbox" checked={visibleSignals.ch3} onChange={(e) => setVisibleSignals((prev) => ({ ...prev, ch3: e.target.checked }))} className="w-4 h-4 shrink-0 rounded border-slate-300 dark:border-slate-600 text-emerald-600 focus:ring-emerald-500" />
-                        CH3
-                      </label>
-                      <label className="flex items-center gap-2 py-1.5 text-sm text-slate-800 dark:text-slate-100 select-none">
-                        <input type="checkbox" checked={visibleSignals.ch4} onChange={(e) => setVisibleSignals((prev) => ({ ...prev, ch4: e.target.checked }))} className="w-4 h-4 shrink-0 rounded border-slate-300 dark:border-slate-600 text-violet-600 focus:ring-violet-500" />
-                        CH4
-                      </label>
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-200 mb-1.5">
+                      <span>Signals & Aliases</span>
+                      <span className="text-[10px] text-slate-400 font-normal">Edit pin label</span>
+                    </div>
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                      {[
+                        { key: 'ch1', default: 'CH0', color: 'text-sky-500' },
+                        { key: 'ch2', default: 'CH1', color: 'text-orange-500' },
+                        { key: 'ch3', default: 'CH2', color: 'text-emerald-500' },
+                        { key: 'ch4', default: 'CH3', color: 'text-violet-500' },
+                        { key: 'ch5', default: 'CH4', color: 'text-rose-500' },
+                        { key: 'ch6', default: 'CH5', color: 'text-yellow-500' },
+                        { key: 'ch7', default: 'CH6', color: 'text-cyan-500' },
+                        { key: 'ch8', default: 'CH7', color: 'text-pink-500' },
+                      ].map((ch) => (
+                        <div key={ch.key} className="flex items-center gap-1.5 py-0.5">
+                          <label className="flex items-center gap-1.5 text-xs text-slate-800 dark:text-slate-100 select-none shrink-0 w-16">
+                            <input
+                              type="checkbox"
+                              checked={visibleSignals[ch.key] !== false}
+                              onChange={(e) => setVisibleSignals((prev) => ({ ...prev, [ch.key]: e.target.checked }))}
+                              className="w-3.5 h-3.5 rounded border-slate-300 dark:border-slate-600"
+                            />
+                            <span className={`font-bold ${ch.color}`}>{ch.default}</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={channelAliases[ch.key] ?? ''}
+                            onChange={(e) => handleAliasChange(ch.key, e.target.value)}
+                            placeholder={ch.default}
+                            className="flex-1 min-w-0 px-1.5 py-0.5 text-xs rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:ring-1 focus:ring-sky-500"
+                            title={`Custom label for ${ch.default}`}
+                          />
+                        </div>
+                      ))}
                     </div>
                   </div>
                   <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-700 flex justify-end">
@@ -1262,26 +1439,6 @@ const WaveformPage = () => {
               )}
             </div>
 
-            <div className="flex items-center gap-1 shrink-0 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-600 bg-slate-100/80 dark:bg-slate-800/90 p-0.5">
-              <button
-                type="button"
-                onClick={() => { setPaused((p) => !p); setScrollOffset(0); }}
-                className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 text-sm font-semibold rounded-lg transition-all ${paused ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-700 dark:text-slate-200 hover:bg-amber-100 dark:hover:bg-amber-900/40 hover:text-amber-800 dark:hover:text-amber-200'}`}
-                title={paused ? 'Resume' : 'Pause'}
-              >
-                {paused ? <Play size={16} /> : <Pause size={16} />}
-                {paused ? 'Resume' : 'Pause'}
-              </button>
-              <button
-                type="button"
-                onClick={() => { bufferRef.current = { CH1: [], CH2: [], CH3: [], CH4: [] }; setSampleCount(0); setLastChunkAt(null); }}
-                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-rose-100 dark:hover:bg-rose-950/50 hover:text-rose-700 dark:hover:text-rose-300 rounded-lg transition-all"
-                title="Clear buffer"
-              >
-                <Trash2 size={16} />
-                Clear
-              </button>
-            </div>
 
             <div className="flex items-center gap-0.5 shrink-0 rounded-xl overflow-hidden border border-emerald-200/80 dark:border-emerald-800/80 bg-emerald-50/50 dark:bg-emerald-950/40 p-0.5">
               <button
@@ -1461,6 +1618,62 @@ const WaveformPage = () => {
           style={{ background: theme === 'dark' ? '#0f172a' : '#f1f5f9' }}
         />
       </div>
+
+      {showMinimap && (
+        <div className="mt-2 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700/80 bg-slate-100 dark:bg-slate-900 shadow-inner">
+          <div className="flex items-center justify-between px-3 py-1 bg-slate-200/70 dark:bg-slate-800/80 border-b border-slate-300/60 dark:border-slate-700/60 text-[11px]">
+            <span className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-cyan-500 inline-block"></span>
+              Timeline Minimap & Navigator
+            </span>
+            <span className="font-medium text-slate-500 dark:text-slate-400 tabular-nums">
+              0.00 ms → {Math.round(((sampleCount || 1) / (meta.fs || 4000)) * 1000)} ms ({sampleCount.toLocaleString()} samples)
+            </span>
+          </div>
+          <div
+            ref={minimapContainerRef}
+            className="relative cursor-pointer select-none touch-none h-12"
+            onPointerDown={(e) => {
+              const el = minimapContainerRef.current;
+              if (!el) return;
+              const rect = el.getBoundingClientRect();
+              const padL = 4;
+              const trkW = Math.max(1, rect.width - 8);
+              const frac = Math.max(0, Math.min(1, (e.clientX - rect.left - padL) / trkW));
+              const totalSamples = sampleCount || 1;
+              const zoom = zoomLevel || 1;
+              const displayCount = Math.max(2, Math.min(totalSamples, Math.round(DISPLAY_WAVEFORM_SAMPLES / zoom)));
+              const targetCenter = frac * totalSamples;
+              const newEnd = Math.min(totalSamples, Math.max(displayCount, Math.round(targetCenter + displayCount / 2)));
+              setScrollOffset(Math.max(0, totalSamples - newEnd));
+              e.currentTarget.setPointerCapture?.(e.pointerId);
+            }}
+            onPointerMove={(e) => {
+              if (e.buttons !== 1) return;
+              const el = minimapContainerRef.current;
+              if (!el) return;
+              const rect = el.getBoundingClientRect();
+              const padL = 4;
+              const trkW = Math.max(1, rect.width - 8);
+              const frac = Math.max(0, Math.min(1, (e.clientX - rect.left - padL) / trkW));
+              const totalSamples = sampleCount || 1;
+              const zoom = zoomLevel || 1;
+              const displayCount = Math.max(2, Math.min(totalSamples, Math.round(DISPLAY_WAVEFORM_SAMPLES / zoom)));
+              const targetCenter = frac * totalSamples;
+              const newEnd = Math.min(totalSamples, Math.max(displayCount, Math.round(targetCenter + displayCount / 2)));
+              setScrollOffset(Math.max(0, totalSamples - newEnd));
+            }}
+            onPointerUp={(e) => {
+              e.currentTarget.releasePointerCapture?.(e.pointerId);
+            }}
+          >
+            <canvas
+              ref={minimapCanvasRef}
+              className="block w-full h-12"
+            />
+          </div>
+        </div>
+      )}
 
       <div
         className={`mt-3 pt-3 border-t border-slate-200 dark:border-slate-700 ${

@@ -17,6 +17,7 @@ aiofiles = "*"
 h5py = "*"
 httpx = "*"
 python-dotenv = "*"
+paramiko = "*"
 
 [dev-packages]
 pytest = "*"
@@ -26,5 +27,5 @@ httpx = "*"
 python_version = "3.11"
 
 [scripts]
-# เปิด LAN / อุปกรณ์อื่นเรียก API ที่ IP เครื่อง: ต้อง host 0.0.0.0 (ไม่ใช่ค่าเริ่มต้น 127.0.0.1)
+# Host 0.0.0.0 to allow access from other devices in local network (default 127.0.0.1)
 dev = "uvicorn main:app --host 0.0.0.0 --port 8000 --reload"

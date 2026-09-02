@@ -15,8 +15,10 @@ from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
-from routers import boards, jobs, results, system, files, notifications, ws, agent, sets, profiles, test_cases, test_commands, job_files
+from routers import boards, jobs, results, system, files, notifications, ws, agent, sets, profiles, test_cases, test_commands, job_files, agent_results
 from services.job_queue import job_queue_service
+from services.board_manager import board_manager
+from services.pending_job_dispatcher import pending_job_dispatcher
 from db.database import init_db
 
 
@@ -47,6 +49,30 @@ def _print_startup_browser_urls() -> None:
         pass
 
 
+import asyncio
+
+HEARTBEAT_TIMEOUT_SEC = 30   # Board considered offline after this many seconds of silence
+WATCHDOG_INTERVAL_SEC = 15   # How often we sweep for stale boards
+
+
+async def _board_watchdog_loop() -> None:
+    """Background task: periodically mark boards offline when heartbeats stop and clean up stale upload sessions."""
+    await asyncio.sleep(WATCHDOG_INTERVAL_SEC)  # small delay on first run
+    while True:
+        try:
+            flipped = await board_manager.mark_stale_boards_offline(
+                timeout_seconds=HEARTBEAT_TIMEOUT_SEC
+            )
+            if flipped:
+                print(f"[watchdog] Marked {flipped} board(s) offline")
+            
+            # Clean up stale upload sessions idle for >10 mins
+            await agent_results.cleanup_stale_upload_sessions(max_idle_seconds=600)
+        except Exception:
+            logger.exception("board watchdog error")
+        await asyncio.sleep(WATCHDOG_INTERVAL_SEC)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
@@ -55,11 +81,22 @@ async def lifespan(app: FastAPI):
     await init_db()
     # Initialize services
     await job_queue_service.initialize()
+    # Start board heartbeat watchdog
+    watchdog_task = asyncio.create_task(_board_watchdog_loop())
+    print(f"[STARTUP] Board watchdog started (timeout={HEARTBEAT_TIMEOUT_SEC}s, interval={WATCHDOG_INTERVAL_SEC}s)")
+    # Start pending-job dispatcher (promotes pending → running when a board becomes free)
+    await pending_job_dispatcher.start()
     # Set APP_EXTERNAL_URL in .env (e.g. LAN link for the team)
     _print_startup_browser_urls()
     yield
     # Cleanup
     print("[SHUTDOWN] Eval System V2 Backend shutting down...")
+    await pending_job_dispatcher.stop()
+    watchdog_task.cancel()
+    try:
+        await watchdog_task
+    except asyncio.CancelledError:
+        pass
     await job_queue_service.shutdown()
 
 
@@ -131,12 +168,14 @@ app.include_router(results.router, prefix="/api/results", tags=["Results"])
 app.include_router(system.router, prefix="/api/system", tags=["System"])
 app.include_router(files.router, prefix="/api/files", tags=["Files"])
 app.include_router(sets.router, prefix="/api/sets", tags=["Sets"])
+app.include_router(sets.router, prefix="/api/run-sets", tags=["RunSets"])
 app.include_router(profiles.router, prefix="/api/profiles", tags=["Profiles"])
 app.include_router(notifications.router, prefix="/api/notifications", tags=["Notifications"])
 app.include_router(test_cases.router, prefix="/api/test-management", tags=["Test Management"])
 app.include_router(test_commands.router, prefix="/api/test-commands", tags=["Test Commands"])
 app.include_router(job_files.router, prefix="/api/jobs", tags=["Job Files"])
 app.include_router(agent.router, prefix="/api/agent", tags=["Agent"])
+app.include_router(agent_results.router, tags=["Agent Results"])
 app.include_router(ws.router, tags=["WebSocket"])
 
 

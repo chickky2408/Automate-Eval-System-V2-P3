@@ -939,13 +939,13 @@ const formatFileSize = (bytes) => {
 
 const inferFileType = (name, typeHint) => {
   const h = typeHint != null ? String(typeHint).trim().toLowerCase() : '';
-  if (h === 'vcd') return 'vcd';
+  if (h === 'vcd' || h === 'ist') return 'vcd';
   if (h === 'erom' || h === 'firmware') return 'erom';
   if (h === 'ulp') return 'ulp';
   if (h === 'txt') return 'mdi';
   if (h === 'script') return 'script';
   const ext = String(name || '').split('.').pop()?.toLowerCase();
-  if (ext === 'vcd') return 'vcd';
+  if (ext === 'ist' || ext === 'vcd') return 'vcd';
   if (['erom', 'bin', 'hex', 'elf'].includes(ext)) return 'erom';
   if (['ulp', 'lin'].includes(ext)) return 'ulp';
   if (ext === 'txt') return 'mdi';
@@ -1294,6 +1294,11 @@ export const useTestStore = create((set, get) => {
   boardsFleetStatusPreset: null,
   setBoardsFleetStatusPreset: (v) =>
     set({ boardsFleetStatusPreset: v === 'online' || v === 'busy' ? v : null }),
+
+  /** When set, Waveform page loads and focuses this result ID. */
+  waveformFocusResultId: null,
+  setWaveformFocusResultId: (id) =>
+    set({ waveformFocusResultId: id != null && id !== '' ? String(id) : null }),
 
   // Jobs/Batches
   jobs: [],
@@ -3004,6 +3009,14 @@ export const useTestStore = create((set, get) => {
       queueMicrotask(() => endSavedTestCaseSetPending(id));
     }
   },
+  addRunSet: (...args) => get().addSavedTestCaseSet(...args),
+  updateRunSet: (...args) => get().updateSavedTestCaseSet(...args),
+  removeRunSet: (...args) => get().removeSavedTestCaseSet(...args),
+  duplicateRunSet: (...args) => get().duplicateSavedTestCaseSet(...args),
+  moveRunSetUp: (...args) => get().moveSavedTestCaseSetUp(...args),
+  moveRunSetDown: (...args) => get().moveSavedTestCaseSetDown(...args),
+  appendToRunSet: (...args) => get().appendToSavedTestCaseSet(...args),
+  removeRunSetRows: (...args) => get().removeSavedTestCaseSetRows(...args),
   applySavedTestCaseSet: (id) => {
     const exists = (get().savedTestCaseSets || []).some((s) => s.id === id);
     if (!exists) return;
@@ -4320,6 +4333,18 @@ export const useTestStore = create((set, get) => {
       return null;
     }
   },
+  // Revert an existing pending job back to draft (not queued)
+  saveJobAsDraft: async (jobId) => {
+    try {
+      await api.saveJobAsDraft(jobId);
+      await get().refreshJobs();
+      return true;
+    } catch (error) {
+      console.error('Failed to save job as draft', error);
+      get().addToast({ type: 'error', message: 'Failed to save as draft.' });
+      return false;
+    }
+  },
   runTestCommand: async (commandPayload) => {
     try {
       const clientId = getClientId();
@@ -4358,10 +4383,11 @@ export const useTestStore = create((set, get) => {
       return false;
     }
   },
-  // Start a single pending job by id (used by drag & drop from Pending → Running)
-  startJobById: async (jobId) => {
+  // Start a single pending/draft job by id (used by drag & drop and the Run button).
+  // priority: optional 'high' | 'normal' — sets job priority before starting.
+  startJobById: async (jobId, priority) => {
     try {
-      const results = await Promise.allSettled([api.startJob(jobId)]);
+      const results = await Promise.allSettled([api.startJob(jobId, priority)]);
       const rejected = results.find((r) => r.status === 'rejected');
       if (rejected && rejected.reason?.status === 409 && rejected.reason?.detail?.code === 'FILE_MODIFIED') {
         const d = rejected.reason.detail;

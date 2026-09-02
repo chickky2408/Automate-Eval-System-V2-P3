@@ -1,7 +1,47 @@
 # รายงานรายละเอียด API ทั้งหมด (Exhaustive API Function Report)
-**จำนวนทั้งหมด:** 84 ฟังก์ชัน | **สถานะ:** ตรวจสอบแล้วตรงกับ Source Code
+**จำนวนทั้งหมด:** 84 ฟังก์ชัน | **สถานะ:** ตรวจสอบแล้วตรงกับ Source Code ปัจจุบัน; ไม่ใช่ Target Contract หลัง redesign
 
 [กลับสู่หน้าหลักสถาปัตยกรรมระบบ (System Architecture & Data Mapping)](./FE_MENU_API_DB_MAPPING.md)
+
+---
+
+## 0. สรุปแนวทางลด API ที่เกินความจำเป็น
+
+เอกสารนี้ยังคงเก็บรายชื่อ API ทั้งหมดที่มีอยู่ใน source code เพื่อใช้ audit และ migration แต่ API บางส่วนไม่ควรถูกถือเป็น contract ระยะยาว เพราะผูกกับ schema legacy หรือยังซ้ำกับ endpoint กลุ่มอื่น
+
+### API Contract ระยะยาวที่ควรคงไว้
+
+| กลุ่ม | Endpoint Group | เหตุผล |
+| :--- | :--- | :--- |
+| System | `/api/health`, `/api/system/health` | แยก liveness เบื้องต้นกับ health สำหรับ dashboard |
+| Boards | `/api/boards` | จัดการ inventory และอ่านสถานะจาก `board_status` |
+| Files | `/api/files` | เป็น file registry กลาง |
+| Test Definition | `/api/test-management/test-cases`, `/api/test-management/test-sets` | อ่าน/เขียนจาก normalized test tables |
+| Jobs | `/api/jobs` | จัดการ queue และ execution aggregate |
+| Job Items | `/api/jobs/{job_id}/items` *(target หลัง redesign)* | แทน job file APIs เดิม |
+| Results | `/api/results` | อ่านผลลัพธ์จาก `results` และ output จาก `result_files` |
+| Profiles | `/api/profiles` | เก็บ profile metadata และ preferences เท่านั้น |
+| Notifications | `/api/notifications` | event สำหรับ frontend |
+| WebSocket | `/ws/system`, `/ws/boards`, `/ws/jobs` | real-time event stream |
+
+### API ที่ควรลดบทบาท / Deprecated หลัง migration
+
+| API / Function | สถานะที่แนะนำ | เหตุผล |
+| :--- | :--- | :--- |
+| `getJobFiles()`, `stopJobFile()`, `rerunJobFile()`, `moveJobFile()`, `deleteJobFile()` | เปลี่ยนเป็น Job Item APIs | `job_files` ซ้ำกับ `job_items` ใน redesign |
+| `getJobPairs()` | Deprecated | `pairs_data` เป็น cache/input ชั่วคราว ไม่ควรเป็น source of truth |
+| `getAllTestCasesFromProfiles()` | Deprecated | หลัง cutover ต้องอ่านจาก `test_cases`/`test_suites` ไม่ใช่ `profiles.data` |
+| `patchFileLibraryTags()`, `updateJobTag()` | ใช้ชั่วคราว | ถ้ารวม tag system แล้วควรไปที่ `tags` + `tags_map` |
+| `getMqttStatus()` | Optional | ใช้เฉพาะเมื่อระบบมี MQTT จริงใน production |
+| `getBoardApiStatus()` | Optional | ใช้เฉพาะกรณีต้อง monitor agent API แยกจาก board heartbeat |
+| `rebootBoard()`, `shutdownBoard()`, `updateBoardFirmware()`, `runBoardSelfTest()`, `batchBoardActions()`, `getBoardSSHConnection()` | Experimental/Internal จนกว่า Agent contract เสถียร | เป็น hardware command ที่ต้องมี retry/audit/security ชัดเจนก่อนเปิดเป็น public API |
+
+### หลักการออกแบบ API หลัง redesign
+
+1. API เขียนข้อมูลเข้าตาราง canonical เท่านั้น; legacy table เขียนได้เฉพาะช่วง dual-write migration
+2. Endpoint ที่อ่าน job detail ต้องประกอบข้อมูลจาก `jobs`, `job_targets`, `job_items`, `results`, `result_files`
+3. Endpoint ที่เกี่ยวกับไฟล์ต้องอ้าง `files.id` หรือ `result_files.id` ไม่อ้าง filename เป็น primary reference
+4. Hardware command ต้องมี audit trail และ status feedback ผ่าน WebSocket ไม่ใช่ fire-and-forget
 
 ---
 

@@ -1,8 +1,7 @@
 """
-Job File Store Service with Database persistence.
+Job File Store Service (Redesigned to map to ResultORM).
 """
 from __future__ import annotations
-
 from typing import List, Optional
 from datetime import datetime
 import uuid
@@ -11,11 +10,35 @@ from sqlalchemy import select, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.database import async_session
-from db.orm_models import JobFileORM
-
+from db.orm_models import ResultORM, TestCaseORM
 
 class JobFileStore:
-    """Manages job files with database persistence."""
+    """Manages job items/files by mapping them to ResultORM records under the hood."""
+
+    def _orm_to_dict(self, f: ResultORM) -> dict:
+        passed_val = f.passed
+        result_str = None
+        if passed_val is True:
+            result_str = "pass"
+        elif passed_val is False:
+            result_str = "fail"
+            
+        snap = f.snapshot_data or {}
+        return {
+            "id": f.id,
+            "job_id": f.job_id,
+            "name": snap.get("test_case_name") or f"TC_{f.id}",
+            "status": f.status or "pending",
+            "result": result_str,
+            "order": f.execution_order,
+            "vcd": snap.get("vcd_filename"),
+            "erom": snap.get("firmware_filename"),
+            "ulp": snap.get("ulp_filename"),
+            "try_count": f.try_count or 1,
+            "test_case_name": snap.get("test_case_name"),
+            "created_at": f.created_at.isoformat() + "Z" if f.created_at else datetime.utcnow().isoformat() + "Z",
+            "updated_at": f.completed_at.isoformat() + "Z" if f.completed_at else datetime.utcnow().isoformat() + "Z",
+        }
 
     async def create_job_file(
         self,
@@ -28,100 +51,88 @@ class JobFileStore:
         try_count: Optional[int] = None,
         test_case_name: Optional[str] = None,
     ) -> dict:
-        """Create a new job file."""
-        file_id = str(uuid.uuid4())[:32]
+        """Create a new run item mapped to ResultORM."""
+        file_id = str(uuid.uuid4())[:8] # Keep ID short
         
         async with async_session() as session:
-            orm = JobFileORM(
+            # Check or create a TestCaseORM matching this VCD
+            tc_id = None
+            if vcd:
+                from db.orm_models import FileORM
+                f_res = await session.execute(select(FileORM.id).where(FileORM.filename == vcd))
+                vcd_id = f_res.scalar_one_or_none()
+                if vcd_id:
+                    tc_q = select(TestCaseORM.id).where(TestCaseORM.vcd_file_id == vcd_id)
+                    tc_id = (await session.execute(tc_q)).scalar_one_or_none()
+
+            if not tc_id:
+                tc_id = str(uuid.uuid4())
+                mock_tc = TestCaseORM(
+                    id=tc_id,
+                    name=test_case_name or name,
+                    vcd_file_id=str(uuid.uuid4()) # fallback dummy VCD ID
+                )
+                session.add(mock_tc)
+                await session.flush()
+
+            # Find or create a JobTargetORM for this job (fallback dummy target if none exists)
+            from db.orm_models import JobTargetORM
+            t_res = await session.execute(select(JobTargetORM.id).where(JobTargetORM.job_id == job_id))
+            target_id = t_res.scalar_one_or_none()
+            if not target_id:
+                target_id = str(uuid.uuid4())
+                mock_target = JobTargetORM(
+                    id=target_id,
+                    job_id=job_id,
+                    target_type="any",
+                    status="pending"
+                )
+                session.add(mock_target)
+                await session.flush()
+
+            orm = ResultORM(
                 id=file_id,
                 job_id=job_id,
-                name=name,
+                job_target_id=target_id,
+                test_case_id=tc_id,
                 status="pending",
-                result=None,
-                order=order,
-                vcd=vcd,
-                erom=erom,
-                ulp=ulp,
-                try_count=try_count,
-                test_case_name=test_case_name,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
+                execution_order=order,
+                try_count=try_count or 1,
+                passed=None,
+                snapshot_data={
+                    "test_case_name": test_case_name or name,
+                    "vcd_filename": vcd,
+                    "firmware_filename": erom,
+                    "ulp_filename": ulp
+                },
+                created_at=datetime.utcnow()
             )
             session.add(orm)
             await session.commit()
             await session.refresh(orm)
-            
-            return {
-                "id": orm.id,
-                "job_id": orm.job_id,
-                "name": orm.name,
-                "status": orm.status,
-                "result": orm.result,
-                "order": orm.order,
-                "vcd": orm.vcd,
-                "erom": orm.erom,
-                "ulp": orm.ulp,
-                "try_count": orm.try_count,
-                "test_case_name": orm.test_case_name,
-                "created_at": orm.created_at.isoformat() + "Z",
-                "updated_at": orm.updated_at.isoformat() + "Z",
-            }
+            return self._orm_to_dict(orm)
 
     async def list_job_files(self, job_id: str) -> List[dict]:
-        """List all files for a job."""
+        """List all run items for a job."""
         async with async_session() as session:
             result = await session.execute(
-                select(JobFileORM)
-                .where(JobFileORM.job_id == job_id)
-                .order_by(JobFileORM.order)
+                select(ResultORM)
+                .where(ResultORM.job_id == job_id)
+                .order_by(ResultORM.execution_order)
             )
             files = result.scalars().all()
-            
-            return [
-                {
-                    "id": f.id,
-                    "job_id": f.job_id,
-                    "name": f.name,
-                    "status": f.status,
-                    "result": f.result,
-                    "order": f.order,
-                    "vcd": f.vcd,
-                    "erom": f.erom,
-                    "ulp": f.ulp,
-                    "try_count": f.try_count,
-                    "test_case_name": f.test_case_name,
-                    "created_at": f.created_at.isoformat() + "Z",
-                    "updated_at": f.updated_at.isoformat() + "Z",
-                }
-                for f in files
-            ]
+            return [self._orm_to_dict(f) for f in files]
 
     async def get_job_file(self, file_id: str) -> Optional[dict]:
-        """Get a specific job file."""
+        """Get a specific run item by ID."""
         async with async_session() as session:
             result = await session.execute(
-                select(JobFileORM).where(JobFileORM.id == file_id)
+                select(ResultORM).where(ResultORM.id == file_id)
             )
             orm = result.scalar_one_or_none()
-            
             if not orm:
                 return None
-            
-            return {
-                "id": orm.id,
-                "job_id": orm.job_id,
-                "name": orm.name,
-                "status": orm.status,
-                "result": orm.result,
-                "order": orm.order,
-                "vcd": orm.vcd,
-                "erom": orm.erom,
-                "ulp": orm.ulp,
-                "try_count": orm.try_count,
-                "test_case_name": orm.test_case_name,
-                "created_at": orm.created_at.isoformat() + "Z",
-                "updated_at": orm.updated_at.isoformat() + "Z",
-            }
+            return self._orm_to_dict(orm)
 
     async def update_job_file(
         self,
@@ -130,45 +141,50 @@ class JobFileStore:
         result: Optional[str] = None,
         order: Optional[int] = None,
     ) -> bool:
-        """Update a job file."""
+        """Update a run item status/passed value."""
         async with async_session() as session:
-            values = {"updated_at": datetime.utcnow()}
+            values = {}
             if status is not None:
                 values["status"] = status
             if result is not None:
-                values["result"] = result
+                if result == "pass":
+                    values["passed"] = True
+                elif result == "fail":
+                    values["passed"] = False
+                else:
+                    values["passed"] = None
             if order is not None:
-                values["order"] = order
+                values["execution_order"] = order
             
-            result = await session.execute(
-                update(JobFileORM).where(JobFileORM.id == file_id).values(**values)
+            if not values:
+                return True
+
+            res = await session.execute(
+                update(ResultORM).where(ResultORM.id == file_id).values(**values)
             )
             await session.commit()
-            
-            return result.rowcount > 0
+            return res.rowcount > 0
 
     async def delete_job_file(self, file_id: str) -> bool:
-        """Delete a job file."""
+        """Delete a run item."""
         async with async_session() as session:
-            result = await session.execute(
-                delete(JobFileORM).where(JobFileORM.id == file_id)
+            res = await session.execute(
+                delete(ResultORM).where(ResultORM.id == file_id)
             )
             await session.commit()
-            
-            return result.rowcount > 0
+            return res.rowcount > 0
 
     async def delete_job_files(self, job_id: str) -> int:
-        """Delete all files for a job."""
+        """Delete all run items for a job."""
         async with async_session() as session:
-            result = await session.execute(
-                delete(JobFileORM).where(JobFileORM.job_id == job_id)
+            res = await session.execute(
+                delete(ResultORM).where(ResultORM.job_id == job_id)
             )
             await session.commit()
-            
-            return result.rowcount
+            return res.rowcount
 
     async def sync_files_for_status(self, job_id: str, status: str) -> List[dict]:
-        """Sync files status based on job status."""
+        """Sync run items statuses based on job status."""
         files = await self.list_job_files(job_id)
         
         if status == "completed":
@@ -186,6 +202,5 @@ class JobFileStore:
                         break
         
         return await self.list_job_files(job_id)
-
 
 job_file_store = JobFileStore()

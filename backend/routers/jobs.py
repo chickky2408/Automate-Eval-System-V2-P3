@@ -51,6 +51,7 @@ class JobCreatePayload(BaseModel):
     profileId: Optional[str] = None
     profileDisplayName: Optional[str] = None  # snapshot at create/update (shown as Owner for all viewers)
     pairsData: Optional[List[dict]] = None  # เก็บ pairs data สำหรับ edit batch
+    saveAsDraft: bool = False  # ถ้า True → สร้าง job ด้วย state=draft โดยไม่รันทันที
 
 
 class JobTagUpdate(BaseModel):
@@ -113,6 +114,8 @@ def _resolve_job_file_ids(file_payloads: List[dict], fallback_firmware: Optional
 
 
 def _map_job_state(state: JobState) -> str:
+    if state == JobState.DRAFT:
+        return "draft"
     if state == JobState.PENDING:
         return "pending"
     if state in {JobState.CONFIGURING, JobState.FLASHING, JobState.RUNNING}:
@@ -166,6 +169,10 @@ async def _start_job_internal(job_id: str):
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
     job_state = _map_job_state(job.status.state)
 
+    # Draft jobs are valid to start — they are simply promoted to pending.
+    # Treat draft the same as "stopped" for the purposes of checksum validation
+    # (skip verify so draft->start is fast; pending/running jobs are always verified).
+
     meta = fe_job_store.ensure_meta(
         job.id,
         default_file_name=getattr(job, "vcd_filename", None),
@@ -186,7 +193,7 @@ async def _start_job_internal(job_id: str):
             file_names.add(f.ulp)
 
     modified = []
-    should_verify_checksums = job_state != "stopped"
+    should_verify_checksums = job_state not in {"stopped", "draft"}
     if file_names and should_verify_checksums:
         library = await file_store.list_files(set_id=None)
         name_to_id = _library_name_to_id_prefer_newest(library)
@@ -203,6 +210,45 @@ async def _start_job_internal(job_id: str):
                     "files": modified,
                 },
             )
+
+    # If the real queue processor is active, let it handle the queue!
+    if job_queue_service._running:
+        from db.database import async_session
+        from sqlalchemy import update
+        from db.orm_models import JobORM, JobTargetORM, ResultORM
+        async with async_session() as session:
+            # Set job status to pending
+            await session.execute(
+                update(JobORM).where(JobORM.id == job_id).values(
+                    state="pending",
+                    progress=0,
+                    current_step="Pending in queue",
+                    started_at=None,
+                    completed_at=None,
+                    error_message=None
+                )
+            )
+            # Set job targets to pending
+            await session.execute(
+                update(JobTargetORM).where(JobTargetORM.job_id == job_id).values(
+                    status="pending",
+                    started_at=None,
+                    completed_at=None
+                )
+            )
+            # Reset all results to pending so they run again
+            await session.execute(
+                update(ResultORM).where(ResultORM.job_id == job_id).values(
+                    status="pending",
+                    passed=None,
+                    error_message=None,
+                    started_at=None,
+                    completed_at=None
+                )
+            )
+            await session.commit()
+        fe_job_store.sync_files_for_status(job_id, "pending")
+        return {"success": True, "message": "Job queued in active processing queue"}
 
     assigned_board_id = None
     boards_for_meta: List[str] = list(meta.get("boards") or [])
@@ -226,6 +272,8 @@ async def _start_job_internal(job_id: str):
 
 
 async def _autostart_next_pending():
+    if job_queue_service._running:
+        return False
     jobs = await job_queue_service.get_all_jobs()
     if any(_map_job_state(j.status.state) == "running" for j in jobs):
         return False
@@ -518,6 +566,8 @@ async def create_job(payload: JobCreatePayload):
         profile_id=payload.profileId,
         profile_display_name=(payload.profileDisplayName or "").strip() or None,
         config_name=payload.configName,
+        # save_to_db=False signals add_job to create with state="draft"
+        save_to_db=not payload.saveAsDraft,
     )
     job = await job_queue_service.add_job(job_data)
 
@@ -539,22 +589,24 @@ async def create_job(payload: JobCreatePayload):
     if payload.pairsData:
         fe_job_store.save_pairs_data(job.id, payload.pairsData)
 
-    # If no job is running, start the first pending (often this one) in queue order.
-    await _autostart_next_pending()
+    # Draft jobs are saved but NOT queued for execution yet.
+    # Only attempt auto-start when the job is created as pending.
+    if not payload.saveAsDraft:
+        await _autostart_next_pending()
     refreshed = await job_queue_service.get_job(job.id)
     return await _build_fe_job(refreshed or job)
 
 
 @router.put("/{job_id}")
 async def update_job(job_id: str, payload: JobCreatePayload):
-    """Update an existing job (pending only). Replaces files and meta from payload."""
+    """Update an existing job (draft or pending). Replaces files and meta from payload."""
     job = await job_queue_service.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-    if job.status.state != JobState.PENDING:
+    if job.status.state not in {JobState.DRAFT, JobState.PENDING}:
         raise HTTPException(
             status_code=400,
-            detail="Only pending jobs can be updated. Stop the job first to edit.",
+            detail="Only draft or pending jobs can be updated. Stop the job first to edit.",
         )
     file_payloads = [_model_to_dict(f) for f in (payload.files or [])]
     library_files = await file_store.list_files(set_id=None)
@@ -604,14 +656,68 @@ async def update_job(job_id: str, payload: JobCreatePayload):
     )
     if payload.pairsData is not None:
         fe_job_store.save_pairs_data(job_id, payload.pairsData)
-    await _autostart_next_pending()
+    # Only attempt auto-start when the job is not being saved as draft.
+    if not payload.saveAsDraft:
+        await _autostart_next_pending()
     return await _build_fe_job(await job_queue_service.get_job(job_id))
 
 
 @router.post("/{job_id}/start")
-async def start_job(job_id: str):
-    """Start a job. Verifies that referenced files have not been modified on disk since upload."""
+async def start_job(job_id: str, priority: Optional[str] = None):
+    """Start a job. Verifies that referenced files have not been modified on disk since upload.
+    If job is still in draft state, it will be promoted to pending before running.
+
+    Optional query param ``priority`` ("high" | "normal") sets the job priority before
+    starting so the queue (ordered by priority desc) runs high-priority jobs first.
+    """
+    if priority is not None:
+        p = priority.strip().lower()
+        if p in {"high", "normal"}:
+            from db.database import async_session
+            from sqlalchemy import update as sa_update
+            from db.orm_models import JobORM
+            async with async_session() as session:
+                await session.execute(
+                    sa_update(JobORM)
+                    .where(JobORM.id == job_id)
+                    .values(priority=10 if p == "high" else 0)
+                )
+                await session.commit()
     return await _start_job_internal(job_id)
+
+
+@router.post("/{job_id}/save-draft")
+async def save_job_as_draft(job_id: str):
+    """Mark an existing job as draft (not queued).
+
+    Allowed only when the job is in draft or pending state.
+    Running / completed / failed / cancelled jobs cannot be reverted to draft.
+    """
+    from db.database import async_session
+    from sqlalchemy import update as sa_update
+    from db.orm_models import JobORM
+
+    job = await job_queue_service.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    if job.status.state not in {JobState.DRAFT, JobState.PENDING}:
+        raise HTTPException(
+            status_code=400,
+            detail="Only draft or pending jobs can be saved as draft. Stop the job first.",
+        )
+    async with async_session() as session:
+        await session.execute(
+            sa_update(JobORM)
+            .where(JobORM.id == job_id)
+            .values(
+                state=JobState.DRAFT.value,
+                current_step="Saved as draft",
+            )
+        )
+        await session.commit()
+    fe_job_store.sync_files_for_status(job_id, "draft")
+    refreshed = await job_queue_service.get_job(job_id)
+    return {"success": True, "job": await _build_fe_job(refreshed)}
 
 
 @router.post("/{job_id}/stop")
@@ -670,6 +776,7 @@ async def get_job_status_summary():
     
     summary = {
         "total": len(jobs),
+        "draft": sum(1 for j in jobs if _map_job_state(j.status.state) == "draft"),
         "pending": sum(1 for j in jobs if _map_job_state(j.status.state) == "pending"),
         "running": sum(1 for j in jobs if _map_job_state(j.status.state) == "running"),
         "completed": sum(1 for j in jobs if _map_job_state(j.status.state) == "completed"),

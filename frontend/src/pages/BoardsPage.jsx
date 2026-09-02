@@ -128,77 +128,7 @@ const BoardsPage = () => {
   const realBoards = boards || [];
 
   const demoBoards = useMemo(
-    () => [
-      // ONLINE group (idle / ready)
-      {
-        id: 'BOARD-1',
-        name: 'Demo Board 1',
-        status: 'online',
-        ip: '192.168.0.10',
-        mac: '00:11:22:33:44:55',
-        firmware: 'v1.0.0',
-        model: 'Zybo',
-        tag: 'paused',
-        fpgaStatus: 'unknown',
-        armStatus: 'online',
-        currentJob: 'Idle',
-        voltage: '3.3',
-        queuePaused: true,
-        isDemo: true,
-      },
-      {
-        id: 'BOARD-2',
-        name: 'Line A – Ready',
-        status: 'online',
-        ip: '192.168.0.11',
-        mac: '00:11:22:33:44:66',
-        firmware: 'v1.0.3',
-        model: 'Zybo',
-        tag: 'line-a',
-        fpgaStatus: 'active',
-        armStatus: 'online',
-        currentJob: 'Idle',
-        voltage: '3.3',
-        queuePaused: false,
-        isDemo: true,
-      },
-
-      // BUSY group (กำลังรันงาน)
-      {
-        id: 'BOARD-3',
-        name: 'Burn-in Tester 1',
-        status: 'busy',
-        ip: '192.168.0.21',
-        mac: '00:11:22:33:44:88',
-        firmware: 'v1.1.0',
-        model: 'Zybo',
-        tag: 'burn-in',
-        fpgaStatus: 'active',
-        armStatus: 'busy',
-        currentJob: 'Batch #123 · Functional',
-        voltage: '3.3',
-        queuePaused: false,
-        isDemo: true,
-      },
-
-      // ERROR / OFFLINE group
-      {
-        id: 'BOARD-ERR',
-        name: 'Demo Error Board',
-        status: 'error',
-        ip: '192.168.0.31',
-        mac: '00:11:22:33:44:77',
-        firmware: 'v1.0.0',
-        model: 'Zybo',
-        tag: 'error',
-        fpgaStatus: 'error',
-        armStatus: 'offline',
-        currentJob: 'Idle',
-        voltage: '3.3',
-        queuePaused: false,
-        isDemo: true,
-      },
-    ],
+    () => [],
     []
   );
 

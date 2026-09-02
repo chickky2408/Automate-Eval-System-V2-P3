@@ -1,7 +1,9 @@
 # เอกสารแสดงโครงสร้างความสัมพันธ์ของระบบ (System Architecture & Data Mapping)
-**สถิติระบบ:** 7 เมนูหลัก | 84 API ฟังก์ชัน | 13 ตารางฐานข้อมูล
+**สถิติระบบ:** 7 เมนูหลัก | 84 API ฟังก์ชันใน source code ปัจจุบัน | 13 ตารางฐานข้อมูลปัจจุบัน
 
 แผนผังนี้แสดงโครงสร้างทั้งระบบ ตั้งแต่หน้าจอผู้ใช้ไปจนถึงการจัดเก็บข้อมูลเชิงลึกในระดับฟิลด์
+
+> **หมายเหตุการออกแบบ:** แผนผังนี้เป็นภาพรวมของระบบปัจจุบันเพื่อใช้ mapping และ audit ไม่ใช่ target architecture สุดท้ายทั้งหมด หลัง redesign ควรลด source of truth ซ้ำซ้อน โดยยึด canonical flow: `profiles/files/test_cases/test_suites/boards/board_status/jobs/job_targets/job_items/results/result_files` และลดบทบาท `job_files`, `pairs_data`, profile JSON test data, และ tag fields ที่กระจายหลายตาราง
 
 ```mermaid
 graph TD

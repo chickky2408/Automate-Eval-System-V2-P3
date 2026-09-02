@@ -22,11 +22,12 @@ import {
 } from '../utils/tagPalette';
 
 // 3. JOBS PAGE (Enhanced)
-const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNavigateToFileLibrary, onNavigateToTestCases, onNavigateToLibrarySet }) => {
+const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNavigateToWaveform, onNavigateToFileLibrary, onNavigateToTestCases, onNavigateToLibrarySet }) => {
   const { 
     jobs, 
     startPendingJobs,
     startJobById,
+    saveJobAsDraft,
     stopAllJobs,
     stopJob,
     moveJobUp,
@@ -82,6 +83,8 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
   const [dragStartIndex, setDragStartIndex] = useState(null); // สำหรับ drag selection
   const [isDragging, setIsDragging] = useState(false); // track ว่ากำลัง drag อยู่หรือไม่
   const [draggingJobId, setDraggingJobId] = useState(null);
+  /** job id whose Run priority menu is open (draft Run → choose High / Normal) */
+  const [runMenuJobId, setRunMenuJobId] = useState(null);
   /** true while pointer is over the Running column drop zone (pending → start run) */
   const [runningColumnDropActive, setRunningColumnDropActive] = useState(false);
   const runningDropZoneRef = useRef(null);
@@ -95,17 +98,17 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
   const uploadedFiles = useTestStore((s) => s.uploadedFiles) || [];
   const fileTags = useTestStore((s) => s.fileTags) || {};
 
-  /** Checked rows that are still pending — "Run Selected" only starts these (not all pending). */
-  const selectedPendingJobsForRun = useMemo(
+  /** Checked rows that can start now — draft/pending only, not running/completed. */
+  const selectedStartableJobsForRun = useMemo(
     () =>
       jobs.filter(
         (j) =>
           selectedJobIds.some((sid) => String(sid) === String(j.id)) &&
-          (j.status || '').toLowerCase() === 'pending'
+          ['draft', 'pending'].includes((j.status || '').toLowerCase())
       ),
     [jobs, selectedJobIds]
   );
-  const selectedPendingCount = selectedPendingJobsForRun.length;
+  const selectedStartableCount = selectedStartableJobsForRun.length;
 
   const getTestCaseDisplayNameForReport = (f) => (f?.testCaseName || (f?.order != null ? `Test case ${f.order}` : '—'));
 
@@ -344,12 +347,12 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
   };
 
   const handleRunSelectedJobs = async () => {
-    const pendingSelectedJobs = selectedPendingJobsForRun;
+    const pendingSelectedJobs = selectedStartableJobsForRun;
     if (pendingSelectedJobs.length === 0) {
       addToast({
         type: 'info',
         message:
-          'No pending jobs in current selection. Select pending jobs and try again.',
+          'No draft/pending jobs in current selection. Select draft or pending jobs and try again.',
       });
       return;
     }
@@ -512,6 +515,7 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
   // สีการ์ดตามสถานะ: เขียว = ผ่านทั้งหมด, แดง = มี fail
   const getCardStatusStyle = (job) => {
     const hasFail = jobHasExecutionFailure(job);
+    if (job.status === 'draft') return 'border-l-4 border-l-slate-400';
     if (job.status === 'running') return 'border-l-4 border-l-blue-500';
     if (job.status === 'pending') return 'border-l-4 border-l-amber-500';
     if (job.status === 'completed' || job.status === 'stopped') {
@@ -548,6 +552,9 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
   const sortByDate = (list) =>
     [...list].sort((a, b) => getJobDate(b) - getJobDate(a));
 
+  const draftJobs = sortByDate(
+    sortedAllJobs.filter(j => (j.status || '').toLowerCase() === 'draft')
+  );
   const pendingJobs = sortByDate(
     sortedAllJobs.filter(j => (j.status || '').toLowerCase() === 'pending')
   );
@@ -597,6 +604,7 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
     });
   };
 
+  const filteredDraftJobs = sortByDate(applyJobsFilters(draftJobs));
   const filteredPendingJobs = sortByDate(applyJobsFilters(pendingJobs));
   const filteredRunningJobs = sortByDate(applyJobsFilters(runningJobs));
   const allCompletedOrStopped = sortedAllJobs.filter(
@@ -698,10 +706,10 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
   };
   const displayCompletedJobs = jobsStatusFilter === 'stopped'
     ? filteredStoppedSuccess
-    : [DEMO_COMPLETED_JOB, DEMO_COMPLETED_JOB_2, ...filteredCompletedSuccess];
+    : filteredCompletedSuccess;
   const displayErrorJobs = jobsStatusFilter === 'stopped'
     ? filteredStoppedError
-    : [DEMO_FAILED_JOB, DEMO_FAILED_JOB_2, ...filteredErrorJobs];
+    : filteredErrorJobs;
 
   // Unique tags from all jobs (for dropdown)
   const uniqueTags = [...new Set(jobs.map(j => j.tag).filter(Boolean))].sort();
@@ -728,6 +736,7 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
     const handleOutsideJobCardClick = (event) => {
       const target = event.target;
       if (!(target instanceof Element)) return;
+      setRunMenuJobId(null);
       if (target.closest('[data-job-card]')) return;
       upd('expandedDetailsJobs', []);
     };
@@ -737,31 +746,33 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
     };
   }, [upd]);
 
-  const draggedJobIsPending = useMemo(() => {
+  // Pending (reorder/start) หรือ draft (promote→pending) ลากลง Running column เพื่อเริ่มรันได้
+  const draggedJobIsStartable = useMemo(() => {
     if (!draggingJobId) return false;
     const j = jobs.find((x) => x.id === draggingJobId);
-    return j != null && (j.status || '').toLowerCase() === 'pending';
+    const s = j != null ? (j.status || '').toLowerCase() : '';
+    return s === 'pending' || s === 'draft';
   }, [draggingJobId, jobs]);
 
   const handleRunningColumnDragOver = useCallback(
     (e) => {
       e.preventDefault();
-      if (!draggedJobIsPending) {
+      if (!draggedJobIsStartable) {
         e.dataTransfer.dropEffect = 'none';
         return;
       }
       e.dataTransfer.dropEffect = 'move';
       setRunningColumnDropActive(true);
     },
-    [draggedJobIsPending]
+    [draggedJobIsStartable]
   );
 
   const handleRunningColumnDragEnter = useCallback(
     (e) => {
       e.preventDefault();
-      if (draggedJobIsPending) setRunningColumnDropActive(true);
+      if (draggedJobIsStartable) setRunningColumnDropActive(true);
     },
-    [draggedJobIsPending]
+    [draggedJobIsStartable]
   );
 
   const handleRunningColumnDragLeave = useCallback((e) => {
@@ -781,10 +792,12 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
         return;
       }
       const dragged = jobs.find((j) => j.id === id);
-      if (!dragged || (dragged.status || '').toLowerCase() !== 'pending') {
+      const draggedStatus = dragged ? (dragged.status || '').toLowerCase() : '';
+      if (!dragged || (draggedStatus !== 'pending' && draggedStatus !== 'draft')) {
         setDraggingJobId(null);
         return;
       }
+      // draft → promote to pending (then queue/auto-start); pending → start now
       await startJobById(id);
       setDraggingJobId(null);
     },
@@ -797,8 +810,11 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
     const showDetails = expandedDetailsJobs.includes(job.id);
     const runningFiles = sortedFiles.filter(f => f.status === 'running');
     
-    const isPendingJob = (job.status || '').toLowerCase() === 'pending';
-    const isDraggable = !isDemoJob && isPendingJob; // ลากได้เฉพาะคิวที่ยัง pending
+    const jobStatus = (job.status || '').toLowerCase();
+    const isPendingJob = jobStatus === 'pending';
+    const isDraftJob = jobStatus === 'draft';
+    const isStartableJob = isDraftJob || isPendingJob;
+    const isDraggable = !isDemoJob && (isPendingJob || isDraftJob); // ลากได้: pending (reorder) และ draft (ลากไปเริ่มรัน)
 
     const tagsArr = getJobTagsArray(job);
     const primaryTag = tagsArr[0] || null;
@@ -921,6 +937,7 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
                       </h3>
                     </button>
                     <span className={`px-2 py-0.5 rounded-full text-xs font-bold uppercase shrink-0 inline-flex items-center gap-1 ${
+                    job.status === 'draft' ? 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300' :
                     job.status === 'running' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' :
                     job.status === 'pending' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' :
                     job.status === 'stopped' ? 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200' :
@@ -987,6 +1004,111 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
                 {showDetails ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                 Details
               </button>
+              {!isDemoJob && isDraftJob && (
+                <div className="relative shrink-0" data-no-select>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      setRunMenuJobId((prev) => (prev === job.id ? null : job.id));
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                    title="Start this draft job — choose priority"
+                  >
+                    <Play size={12} />
+                    Run
+                    <ChevronDown size={12} />
+                  </button>
+                  {runMenuJobId === job.id && (
+                    <div
+                      className="absolute left-0 z-30 mt-1 w-44 rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800"
+                      onMouseDown={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        type="button"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          setRunMenuJobId(null);
+                          await startJobById(job.id, 'normal');
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                      >
+                        <Play size={12} className="text-blue-600" />
+                        Run (Normal)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          setRunMenuJobId(null);
+                          await startJobById(job.id, 'high');
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                      >
+                        <Zap size={12} className="text-amber-500" />
+                        Run (High priority)
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+              {!isDemoJob && isPendingJob && (
+                <button
+                  type="button"
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    await startJobById(job.id);
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 transition-colors shrink-0"
+                  title="Start this queued job"
+                >
+                  <Play size={12} />
+                  Run
+                </button>
+              )}
+              {/* แปลง pending → draft (ถอนออกจากคิว แต่ไม่ลบ) */}
+              {!isDemoJob && isPendingJob && (
+                <button
+                  type="button"
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    await saveJobAsDraft(job.id);
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold bg-white text-slate-600 border border-slate-300 hover:bg-slate-50 transition-colors shrink-0"
+                  title="Move this job back to draft (removes it from the queue)"
+                >
+                  <Save size={12} />
+                  Save as Draft
+                </button>
+              )}
+              {!isDemoJob && (jobStatus === 'completed' || jobStatus === 'stopped') && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    if (typeof onNavigateToWaveform === 'function') {
+                      onNavigateToWaveform(job.id);
+                    } else {
+                      useTestStore.getState().setWaveformFocusResultId(job.id);
+                    }
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/50 border border-purple-200 dark:border-purple-800 transition-colors shrink-0"
+                  title="Open Waveform Viewer for this job"
+                >
+                  <Activity size={12} />
+                  Waveform
+                </button>
+              )}
               {/* ลบได้เฉพาะ Pending / Error / Completed — ไม่แสดงระหว่าง Running (กันลบขณะกำลังรัน) */}
                   {!isDemoJob && column !== 'running' && column !== 'running-active' && (
                     <button
@@ -1281,16 +1403,16 @@ Duration: ${file.duration || 'N/A'}
         </div>
       <div className="flex flex-wrap gap-2 sm:gap-3 items-center">
         {/* Run Selected: เฉพาะ batch สถานะ Pending ที่ติ๊กเลือก (ไม่ใช่ทุก pending) */}
-        {selectedPendingCount > 0 && (
+        {selectedStartableCount > 0 && (
           <button
             type="button"
             onClick={handleRunSelectedJobs}
             disabled={isRunningBatch}
-            title="Start only selected jobs from the Pending queue"
+            title="Start only selected draft/pending jobs"
             className={`bg-blue-500 text-white px-6 py-2 rounded-xl font-bold shadow-lg transition-all flex items-center gap-2 ${isRunningBatch ? 'opacity-60 cursor-not-allowed' : 'hover:bg-blue-600'}`}
           >
             <Play size={18} />
-            {isRunningBatch ? 'Starting...' : `Run Selected (${selectedPendingCount})`}
+            {isRunningBatch ? 'Starting...' : `Run Selected (${selectedStartableCount})`}
           </button>
         )}
         
@@ -1349,6 +1471,7 @@ Duration: ${file.duration || 'N/A'}
           title="Column / Status"
         >
           <option value="all">All columns</option>
+          <option value="draft">Draft</option>
           <option value="pending">Pending</option>
           <option value="running">Running</option>
           <option value="stopped">Stopped</option>
@@ -1485,10 +1608,34 @@ Duration: ${file.duration || 'N/A'}
       {/* Columns: 4 columns when "All", or 1 column when a single status is selected */}
       <div
         className={`grid gap-2 md:gap-3 ${
-          jobsStatusFilter === 'all' ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3' : 'grid-cols-1'
+          jobsStatusFilter === 'all' ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-4' : 'grid-cols-1'
         }`}
       >
-        {/* Pending column removed: queue is shown under Running to save space */}
+        {/* Column: Draft (saved but not queued) */}
+        {(jobsStatusFilter === 'all' || jobsStatusFilter === 'draft') && (
+        <div className="space-y-2 rounded-xl border border-slate-200 bg-white/80 p-2 shadow-sm dark:bg-slate-900/70 dark:border-slate-800 min-w-0">
+          <div className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 dark:bg-slate-800 dark:border-slate-700">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <div className="w-2 h-2 bg-slate-500 rounded-full shrink-0" />
+              <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Draft</h2>
+              <span className="px-1.5 py-0.5 bg-slate-100 text-slate-700 rounded-full text-[10px] font-bold dark:bg-slate-700 dark:text-slate-200 tabular-nums">
+                {filteredDraftJobs.length}
+              </span>
+            </div>
+          </div>
+          <div className="space-y-1.5 pt-0.5 pr-0.5 md:pr-1 min-h-[4rem]">
+            {filteredDraftJobs.length === 0 ? (
+              <div className="rounded-lg border border-slate-200 bg-white px-2 py-4 text-center text-slate-400 text-xs dark:bg-slate-900 dark:border-slate-700 dark:text-slate-400">
+                <p>{hasActiveFilters ? 'No matching draft jobs' : 'No draft jobs'}</p>
+              </div>
+            ) : (
+              filteredDraftJobs.map((job, queueIndex) =>
+                renderJobCard(job, queueIndex, filteredDraftJobs, 'draft')
+              )
+            )}
+          </div>
+        </div>
+        )}
 
         {/* Column 2: Running + Queue (Pending under running) */}
         {(jobsStatusFilter === 'all' || jobsStatusFilter === 'running' || jobsStatusFilter === 'pending') && (
@@ -1513,7 +1660,7 @@ Duration: ${file.duration || 'N/A'}
             onDragLeave={handleRunningColumnDragLeave}
             onDrop={handleRunningColumnDrop}
             className={`space-y-1.5 pt-0.5 pr-0.5 md:pr-1 min-h-[4rem] rounded-lg transition-colors ${
-              runningColumnDropActive && draggedJobIsPending
+              runningColumnDropActive && draggedJobIsStartable
                 ? 'bg-blue-50/90 ring-2 ring-blue-400/60 ring-offset-1 dark:bg-blue-950/40 dark:ring-blue-500/50'
                 : ''
             }`}
@@ -1521,7 +1668,7 @@ Duration: ${file.duration || 'N/A'}
             {filteredRunningJobs.length === 0 ? (
               <div
                 className={`rounded-lg border border-dashed px-2 py-6 text-center text-xs dark:border-slate-600 ${
-                  runningColumnDropActive && draggedJobIsPending
+                  runningColumnDropActive && draggedJobIsStartable
                     ? 'border-blue-400 bg-blue-50/50 text-blue-800 dark:bg-blue-950/50 dark:text-blue-200'
                     : 'border-slate-200 bg-white text-slate-400 dark:bg-slate-900 dark:text-slate-400'
                 }`}
@@ -1549,18 +1696,28 @@ Duration: ${file.duration || 'N/A'}
                 </span>
               </div>
               <div
-                className="space-y-1.5 min-h-[2.75rem] rounded-lg"
+                className={`space-y-1.5 min-h-[2.75rem] rounded-lg transition-colors ${
+                  draggedJobIsStartable ? 'ring-1 ring-amber-300/60 dark:ring-amber-500/40' : ''
+                }`}
                 onDragOver={(e) => {
-                  if (!draggedJobIsPending) return;
+                  if (!draggedJobIsStartable) return;
                   e.preventDefault();
                   e.dataTransfer.dropEffect = 'move';
                 }}
-                onDrop={(e) => {
-                  if (!draggedJobIsPending) return;
+                onDrop={async (e) => {
+                  if (!draggedJobIsStartable) return;
                   e.preventDefault();
                   e.stopPropagation();
                   const draggedJobId = e.dataTransfer.getData('application/x-job-id') || e.dataTransfer.getData('text/plain');
                   if (!draggedJobId) return;
+                  const draggedJob = jobs.find((j) => j.id === draggedJobId);
+                  const draggedStatus = draggedJob ? (draggedJob.status || '').toLowerCase() : '';
+                  // draft → promote to pending (enter the queue); pending → move to bottom of queue
+                  if (draggedStatus === 'draft') {
+                    await startJobById(draggedJobId);
+                    setDraggingJobId(null);
+                    return;
+                  }
                   const fromIndex = filteredPendingJobs.findIndex((j) => j.id === draggedJobId);
                   if (fromIndex < 0) return;
                   const toIndex = Math.max(0, filteredPendingJobs.length - 1);

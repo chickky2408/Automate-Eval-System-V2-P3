@@ -53,6 +53,9 @@ services:
       DB_NAME: ${DB_NAME:-eval_system}
       # Printed on startup so the log shows the URL users actually open in the browser
       APP_EXTERNAL_URL: http://localhost:${APP_PORT:-8001}
+      # Cleanup page passcode (empty/unset = cleanup disabled, endpoints return 403).
+      # Set a real value in .env for the 🧹 Cleanup feature in the Library page.
+      CLEANUP_PASSCODE: ${CLEANUP_PASSCODE:-}
     volumes:
       - eval_uploads:/app/uploads  # Uploaded files (VCD / firmware / etc.)
     healthcheck:

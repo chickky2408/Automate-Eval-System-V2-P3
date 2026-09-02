@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks, Request
 from pydantic import BaseModel
 from typing import Optional, List
 from services.board_manager import board_manager
+from services.pending_job_dispatcher import pending_job_dispatcher
 from models.board import BoardState
 
 router = APIRouter()
@@ -17,6 +18,7 @@ class BoardRegisterRequest(BaseModel):
     firmware_version: Optional[str] = None
     model: Optional[str] = None
     tag: Optional[str] = None
+    ip_address: Optional[str] = None
     
 class HeartbeatRequest(BaseModel):
     board_id: str
@@ -26,6 +28,7 @@ class HeartbeatRequest(BaseModel):
     status: str  # "IDLE", "BUSY", "ERROR"
     fpga_status: Optional[str] = None  # "active" | "idle" | "error" | "unknown"
     arm_status: Optional[str] = None   # "online" | "busy" | "error" | "unknown"
+    ip_address: Optional[str] = None
 
 
 @router.post("/register")
@@ -34,7 +37,7 @@ async def register_board(payload: BoardRegisterRequest, request: Request):
     Called by Agent on boot.
     Registers the board and captures its IP address from the request.
     """
-    client_ip = request.client.host
+    client_ip = payload.ip_address or request.client.host
     
     board = await board_manager.create_board(
         board_id=payload.board_id,
@@ -50,17 +53,21 @@ async def register_board(payload: BoardRegisterRequest, request: Request):
     return {"status": "registered", "ip": client_ip}
 
 @router.post("/heartbeat")
-async def heartbeat(payload: HeartbeatRequest, request: Request):
+async def heartbeat(payload: HeartbeatRequest, request: Request, background_tasks: BackgroundTasks):
     """
     Periodic heartbeat from Agent.
     Updates status and IP (in case of DHCP change).
+    When board reports IDLE status, trigger pending_job_dispatcher immediately
+    so waiting jobs don't have to wait for the next poll cycle.
     """
-    client_ip = request.client.host
+    client_ip = payload.ip_address or request.client.host
     
     success = await board_manager.update_heartbeat(
         board_id=payload.board_id,
         ip=client_ip,
         temp=payload.cpu_temp,
+        cpu_load=payload.cpu_load,
+        ram_usage=payload.ram_usage,
         fpga_status=payload.fpga_status,
         arm_status=payload.arm_status,
     )
@@ -68,5 +75,10 @@ async def heartbeat(payload: HeartbeatRequest, request: Request):
     if not success:
         # Auto-register if not found? Or return 404 to force re-register
         raise HTTPException(status_code=404, detail="Board not registered")
+
+    # เมื่อบอร์ดรายงานตัวว่าว่าง (IDLE) → ให้ dispatcher ตรวจ pending jobs ทันที
+    # ใช้ background_tasks เพื่อไม่บล็อก response ให้ agent
+    if (payload.status or "").upper() in {"IDLE", "ONLINE", "OK"}:
+        background_tasks.add_task(pending_job_dispatcher.trigger_now)
         
     return {"status": "ok"}

@@ -1,9 +1,7 @@
 /**
- * Primary test case file triple: VCD + ERoM (binName) + ULP (linName), all non-empty after trim.
+ * Primary test case file requirement: VCD is mandatory; ERoM and ULP are optional.
  */
 export function isTestCasePrimaryFileSetComplete(tc) {
   const v = String(tc?.vcdName ?? '').trim();
-  const b = String(tc?.binName ?? '').trim();
-  const l = String(tc?.linName ?? '').trim();
-  return Boolean(v && b && l);
+  return Boolean(v);
 }

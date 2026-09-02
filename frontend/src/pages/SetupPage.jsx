@@ -818,9 +818,9 @@ const SetupPage = ({ editJobId, onEditComplete }) => {
     const prepared = [];
     for (const file of filesArray) {
       const extension = file.name.split('.').pop().toLowerCase();
-      const validExtensions = ['vcd', 'bin', 'hex', 'elf', 'erom', 'ulp'];
+      const validExtensions = ['ist', 'erom', 'ulp'];
       if (!validExtensions.includes(extension)) {
-        pushFileError(`File type .${extension} is not supported. Please upload .vcd, .bin, .hex, .elf, .erom, or .ulp files.`);
+        pushFileError(`File type .${extension} is not supported. Please upload .ist, .erom, or .ulp files.`);
         continue;
       }
       const maxSize = 50 * 1024 * 1024; // 50MB
@@ -1036,6 +1036,123 @@ const SetupPage = ({ editJobId, onEditComplete }) => {
     }
   };
 
+  // Build the batch payload and submit it. asDraft=true saves as draft (not queued);
+  // asDraft=false creates/updates a normal (pending) batch.
+  const handleCreateBatch = async (asDraft = false) => {
+    if (isCreatingBatch) return;
+
+    // ใช้ pairs ที่ถูกเลือกจาก checkbox (selectedTestCaseIds)
+    // ถ้าไม่มีเลือกเลย ให้ใช้ทั้งหมด
+    const pairsToUse = selectedTestCaseIds.length > 0
+      ? selectedPairs.filter(pair => selectedTestCaseIds.includes(pair.id))
+      : selectedPairs;
+
+    if (pairsToUse.length === 0) {
+      addToast({ type: 'warning', message: 'Please select at least one test case pair' });
+      return;
+    }
+    if (boardSelectionMode === 'manual' && selectedBoardIds.length === 0) {
+      setSetupErrors((prev) => ({ ...prev, boards: 'Select at least one board.' }));
+      return;
+    }
+
+    const boardNames = boardSelectionMode === 'auto'
+      ? []
+      : boards.filter(b => selectedBoardIds.includes(b.id)).map(b => b.name);
+
+    // สร้าง files array จาก pairs ที่เลือก (แต่ละ pair = 1 test case)
+    // ส่งข้อมูลไฟล์ทั้งหมด: VCD, ERoM (BIN), ULP (LIN)
+    const filesFromPairs = pairsToUse.map((pair, index) => {
+      const vcdFile = uploadedFiles.find(f => f.id === pair.vcdId);
+      const binFile = uploadedFiles.find(f => f.id === pair.binId);
+      const linFile = pair.linId ? uploadedFiles.find(f => f.id === pair.linId) : null;
+      const boardName = pair.boardId ? boards.find(b => b.id === pair.boardId)?.name : undefined;
+      return {
+        name: vcdFile?.name || '', // VCD file name (primary)
+        order: index + 1,
+        try: pair.try || 1,
+        vcd: vcdFile?.name || '', // VCD file
+        erom: binFile?.name || '', // ERoM (BIN) file
+        ulp: linFile?.name || null, // ULP (LIN) file (optional)
+        board: boardName, // บอร์ดที่รัน test case นี้ (ถ้า backend รองรับ)
+      };
+    });
+
+    // ใช้ firmware จาก pair แรก
+    const firstPair = pairsToUse[0];
+    const firmwareFile = uploadedFiles.find(f => f.id === firstPair.binId);
+
+    // เก็บ pairs data สำหรับ edit batch (เก็บ file IDs, file names และ try count)
+    const pairsDataForHistory = pairsToUse.map(pair => {
+      const vcdFile = uploadedFiles.find(f => f.id === pair.vcdId);
+      const binFile = uploadedFiles.find(f => f.id === pair.binId);
+      const linFile = pair.linId ? uploadedFiles.find(f => f.id === pair.linId) : null;
+
+      return {
+        vcdId: pair.vcdId,
+        binId: pair.binId,
+        linId: pair.linId || null,
+        vcdName: vcdFile?.name || '', // เก็บ file name สำหรับ fallback
+        binName: binFile?.name || '', // เก็บ file name สำหรับ fallback
+        linName: linFile?.name || null, // เก็บ file name สำหรับ fallback
+        try: pair.try || 1,
+        boardId: pair.boardId || null,
+        boardName: pair.boardId ? boards.find(b => b.id === pair.boardId)?.name : null,
+      };
+    });
+
+    const jobPayload = {
+      name: configName || `Batch ${new Date().toISOString()}`,
+      tag: tag || undefined,
+      firmware: firmwareFile?.name || '',
+      boards: boardNames,
+      priority: testNowHighPriority ? 'high' : undefined,
+      files: filesFromPairs.map(f => ({
+        name: f.name, // VCD file name (for backward compatibility)
+        order: f.order,
+        vcd: f.vcd, // VCD file
+        erom: f.erom, // ERoM (BIN) file
+        ulp: f.ulp, // ULP (LIN) file
+        try_count: f.try, // Number of test rounds
+        ...(f.board != null && { board: f.board }), // บอร์ดที่รัน test case นี้ (backend รองรับเมื่อไหร่จะใช้ได้)
+      })),
+      configName: configName || undefined,
+      pairsData: pairsDataForHistory, // เก็บ pairs data สำหรับ edit
+      saveAsDraft: asDraft, // true → backend creates/keeps state=draft (not queued)
+    };
+
+    try {
+      setIsCreatingBatch(true);
+      const result = editJobId
+        ? await updateJob(editJobId, jobPayload)
+        : await createJob(jobPayload);
+      if (result) {
+        if (editJobId && onEditComplete) {
+          onEditComplete();
+        }
+        setSelectedIds([]);
+        setSelectedPairs([]);
+        setSelectedBoardIds([]);
+        setSelectedTestCaseIds([]);
+        setTag('');
+        setConfigName('Default_Setup');
+        addToast({
+          type: 'success',
+          message: asDraft
+            ? (editJobId ? 'Batch saved as draft.' : 'Draft created.')
+            : (editJobId ? 'Batch updated successfully.' : 'Batch created successfully.'),
+        });
+      } else {
+        addToast({
+          type: 'error',
+          message: editJobId ? 'Failed to update batch.' : 'Failed to create batch.',
+        });
+      }
+    } finally {
+      setIsCreatingBatch(false);
+    }
+  };
+
   return (
     <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6 sm:space-y-8">
       <UploadChoiceModal
@@ -1154,7 +1271,7 @@ const SetupPage = ({ editJobId, onEditComplete }) => {
               ref={fileInputRef}
               type="file"
               multiple
-              accept=".vcd,.bin,.hex,.elf,.erom,.ulp"
+              accept=".ist,.erom,.ulp"
               onChange={handleFileInputChange}
               className="hidden"
             />
@@ -1950,137 +2067,41 @@ const SetupPage = ({ editJobId, onEditComplete }) => {
                         </div>
                       </div>
 
-                      {/* Create Batch Button */}
-                      <button
-                        disabled={isCreatingBatch || selectedPairs.length === 0}
-                        className={`w-full bg-slate-900 text-white py-3 rounded-xl font-bold shadow-lg transition-all flex items-center justify-center gap-2 ${isCreatingBatch || selectedPairs.length === 0
-                            ? 'opacity-60 cursor-not-allowed'
-                            : 'hover:bg-black'
-                          }`}
-                        onClick={async () => {
-                          if (isCreatingBatch) return;
-
-                          // ใช้ pairs ที่ถูกเลือกจาก checkbox (selectedTestCaseIds)
-                          // ถ้าไม่มีเลือกเลย ให้ใช้ทั้งหมด
-                          const pairsToUse = selectedTestCaseIds.length > 0
-                            ? selectedPairs.filter(pair => selectedTestCaseIds.includes(pair.id))
-                            : selectedPairs;
-
-                          if (pairsToUse.length === 0) {
-                            addToast({ type: 'warning', message: 'Please select at least one test case pair' });
-                            return;
-                          }
-                          if (boardSelectionMode === 'manual' && selectedBoardIds.length === 0) {
-                            setSetupErrors((prev) => ({ ...prev, boards: 'Select at least one board.' }));
-                            return;
-                          }
-
-                          const boardNames = boardSelectionMode === 'auto'
-                            ? []
-                            : boards.filter(b => selectedBoardIds.includes(b.id)).map(b => b.name);
-
-                          // สร้าง files array จาก pairs ที่เลือก (แต่ละ pair = 1 test case)
-                          // ส่งข้อมูลไฟล์ทั้งหมด: VCD, ERoM (BIN), ULP (LIN)
-                          const filesFromPairs = pairsToUse.map((pair, index) => {
-                            const vcdFile = uploadedFiles.find(f => f.id === pair.vcdId);
-                            const binFile = uploadedFiles.find(f => f.id === pair.binId);
-                            const linFile = pair.linId ? uploadedFiles.find(f => f.id === pair.linId) : null;
-                            const boardName = pair.boardId ? boards.find(b => b.id === pair.boardId)?.name : undefined;
-                            return {
-                              name: vcdFile?.name || '', // VCD file name (primary)
-                              order: index + 1,
-                              try: pair.try || 1,
-                              vcd: vcdFile?.name || '', // VCD file
-                              erom: binFile?.name || '', // ERoM (BIN) file
-                              ulp: linFile?.name || null, // ULP (LIN) file (optional)
-                              board: boardName, // บอร์ดที่รัน test case นี้ (ถ้า backend รองรับ)
-                            };
-                          });
-
-                          // ใช้ firmware จาก pair แรก
-                          const firstPair = pairsToUse[0];
-                          const firmwareFile = uploadedFiles.find(f => f.id === firstPair.binId);
-
-                          // เก็บ pairs data สำหรับ edit batch (เก็บ file IDs, file names และ try count)
-                          const pairsDataForHistory = pairsToUse.map(pair => {
-                            const vcdFile = uploadedFiles.find(f => f.id === pair.vcdId);
-                            const binFile = uploadedFiles.find(f => f.id === pair.binId);
-                            const linFile = pair.linId ? uploadedFiles.find(f => f.id === pair.linId) : null;
-
-                            return {
-                              vcdId: pair.vcdId,
-                              binId: pair.binId,
-                              linId: pair.linId || null,
-                              vcdName: vcdFile?.name || '', // เก็บ file name สำหรับ fallback
-                              binName: binFile?.name || '', // เก็บ file name สำหรับ fallback
-                              linName: linFile?.name || null, // เก็บ file name สำหรับ fallback
-                              try: pair.try || 1,
-                              boardId: pair.boardId || null,
-                              boardName: pair.boardId ? boards.find(b => b.id === pair.boardId)?.name : null,
-                            };
-                          });
-
-                          const jobPayload = {
-                            name: configName || `Batch ${new Date().toISOString()}`,
-                            tag: tag || undefined,
-                            firmware: firmwareFile?.name || '',
-                            boards: boardNames,
-                            priority: testNowHighPriority ? 'high' : undefined,
-                            files: filesFromPairs.map(f => ({
-                              name: f.name, // VCD file name (for backward compatibility)
-                              order: f.order,
-                              vcd: f.vcd, // VCD file
-                              erom: f.erom, // ERoM (BIN) file
-                              ulp: f.ulp, // ULP (LIN) file
-                              try_count: f.try, // Number of test rounds
-                              ...(f.board != null && { board: f.board }), // บอร์ดที่รัน test case นี้ (backend รองรับเมื่อไหร่จะใช้ได้)
-                            })),
-                            configName: configName || undefined,
-                            pairsData: pairsDataForHistory, // เก็บ pairs data สำหรับ edit
-                          };
-
-                          try {
-                            setIsCreatingBatch(true);
-                            const result = editJobId
-                              ? await updateJob(editJobId, jobPayload)
-                              : await createJob(jobPayload);
-                            if (result) {
-                              if (editJobId && onEditComplete) {
-                                onEditComplete();
-                              }
-                              setSelectedIds([]);
-                              setSelectedPairs([]);
-                              setSelectedBoardIds([]);
-                              setSelectedTestCaseIds([]);
-                              setTag('');
-                              setConfigName('Default_Setup');
-                              addToast({
-                                type: 'success',
-                                message: editJobId ? 'Batch updated successfully.' : 'Batch created successfully.',
-                              });
-                            } else {
-                              addToast({
-                                type: 'error',
-                                message: editJobId ? 'Failed to update batch.' : 'Failed to create batch.',
-                              });
-                            }
-                          } finally {
-                            setIsCreatingBatch(false);
-                          }
-                        }}
-                      >
-                        {isCreatingBatch ? (
-                          <>
-                            <RefreshCw size={16} className="animate-spin" />
-                            {editJobId ? 'Updating...' : 'Creating...'}
-                          </>
-                        ) : (
-                          <>
-                            <Play size={16} />
-                            {editJobId ? 'Update Batch' : 'Create Batch'}
-                          </>
-                        )}
-                      </button>
+                      {/* Create Batch + Save as Draft Buttons */}
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <button
+                          disabled={isCreatingBatch || selectedPairs.length === 0}
+                          className={`flex-1 bg-slate-900 text-white py-3 rounded-xl font-bold shadow-lg transition-all flex items-center justify-center gap-2 ${isCreatingBatch || selectedPairs.length === 0
+                              ? 'opacity-60 cursor-not-allowed'
+                              : 'hover:bg-black'
+                            }`}
+                          onClick={() => handleCreateBatch(false)}
+                        >
+                          {isCreatingBatch ? (
+                            <>
+                              <RefreshCw size={16} className="animate-spin" />
+                              {editJobId ? 'Updating...' : 'Creating...'}
+                            </>
+                          ) : (
+                            <>
+                              <Play size={16} />
+                              {editJobId ? 'Update Batch' : 'Create Batch'}
+                            </>
+                          )}
+                        </button>
+                        <button
+                          disabled={isCreatingBatch || selectedPairs.length === 0}
+                          className={`flex-1 sm:flex-none sm:px-5 bg-white text-slate-700 border border-slate-300 py-3 rounded-xl font-bold shadow-sm transition-all flex items-center justify-center gap-2 ${isCreatingBatch || selectedPairs.length === 0
+                              ? 'opacity-60 cursor-not-allowed'
+                              : 'hover:bg-slate-50'
+                            }`}
+                          onClick={() => handleCreateBatch(true)}
+                          title="Save this batch as a draft without queuing it to run"
+                        >
+                          <Save size={16} />
+                          Save as Draft
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}

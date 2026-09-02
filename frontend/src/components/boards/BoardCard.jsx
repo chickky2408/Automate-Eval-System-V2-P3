@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Activity, AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Clock, Copy, Eye, MoreVertical, Pause, Play, RefreshCw, Search, Settings, Square, Tag, Terminal, Trash2, Wifi, WifiOff, X, XCircle } from 'lucide-react';
 import { useTestStore } from '../../store/useTestStore';
+import LiveTestPipelineTracker from './LiveTestPipelineTracker';
 
 const BoardCard = ({
   board,
@@ -233,6 +234,20 @@ const BoardCard = ({
           <div className="flex justify-between">
             <span className="text-slate-400 dark:text-slate-500">Voltage:</span>
             <span className="font-bold text-slate-800 dark:text-slate-200">{board.voltage}V</span>
+          </div>
+        )}
+
+        {/* Live Stepped Pipeline Progress Tracker */}
+        {board.status === 'busy' && (
+          <div className="pt-2 border-t border-slate-200 dark:border-slate-700">
+            <LiveTestPipelineTracker 
+              currentStage={board.pipelineStage || 'lz4'}
+              elapsedSeconds={board.elapsedSeconds || 2.4}
+              throughputMb={board.throughputMb || 615.9}
+              compressedSizeMb={board.compressedSizeMb || 5.3}
+              rawSizeMb={board.rawSizeMb || 100.0}
+              isPassed={board.status !== 'error'}
+            />
           </div>
         )}
       </div>

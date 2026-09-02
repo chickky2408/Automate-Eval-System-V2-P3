@@ -13,7 +13,7 @@ from sqlalchemy import select, update, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.database import async_session
-from db.orm_models import FileORM, ProfileORM, TestCaseORM, TestSetORM, TestSetItemORM
+from db.orm_models import FileORM, ProfileORM, TestCaseORM, RunSetORM
 from utils.tag_text import normalize_comma_separated_tags
 
 router = APIRouter()
@@ -307,14 +307,7 @@ async def _sync_normalized_test_tables(session: AsyncSession, all_profiles: List
     file_by_lower = _build_filename_to_file_id_map(list(file_rows))
 
     tc_by_key: Dict[str, TestCaseORM] = {}
-    set_rows: List[TestSetORM] = []
-    set_item_rows: List[TestSetItemORM] = []
-
-    def _pick_visibility(d: Dict[str, Any]) -> str:
-        raw = str(d.get("visibility") or "").strip().lower()
-        if raw in {"private", "team", "public"}:
-            return raw
-        return "public"
+    set_rows: List[RunSetORM] = []
 
     for p in all_profiles:
         data = p.data if isinstance(p.data, dict) else {}
@@ -335,22 +328,47 @@ async def _sync_normalized_test_tables(session: AsyncSession, all_profiles: List
             ulp_fn = str(tc.get("linName") or tc.get("ulpName") or "").strip() or None
             mdi_fn = _first_mdi_txt_filename(tc)
             vcd_file_id = _resolve_vcd_file_id(tc, file_by_lower, valid_vcd_file_ids)
+            
+            bin_file_id = file_by_lower.get(_norm_file(erom_fn)) if erom_fn else None
+            if bin_file_id and bin_file_id not in valid_vcd_file_ids:
+                bin_file_id = None
+                
+            lin_file_id = file_by_lower.get(_norm_file(ulp_fn)) if ulp_fn else None
+            if lin_file_id and lin_file_id not in valid_vcd_file_ids:
+                lin_file_id = None
+                
+            mdi_file_id = file_by_lower.get(_norm_file(mdi_fn)) if mdi_fn else None
+            if mdi_file_id and mdi_file_id not in valid_vcd_file_ids:
+                mdi_file_id = None
+                
+            config_options = tc.get("extraColumns") if isinstance(tc.get("extraColumns"), dict) else {}
+            if config_options:
+                config_options = dict(config_options)
+            else:
+                config_options = {}
+            if "sampling_rate" in tc:
+                config_options["sampling_rate"] = tc["sampling_rate"]
+            measurement_settings = None
+            if isinstance(tc.get("measurementSettings"), dict):
+                measurement_settings = dict(tc.get("measurementSettings") or {})
+            elif isinstance(config_options.get("measurementSettings"), dict):
+                measurement_settings = dict(config_options.get("measurementSettings") or {})
+            elif isinstance(config_options.get("measurement_settings"), dict):
+                measurement_settings = dict(config_options.get("measurement_settings") or {})
+            if measurement_settings:
+                config_options["measurement_settings"] = measurement_settings
+                config_options.pop("measurementSettings", None)
+
             tc_by_key[tc_id] = TestCaseORM(
                 id=tc_id,
                 name=name,
                 vcd_file_id=vcd_file_id,
-                firmware_filename=erom_fn,
-                vcd_filename=vcd_fn,
-                ulp_filename=ulp_fn,
-                mdi_text_filename=mdi_fn,
-                try_count=_parse_try_count(tc),
-                status_cached=_extract_status_cached(tc),
-                tags=_extract_tc_tags(tc),
+                bin_file_id=bin_file_id,
+                lin_file_id=lin_file_id,
+                mdi_file_id=mdi_file_id,
                 owner_id=p.id,
-                owner_display_name=profile_display_name,
-                visibility=_pick_visibility(tc),
+                config_options=config_options,
                 created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
             )
             return tc_id
 
@@ -362,51 +380,37 @@ async def _sync_normalized_test_tables(session: AsyncSession, all_profiles: List
                 continue
             raw_set_id = str(s.get("id") or "").strip()
             set_id = _stable_id("set", p.id, raw_set_id, f"set:{s_idx}")
-            set_rows.append(
-                TestSetORM(
-                    id=set_id,
-                    name=str(s.get("name") or f"Set {s_idx + 1}").strip() or f"Set {s_idx + 1}",
-                    tags=normalize_comma_separated_tags(
-                        str(s.get("tag") or s.get("tags") or "").strip() or None
-                    ),
-                    owner_id=p.id,
-                    owner_display_name=profile_display_name,
-                    visibility=_pick_visibility(s),
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow(),
-                )
-            )
+            
+            test_case_ids_list = []
             items = s.get("items") or []
             for i_idx, tc in enumerate(items):
                 tc_id = ensure_case(tc, f"set:{s_idx}:item:{i_idx}")
                 if not tc_id:
                     continue
-                item_seed = str(tc.get("id") or tc.get("name") or f"{i_idx}")
-                # Include set context in the raw seed so same TC appearing in multiple sets
-                # won't collide on test_set_items primary key.
-                item_raw_id = f"{set_id}:{item_seed}:{i_idx}"
-                set_item_rows.append(
-                    TestSetItemORM(
-                        id=_stable_id("set_item", p.id, item_raw_id, f"{set_id}:{tc_id}:{i_idx}"),
-                        test_set_id=set_id,
-                        test_case_id=tc_id,
-                        execution_order=int(i_idx + 1),
-                        created_at=datetime.utcnow(),
-                    )
-                )
+                try_count = _parse_try_count(tc) or 1
+                test_case_ids_list.append({
+                    "test_case_id": tc_id,
+                    "try_count": try_count,
+                    "execution_order": int(i_idx + 1)
+                })
 
-    await session.execute(delete(TestSetItemORM))
-    await session.execute(delete(TestSetORM))
+            set_rows.append(
+                RunSetORM(
+                    id=set_id,
+                    name=str(s.get("name") or f"Set {s_idx + 1}").strip() or f"Set {s_idx + 1}",
+                    owner_id=p.id,
+                    test_case_ids=test_case_ids_list,
+                    created_at=datetime.utcnow(),
+                )
+            )
+
+    await session.execute(delete(RunSetORM))
     await session.execute(delete(TestCaseORM))
     await session.flush()
     if tc_by_key:
         session.add_all(list(tc_by_key.values()))
     if set_rows:
         session.add_all(set_rows)
-    # Ensure parent tables are persisted before child rows (FK: test_set_items -> test_sets/test_cases).
-    await session.flush()
-    if set_item_rows:
-        session.add_all(set_item_rows)
     await session.flush()
 
 
