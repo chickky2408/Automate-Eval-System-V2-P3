@@ -1233,20 +1233,28 @@ const RunSetPage = ({ onNavigateJobs }) => {
       const vcdFile = safeFiles.find((f) => f.name === (tc.vcdName || ''));
       const binFile = safeFiles.find((f) => f.name === (tc.binName || ''));
       const linFile = (tc.linName && safeFiles.find((f) => f.name === tc.linName)) || null;
-      if (!vcdFile || !binFile) {
+      if (!vcdFile && !binFile) {
         if (tc.vcdName && !safeFiles.find((f) => f.name === tc.vcdName)) missingNames.add(tc.vcdName);
         if (tc.binName && !safeFiles.find((f) => f.name === tc.binName)) missingNames.add(tc.binName);
         continue;
       }
-      if (!firstBinName) firstBinName = tc.binName || '';
+      if (tc.vcdName && !vcdFile) {
+        missingNames.add(tc.vcdName);
+        continue;
+      }
+      if (tc.binName && !binFile) {
+        missingNames.add(tc.binName);
+        continue;
+      }
+      if (!firstBinName) firstBinName = binFile?.name || vcdFile?.name || '';
       // ใช้ชื่อ test case เท่านั้น — ไม่ใช้ชื่อไฟล์ (ต้องแสดงชื่อจาก set/ตาราง ไม่ใช่ชื่อไฟล์)
       const displayName = (tc.name || '').trim();
       const testCaseName = displayName || `Test case ${i + 1}`;
       filesPayload.push({
-        name: vcdFile.name,
+        name: vcdFile?.name || binFile?.name || `TestCase_${i + 1}`,
         order: i + 1,
-        vcd: vcdFile.name,
-        erom: binFile.name,
+        vcd: vcdFile?.name || null,
+        erom: binFile?.name || null,
         ulp: linFile?.name || null,
         try_count: typeof tc.tryCount === 'number' && tc.tryCount > 0 ? tc.tryCount : 1,
         testCaseName,
@@ -1403,7 +1411,7 @@ const RunSetPage = ({ onNavigateJobs }) => {
         });
       }
       if (filesPayload.length === 0 && missing.length === 0) {
-        errorsPerSet.push('No test cases with both VCD and ERoM');
+        errorsPerSet.push('No valid test cases found in run set');
       }
     } else {
       // Run ตามชุดที่เลือกไว้ (แต่ละ set = 1 job), ข้าม set ที่กำลังรัน
@@ -1434,12 +1442,12 @@ const RunSetPage = ({ onNavigateJobs }) => {
         }
       });
       if (jobsToCreate.length === 0 && errorsPerSet.length === 0) {
-        errorsPerSet.push('No test cases with both VCD and ERoM in selected run sets');
+        errorsPerSet.push('No valid test cases found in selected run sets');
       }
     }
 
     if (errorsPerSet.length > 0) {
-      const msg = errorsPerSet.join(' | ') + ' — Upload files on Test Cases → File Library first';
+      const msg = errorsPerSet.join(' | ');
       addToast({ type: 'error', message: msg, duration: 8000 });
       if (jobsToCreate.length === 0) return;
     }
