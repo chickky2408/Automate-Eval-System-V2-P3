@@ -1188,7 +1188,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
 
   const getFileKind = (file) => {
     const ext = String(file?.name || '').split('.').pop()?.toLowerCase();
-    if (ext === 'vcd') return 'vcd';
+    if (['vcd', 'ist'].includes(ext)) return 'vcd';
     if (['bin', 'hex', 'elf', 'erom'].includes(ext)) return 'bin';
     if (ext === 'txt') return 'mdi';
     if (['lin', 'ulp'].includes(ext)) return 'lin';
@@ -1721,20 +1721,20 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
         const lin = gf.find((f) => getFileKind(f) === 'lin');
         const mdis = gf.filter((f) => getFileKind(f) === 'mdi');
         const { extraColumns, mdiCmd } = buildMdiColumnsAndCommands(mdis);
-        if (!vcd || !bin || !lin) {
+        if (!vcd && !bin && !lin) {
           skipped.push(gKey);
           continue;
         }
-        const pairEntry = { vcdName: vcd.name, binName: bin.name, linName: lin.name };
+        const pairEntry = { vcdName: vcd ? vcd.name : '', binName: bin ? bin.name : '', linName: lin ? lin.name : '' };
         const key = normalizeTCTestCaseKeyFull(pairEntry);
         if (existingKeys.has(key)) continue;
         existingKeys.add(key);
         const name = makeNameForGroup(gKey, namesUsed);
         addSavedTestCase({
           name,
-          vcdName: vcd.name,
-          binName: bin.name,
-          linName: lin.name,
+          vcdName: vcd ? vcd.name : '',
+          binName: bin ? bin.name : '',
+          linName: lin ? lin.name : '',
           tryCount: 1,
           createdAt: new Date().toISOString(),
           ...(extraColumns ? { extraColumns } : {}),
@@ -1745,7 +1745,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
       if (skipped.length) {
         addToast({
           type: 'warning',
-          message: `skipped ${skipped.length} groups that need selected VCD, ERoM, and ULP files: ${skipped.slice(0, 6).join(', ')}${skipped.length > 6 ? '…' : ''}`,
+          message: `skipped ${skipped.length} groups that have no valid test files: ${skipped.slice(0, 6).join(', ')}${skipped.length > 6 ? '…' : ''}`,
         });
       }
       if (added > 0) {
@@ -1777,11 +1777,11 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
         const lin = gf.find((f) => getFileKind(f) === 'lin');
         const mdis = gf.filter((f) => getFileKind(f) === 'mdi');
         const { extraColumns, mdiCmd } = buildMdiColumnsAndCommands(mdis);
-        if (!vcd || !bin || !lin) {
+        if (!vcd && !bin && !lin) {
           skipped.push(gKey);
           continue;
         }
-        const pairEntry = { vcdName: vcd.name, binName: bin.name, linName: lin.name };
+        const pairEntry = { vcdName: vcd ? vcd.name : '', binName: bin ? bin.name : '', linName: lin ? lin.name : '' };
         const key = normalizeTCTestCaseKeyFull(pairEntry);
         if (existingKeys.has(key)) continue;
         existingKeys.add(key);
@@ -1789,9 +1789,9 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
         newRows.push({
           id: `tc-draft-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
           name,
-          vcdName: vcd.name,
-          binName: bin.name,
-          linName: lin.name,
+          vcdName: vcd ? vcd.name : '',
+          binName: bin ? bin.name : '',
+          linName: lin ? lin.name : '',
           tryCount: 1,
           createdAt: new Date().toISOString(),
           ...(extraColumns ? { extraColumns } : {}),
@@ -1803,7 +1803,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
         if (skipped.length) {
           addToast({
             type: 'warning',
-            message: `skipped ${skipped.length} groups that need selected VCD, ERoM, and ULP files: ${skipped.slice(0, 6).join(', ')}${skipped.length > 6 ? '…' : ''}`,
+            message: `skipped ${skipped.length} groups that have no valid test files: ${skipped.slice(0, 6).join(', ')}${skipped.length > 6 ? '…' : ''}`,
           });
         }
         if (newRows.length) {

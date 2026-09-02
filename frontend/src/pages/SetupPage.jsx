@@ -135,7 +135,7 @@ const SetupPage = ({ editJobId, onEditComplete }) => {
   // File upload handlers
   const getFileKind = (file) => {
     const ext = String(file?.name || '').split('.').pop()?.toLowerCase();
-    if (ext === 'vcd') return 'vcd';
+    if (['vcd', 'ist'].includes(ext)) return 'vcd';
     if (['bin', 'hex', 'elf', 'erom'].includes(ext)) return 'bin';
     if (['lin', 'txt', 'ulp'].includes(ext)) return 'lin';
     return 'other';

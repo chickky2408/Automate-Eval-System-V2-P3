@@ -1366,7 +1366,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
 
   const getFileKind = (f) => {
     const ext = String(f?.name || '').split('.').pop()?.toLowerCase();
-    if (ext === 'vcd') return 'vcd';
+    if (['vcd', 'ist'].includes(ext)) return 'vcd';
     if (['bin', 'hex', 'elf', 'erom'].includes(ext)) return 'erom';
     // Text-based MDI files (manual commands / scripts)
     if (ext === 'txt') return 'mdi';
