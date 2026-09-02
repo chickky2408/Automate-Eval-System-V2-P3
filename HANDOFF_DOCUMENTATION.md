@@ -211,3 +211,19 @@ python backend/tests/run_fresh_hardware_test.py
 * [axidma_driver.py](file:///d:/siliconcraft/eval_system/V2/fpga_interface/board_agent/axidma_driver.py) — Direct `/dev/mem` AXI DMA Scatter-Gather engine driver.
 * [simulator.py](file:///d:/siliconcraft/eval_system/V2/fpga_interface/board_agent/simulator.py) — `PLDmaCapture` hardware driver and instruction triggers.
 * [agent.toml](file:///d:/siliconcraft/eval_system/V2/fpga_interface/board_agent/agent.toml) — Board configuration file (`backend_url = "http://192.168.1.103:8000"`).
+
+---
+
+### 7. 🔍 E2E Testing Bottlenecks, Root Cause Analysis & Solutions
+
+During initial End-to-End hardware testing between the Central Platform and the KR260 board, the following 6 core issues were identified, diagnosed, and resolved:
+
+| # | Issue / Symptom | Root Cause Analysis | Engineering Solution Applied |
+| :- | :--- | :--- | :--- |
+| **1** | **KR260 Agent Startup Crash**<br>`[Errno 98] address already in use` | A lingering process run by `root` was holding port 8000. `petalinux` user lacked kill permissions. | Configured a persistent **`systemd` service (`board-agent.service`)** running as `root` with automatic restart. |
+| **2** | **Board Rejection of Standalone `.ist` Files**<br>`fw_url or fw_file_id is required` | `main.py` enforced a mandatory firmware binary (`.erom`) and raised `ValueError` when dispatching standalone `.ist`. | Modified `ExecuteRequest` and `runner.py` to make **firmware download & flashing optional**, enabling standalone `.ist` runs. |
+| **3** | **Result Upload Protocol Failure**<br>`httpx.UnsupportedProtocol: Request URL missing http://` | `backend_client.upload_result()` did not auto-prefix `http://` when receiver URLs were passed as raw hostnames or IPs. | Added automatic protocol prefixing (`http://`) and parameter support for `receiver_url` across all API callers. |
+| **4** | **RAM Disk Exhaustion during DMA Stream**<br>`[Errno 28] No space left on device` | AXI DMA driver configured `1500 BDs * 1MB = 1500 MB`, but KR260 `/tmp` (tmpfs RAM disk) is only `944 MB`. | Reduced BD ring to **100 BDs (100 MB max)** and added fallback capture clamping to **10 MB default** to prevent disk overflow. |
+| **5** | **Agent Host Disconnection**<br>`[Errno -2] Name or service not known` | `agent.toml` was configured to `http://eval-backend.local:8000` which failed without an active mDNS resolver. | Set explicit host IP: `backend_url = "http://192.168.1.103:8000"` in `agent.toml`. |
+| **6** | **Waveform Results Missing from Dropdown**<br>`Waveform file not found` / Missing list | In PostgreSQL, `ORDER BY completed_at DESC` puts `NULL` values at the top (`NULLS FIRST`), pushing completed items down. | Updated queries in `result_store.py` to use `.nulls_last()`, ensuring completed waveform results appear at the top. |
+
