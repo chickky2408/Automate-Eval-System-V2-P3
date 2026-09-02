@@ -166,6 +166,7 @@ async def get_board_telemetry(board_id: str):
 
 
 @router.patch("/{board_id}")
+@router.put("/{board_id}")
 async def update_board(board_id: str, payload: BoardUpdateRequest):
     updates = {}
     if payload.name is not None:

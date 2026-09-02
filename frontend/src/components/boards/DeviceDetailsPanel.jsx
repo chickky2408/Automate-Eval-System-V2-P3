@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Cpu, HardDrive, Thermometer, Terminal, Trash2, X,
-  Wifi, WifiOff, Server, Tag, Activity, Clock, Zap, Signal
+  Wifi, WifiOff, Server, Tag, Activity, Clock, Zap, Signal, Pencil, Edit2
 } from 'lucide-react';
 import { useTestStore } from '../../store/useTestStore';
 import { formatRelativeTime } from '../../utils/timeFormat';
@@ -65,7 +65,7 @@ function LiveMetricCard({ icon: Icon, label, value, unit, color }) {
 
 /* ─── Main component ──────────────────────────────────────────────────── */
 const DeviceDetailsPanel = ({ board, onClose, onSSHClick }) => {
-  const { updateBoardTag, updateBoardConnections, deleteBoard, jobs: storeJobs } = useTestStore();
+  const { updateBoardTag, updateBoardConnections, updateBoard, deleteBoard, jobs: storeJobs } = useTestStore();
   const jobs = storeJobs || [];
   const jobId = (board.currentJob || '').replace(/^(Batch|Set) #/, '');
   const currentJob = jobId ? jobs.find(j => j.id === jobId) : null;
@@ -80,12 +80,15 @@ const DeviceDetailsPanel = ({ board, onClose, onSSHClick }) => {
   const [isDeleting, setIsDeleting]         = useState(false);
   const [statusDetail, setStatusDetail]     = useState(null);
   const [activeSection, setActiveSection]   = useState('telemetry'); // 'telemetry' | 'info'
+  const [isEditingName, setIsEditingName]   = useState(false);
+  const [nameDraft, setNameDraft]           = useState(board.name || board.id || '');
 
   const isOffline = board.status !== 'online' && board.status !== 'busy';
 
   useEffect(() => {
     setBoardTag(board.tag || '');
     setConnectionsText((board.connections || []).join(', '));
+    setNameDraft(board.name || board.id || '');
   }, [board]);
 
   useEffect(() => {
@@ -138,9 +141,59 @@ const DeviceDetailsPanel = ({ board, onClose, onSSHClick }) => {
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h2 className="text-base font-extrabold tracking-tight" style={{ color: '#f1f5f9' }}>
-                    {board.name}
-                  </h2>
+                  {isEditingName ? (
+                    <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        autoFocus
+                        value={nameDraft}
+                        onChange={(e) => setNameDraft(e.target.value)}
+                        onKeyDown={async (e) => {
+                          if (e.key === 'Escape') {
+                            setNameDraft(board.name || board.id || '');
+                            setIsEditingName(false);
+                            return;
+                          }
+                          if (e.key === 'Enter') {
+                            const next = nameDraft.trim();
+                            if (next && next !== board.name) {
+                              await updateBoard(board.id, { name: next });
+                              addToast({ type: 'success', message: `Board renamed to "${next}"` });
+                            }
+                            setIsEditingName(false);
+                          }
+                        }}
+                        onBlur={async () => {
+                          const next = nameDraft.trim();
+                          if (next && next !== board.name) {
+                            await updateBoard(board.id, { name: next });
+                            addToast({ type: 'success', message: `Board renamed to "${next}"` });
+                          }
+                          setIsEditingName(false);
+                        }}
+                        placeholder="Board name..."
+                        className="px-2 py-0.5 text-sm font-bold rounded border border-blue-500 bg-slate-800 text-slate-100 focus:outline-none"
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 group/dname">
+                      <h2
+                        className="text-base font-extrabold tracking-tight cursor-pointer hover:text-blue-400 transition-colors"
+                        style={{ color: '#f1f5f9' }}
+                        title="Click to rename"
+                        onClick={() => setIsEditingName(true)}
+                      >
+                        {board.name || `#${board.id}`}
+                      </h2>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingName(true)}
+                        className="opacity-0 group-hover/dname:opacity-100 p-0.5 text-slate-400 hover:text-blue-400 rounded transition-opacity"
+                        title="Rename board"
+                      >
+                        <Pencil size={13} />
+                      </button>
+                    </div>
+                  )}
                   <StatusBadge status={board.status} />
                   {board.tag && (
                     <span

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Activity, AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Clock, Copy, Eye, MoreVertical, Pause, Play, RefreshCw, Search, Settings, Square, Tag, Terminal, Trash2, Wifi, WifiOff, X, XCircle } from 'lucide-react';
+import { Activity, AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Clock, Copy, Edit2, Eye, MoreVertical, Pause, Pencil, Play, RefreshCw, Search, Settings, Square, Tag, Terminal, Trash2, Wifi, WifiOff, X, XCircle } from 'lucide-react';
 import { useTestStore } from '../../store/useTestStore';
 import { formatRelativeTime } from '../../utils/timeFormat';
 import LiveTestPipelineTracker from './LiveTestPipelineTracker';
@@ -20,6 +20,8 @@ const BoardCard = ({
   pulseHighlight = false,
 }) => {
   const updateBoardTag = useTestStore((s) => s.updateBoardTag);
+  const updateBoard = useTestStore((s) => s.updateBoard);
+  const addToast = useTestStore((s) => s.addToast);
   const jobId = (board.currentJob || '').replace(/^(Batch|Set) #/, '');
   const currentJob = jobId ? (jobs || []).find(j => j.id === jobId) : null;
   const currentJobLabel = currentJob
@@ -29,10 +31,16 @@ const BoardCard = ({
   const menuRef = useRef(null);
   const [isEditingTag, setIsEditingTag] = useState(false);
   const [tagDraft, setTagDraft] = useState(board.tag || '');
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState(board.name || board.id || '');
 
   useEffect(() => {
     if (!isEditingTag) setTagDraft(board.tag || '');
   }, [board.tag, isEditingTag]);
+
+  useEffect(() => {
+    if (!isEditingName) setNameDraft(board.name || board.id || '');
+  }, [board.name, board.id, isEditingName]);
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -104,6 +112,14 @@ const BoardCard = ({
             </button>
             <button
               type="button"
+              onClick={() => { setIsEditingName(true); setMenuOpen(false); }}
+              className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
+            >
+              <Edit2 size={16} className="text-slate-500" />
+              Rename Board
+            </button>
+            <button
+              type="button"
               onClick={() => { (board.queuePaused ? onResumeQueue : onPauseQueue)?.(board); setMenuOpen(false); }}
               className="w-full text-left px-4 py-2 text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2"
             >
@@ -141,8 +157,67 @@ const BoardCard = ({
       </div>
       
       <div className="flex justify-between items-center mb-4 min-w-0">
-        <div className="min-w-0 flex items-center gap-2">
-          <span className="font-bold text-slate-800 dark:text-slate-100 text-base">#{board.id}</span>
+        <div className="min-w-0 flex items-center gap-2 flex-1">
+          {isEditingName ? (
+            <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+              <input
+                autoFocus
+                value={nameDraft}
+                onChange={(e) => setNameDraft(e.target.value)}
+                onKeyDown={async (e) => {
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    setNameDraft(board.name || board.id || '');
+                    setIsEditingName(false);
+                    return;
+                  }
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const next = nameDraft.trim();
+                    if (next && next !== board.name) {
+                      await updateBoard?.(board.id, { name: next });
+                      addToast?.({ type: 'success', message: `Board renamed to "${next}"` });
+                    }
+                    setIsEditingName(false);
+                  }
+                }}
+                onBlur={async () => {
+                  const next = nameDraft.trim();
+                  if (next && next !== board.name) {
+                    await updateBoard?.(board.id, { name: next });
+                    addToast?.({ type: 'success', message: `Board renamed to "${next}"` });
+                  }
+                  setIsEditingName(false);
+                }}
+                placeholder="Board name..."
+                className="w-36 sm:w-44 px-2 py-0.5 text-xs font-bold rounded-md border border-blue-400 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-400/40"
+              />
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 group/bname">
+              <span
+                className="font-bold text-slate-800 dark:text-slate-100 text-base truncate cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                title={`${board.name || board.id} (Click to rename)`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsEditingName(true);
+                }}
+              >
+                {board.name ? board.name : `#${board.id}`}
+              </span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsEditingName(true);
+                }}
+                className="opacity-0 group-hover/bname:opacity-100 p-0.5 text-slate-400 hover:text-blue-500 rounded transition-opacity"
+                title="Rename board"
+              >
+                <Pencil size={13} />
+              </button>
+            </div>
+          )}
           {isEditingTag ? (
             <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 shrink-0">
