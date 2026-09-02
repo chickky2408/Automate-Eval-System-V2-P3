@@ -10,25 +10,22 @@
 
 const viteEnv = import.meta.env || {};
 const configuredApiBase = viteEnv.VITE_API_BASE_URL;
-const API_BASE_URL = configuredApiBase || 'http://localhost:8000/api';
+const API_BASE_URL = configuredApiBase || '/api';
 
 const API_ORIGIN = (() => {
-  if (configuredApiBase?.startsWith('/')) {
+  if (!configuredApiBase || configuredApiBase.startsWith('/')) {
     return typeof window !== 'undefined' ? window.location.origin : '';
   }
-  const u = configuredApiBase || 'http://localhost:8000/api';
-  return u.replace(/\/api\/?$/, '') || 'http://localhost:8000';
+  return configuredApiBase.replace(/\/api\/?$/, '');
 })();
 
 const configuredWsBase = viteEnv.VITE_WS_BASE_URL;
 const WS_BASE_URL =
   configuredWsBase ||
   (() => {
-    if (configuredApiBase?.startsWith('/')) {
-      if (typeof window !== 'undefined') {
-        const p = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        return `${p}//${window.location.host}`;
-      }
+    if (typeof window !== 'undefined' && window.location) {
+      const p = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      return `${p}//${window.location.host}`;
     }
     return 'ws://localhost:8000';
   })();
