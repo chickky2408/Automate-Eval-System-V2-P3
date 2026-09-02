@@ -150,9 +150,10 @@ const WaveformPage = () => {
 
   const filteredWaveforms = useMemo(() => {
     return waveformResults.filter((r) => {
-      const statusStr = (r.status || '').toLowerCase();
-      if (finderFilter === 'PASS' && statusStr !== 'passed' && statusStr !== 'success' && statusStr !== 'pass') return false;
-      if (finderFilter === 'FAIL' && statusStr !== 'failed' && statusStr !== 'error' && statusStr !== 'fail') return false;
+      const isPass = (r.status || '').toLowerCase() === 'passed' || (r.status || '').toLowerCase() === 'success' || r.passed === true;
+      const isFail = (r.status || '').toLowerCase() === 'failed' || (r.status || '').toLowerCase() === 'error' || (r.passed === false && r.status !== 'running');
+      if (finderFilter === 'PASS' && !isPass) return false;
+      if (finderFilter === 'FAIL' && !isFail) return false;
       if (finderFilter === 'KR260' && !((r.board_id || '').toLowerCase().includes('kr260') || (r.board_model || '').toLowerCase().includes('kr260') || (r.job_name || '').toLowerCase().includes('kr260'))) return false;
 
       if (!finderSearch.trim()) return true;
@@ -161,7 +162,7 @@ const WaveformPage = () => {
       const matchFile = (r.vcd_filename || '').toLowerCase().includes(q);
       const matchId = String(r.id || '').toLowerCase().includes(q);
       const matchBoard = (r.board_id || r.board_model || '').toLowerCase().includes(q);
-      const matchStatus = statusStr.includes(q);
+      const matchStatus = (isPass ? 'passed' : 'failed').includes(q);
       const matchTag = (r.tag || '').toLowerCase().includes(q);
       return matchTitle || matchFile || matchId || matchBoard || matchStatus || matchTag;
     });
@@ -1349,19 +1350,15 @@ const WaveformPage = () => {
                         <span className="font-bold text-xs text-slate-800 dark:text-slate-100 truncate">
                           {selectedResult.job_name || selectedResult.vcd_filename || `Result #${selectedResult.id}`}
                         </span>
-                        {selectedResult.status && (
-                          <span
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0 uppercase ${
-                              (selectedResult.status || '').toLowerCase() === 'passed' || (selectedResult.status || '').toLowerCase() === 'success'
-                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
-                                : (selectedResult.status || '').toLowerCase() === 'failed' || (selectedResult.status || '').toLowerCase() === 'error'
-                                ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border border-rose-300 dark:border-rose-800'
-                                : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-                            }`}
-                          >
-                            {selectedResult.status}
-                          </span>
-                        )}
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0 uppercase ${
+                            selectedResult.passed === true || (selectedResult.status || '').toLowerCase() === 'passed'
+                              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
+                              : 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border border-rose-300 dark:border-rose-800'
+                          }`}
+                        >
+                          {selectedResult.passed === true || (selectedResult.status || '').toLowerCase() === 'passed' ? 'PASSED' : 'FAILED'}
+                        </span>
                         {(selectedResult.board_id || selectedResult.board_model) && (
                           <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 shrink-0 hidden md:inline-block">
                             {selectedResult.board_id || selectedResult.board_model}
@@ -1410,11 +1407,11 @@ const WaveformPage = () => {
                           { id: 'ALL', label: `All (${waveformResults.length})` },
                           {
                             id: 'PASS',
-                            label: `Passed (${waveformResults.filter((r) => (r.status || '').toLowerCase() === 'passed' || (r.status || '').toLowerCase() === 'success').length})`,
+                            label: `Passed (${waveformResults.filter((r) => r.passed === true || (r.status || '').toLowerCase() === 'passed' || (r.status || '').toLowerCase() === 'success').length})`,
                           },
                           {
                             id: 'FAIL',
-                            label: `Failed (${waveformResults.filter((r) => (r.status || '').toLowerCase() === 'failed' || (r.status || '').toLowerCase() === 'error').length})`,
+                            label: `Failed (${waveformResults.filter((r) => r.passed === false || (r.status || '').toLowerCase() === 'failed' || (r.status || '').toLowerCase() === 'error').length})`,
                           },
                           {
                             id: 'KR260',
@@ -1447,8 +1444,8 @@ const WaveformPage = () => {
                       ) : (
                         filteredWaveforms.map((r) => {
                           const isSelected = String(r.id) === String(selectedResultId);
-                          const isPass = (r.status || '').toLowerCase() === 'passed' || (r.status || '').toLowerCase() === 'success';
-                          const isFail = (r.status || '').toLowerCase() === 'failed' || (r.status || '').toLowerCase() === 'error';
+                          const isPass = r.passed === true || (r.status || '').toLowerCase() === 'passed' || (r.status || '').toLowerCase() === 'success';
+                          const isFail = r.passed === false || (r.status || '').toLowerCase() === 'failed' || (r.status || '').toLowerCase() === 'error';
 
                           return (
                             <button
