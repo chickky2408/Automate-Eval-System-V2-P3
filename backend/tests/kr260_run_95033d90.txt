@@ -1,0 +1,35 @@
+Sep 02 02:04:04 petalinux python3[15725]:                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Sep 02 02:04:04 petalinux python3[15725]:   File "/usr/lib/python3.12/contextlib.py", line 210, in __aenter__
+Sep 02 02:04:04 petalinux python3[15725]:     return await anext(self.gen)
+Sep 02 02:04:04 petalinux python3[15725]:            ^^^^^^^^^^^^^^^^^^^^^
+Sep 02 02:04:04 petalinux python3[15725]:   File "/usr/lib/python3.12/site-packages/httpx/_client.py", line 1617, in stream
+Sep 02 02:04:04 petalinux python3[15725]:     response = await self.send(
+Sep 02 02:04:04 petalinux python3[15725]:                ^^^^^^^^^^^^^^^^
+Sep 02 02:04:04 petalinux python3[15725]:   File "/usr/lib/python3.12/site-packages/httpx/_client.py", line 1661, in send
+Sep 02 02:04:04 petalinux python3[15725]:     response = await self._send_handling_auth(
+Sep 02 02:04:04 petalinux python3[15725]:                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Sep 02 02:04:04 petalinux python3[15725]:   File "/usr/lib/python3.12/site-packages/httpx/_client.py", line 1689, in _send_handling_auth
+Sep 02 02:04:04 petalinux python3[15725]:     response = await self._send_handling_redirects(
+Sep 02 02:04:04 petalinux python3[15725]:                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Sep 02 02:04:04 petalinux python3[15725]:   File "/usr/lib/python3.12/site-packages/httpx/_client.py", line 1726, in _send_handling_redirects
+Sep 02 02:04:04 petalinux python3[15725]:     response = await self._send_single_request(request)
+Sep 02 02:04:04 petalinux python3[15725]:                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Sep 02 02:04:04 petalinux python3[15725]:   File "/usr/lib/python3.12/site-packages/httpx/_client.py", line 1763, in _send_single_request
+Sep 02 02:04:04 petalinux python3[15725]:     response = await transport.handle_async_request(request)
+Sep 02 02:04:04 petalinux python3[15725]:                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Sep 02 02:04:04 petalinux python3[15725]:   File "/usr/lib/python3.12/site-packages/httpx/_transports/default.py", line 372, in handle_async_request
+Sep 02 02:04:04 petalinux python3[15725]:     with map_httpcore_exceptions():
+Sep 02 02:04:04 petalinux python3[15725]:          ^^^^^^^^^^^^^^^^^^^^^^^^^
+Sep 02 02:04:04 petalinux python3[15725]:   File "/usr/lib/python3.12/contextlib.py", line 158, in __exit__
+Sep 02 02:04:04 petalinux python3[15725]:     self.gen.throw(value)
+Sep 02 02:04:04 petalinux python3[15725]:   File "/usr/lib/python3.12/site-packages/httpx/_transports/default.py", line 86, in map_httpcore_exceptions
+Sep 02 02:04:04 petalinux python3[15725]:     raise mapped_exc(message) from exc
+Sep 02 02:04:04 petalinux python3[15725]: httpx.UnsupportedProtocol: Request URL is missing an 'http://' or 'https://' protocol.
+Sep 02 02:04:04 petalinux python3[15725]: 2026-09-02 02:04:04,196 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/boards/kr260-28d429/measurements "HTTP/1.1 404 Not Found"
+Sep 02 02:04:04 petalinux python3[15725]: 2026-09-02 02:04:04,197 WARNING board_agent.client: measurements endpoint not present yet (404): http://192.168.1.103:8000/api/boards/kr260-28d429/measurements
+Sep 02 02:04:07 petalinux python3[15725]: 2026-09-02 02:04:07,448 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:04:12 petalinux python3[15725]: 2026-09-02 02:04:12,583 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:04:17 petalinux python3[15725]: 2026-09-02 02:04:17,719 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:04:22 petalinux python3[15725]: 2026-09-02 02:04:22,853 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:04:27 petalinux python3[15725]: 2026-09-02 02:04:27,984 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:04:33 petalinux python3[15725]: 2026-09-02 02:04:33,120 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"

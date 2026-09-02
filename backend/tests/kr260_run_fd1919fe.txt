@@ -1,0 +1,30 @@
+Sep 02 02:08:46 petalinux python3[16089]: 2026-09-02 02:08:46,522 WARNING board_agent.client: heartbeat failed: [Errno -2] Name or service not known -> attempting re-register
+Sep 02 02:08:47 petalinux python3[16089]: 2026-09-02 02:08:47,046 WARNING board_agent.client: register failed: [Errno -2] Name or service not known
+Sep 02 02:08:52 petalinux python3[16089]: 2026-09-02 02:08:52,568 WARNING board_agent.client: heartbeat failed: [Errno -2] Name or service not known -> attempting re-register
+Sep 02 02:08:53 petalinux python3[16089]: 2026-09-02 02:08:53,052 WARNING board_agent.client: register failed: [Errno -2] Name or service not known
+Sep 02 02:08:58 petalinux python3[16089]: 2026-09-02 02:08:58,572 WARNING board_agent.client: heartbeat failed: [Errno -2] Name or service not known -> attempting re-register
+Sep 02 02:08:58 petalinux python3[16089]: 2026-09-02 02:08:58,972 WARNING board_agent.client: register failed: [Errno -2] Name or service not known
+Sep 02 02:09:00 petalinux systemd[1]: Stopping FPGA Board Agent Daemon...
+Sep 02 02:09:00 petalinux python3[16089]: INFO:     Shutting down
+Sep 02 02:09:00 petalinux python3[16089]: INFO:     Waiting for application shutdown.
+Sep 02 02:09:00 petalinux python3[16089]: INFO:     Application shutdown complete.
+Sep 02 02:09:00 petalinux python3[16089]: INFO:     Finished server process [16089]
+Sep 02 02:09:00 petalinux systemd[1]: board-agent.service: Deactivated successfully.
+Sep 02 02:09:00 petalinux systemd[1]: Stopped FPGA Board Agent Daemon.
+Sep 02 02:09:00 petalinux systemd[1]: board-agent.service: Consumed 3.356s CPU time.
+Sep 02 02:09:06 petalinux systemd[1]: Started FPGA Board Agent Daemon.
+Sep 02 02:09:08 petalinux python3[16247]: INFO:     Started server process [16247]
+Sep 02 02:09:08 petalinux python3[16247]: INFO:     Waiting for application startup.
+Sep 02 02:09:08 petalinux python3[16247]: 2026-09-02 02:09:08,725 INFO board_agent: agent starting board_id=kr260-28d429 backend=http://192.168.1.103:8000 dry_run=False
+Sep 02 02:09:08 petalinux python3[16247]: 2026-09-02 02:09:08,785 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/register "HTTP/1.1 200 OK"
+Sep 02 02:09:08 petalinux python3[16247]: 2026-09-02 02:09:08,788 INFO board_agent.client: registered board kr260-28d429 -> {'status': 'registered', 'ip': '192.168.1.111', 'is_new': False}
+Sep 02 02:09:08 petalinux python3[16247]: 2026-09-02 02:09:08,897 INFO board_agent.runner: Local queue processor loop started
+Sep 02 02:09:08 petalinux python3[16247]: INFO:     Application startup complete.
+Sep 02 02:09:08 petalinux python3[16247]: INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+Sep 02 02:09:08 petalinux python3[16247]: 2026-09-02 02:09:08,920 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:09:14 petalinux python3[16247]: 2026-09-02 02:09:14,064 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:09:19 petalinux python3[16247]: 2026-09-02 02:09:19,203 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:09:24 petalinux python3[16247]: 2026-09-02 02:09:24,337 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:09:29 petalinux python3[16247]: 2026-09-02 02:09:29,475 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:09:34 petalinux python3[16247]: 2026-09-02 02:09:34,614 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:09:39 petalinux python3[16247]: 2026-09-02 02:09:39,750 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"

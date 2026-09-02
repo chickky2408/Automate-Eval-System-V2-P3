@@ -1,0 +1,35 @@
+Sep 02 02:04:04 petalinux python3[15725]:     with map_httpcore_exceptions():
+Sep 02 02:04:04 petalinux python3[15725]:          ^^^^^^^^^^^^^^^^^^^^^^^^^
+Sep 02 02:04:04 petalinux python3[15725]:   File "/usr/lib/python3.12/contextlib.py", line 158, in __exit__
+Sep 02 02:04:04 petalinux python3[15725]:     self.gen.throw(value)
+Sep 02 02:04:04 petalinux python3[15725]:   File "/usr/lib/python3.12/site-packages/httpx/_transports/default.py", line 86, in map_httpcore_exceptions
+Sep 02 02:04:04 petalinux python3[15725]:     raise mapped_exc(message) from exc
+Sep 02 02:04:04 petalinux python3[15725]: httpx.UnsupportedProtocol: Request URL is missing an 'http://' or 'https://' protocol.
+Sep 02 02:04:04 petalinux python3[15725]: 2026-09-02 02:04:04,196 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/boards/kr260-28d429/measurements "HTTP/1.1 404 Not Found"
+Sep 02 02:04:04 petalinux python3[15725]: 2026-09-02 02:04:04,197 WARNING board_agent.client: measurements endpoint not present yet (404): http://192.168.1.103:8000/api/boards/kr260-28d429/measurements
+Sep 02 02:04:07 petalinux python3[15725]: 2026-09-02 02:04:07,448 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:04:12 petalinux python3[15725]: 2026-09-02 02:04:12,583 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:04:17 petalinux python3[15725]: 2026-09-02 02:04:17,719 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:04:22 petalinux python3[15725]: 2026-09-02 02:04:22,853 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:04:27 petalinux python3[15725]: 2026-09-02 02:04:27,984 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:04:33 petalinux python3[15725]: 2026-09-02 02:04:33,120 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:04:38 petalinux python3[15725]: 2026-09-02 02:04:38,258 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:04:43 petalinux python3[15725]: 2026-09-02 02:04:43,391 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:04:48 petalinux python3[15725]: 2026-09-02 02:04:48,524 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:04:53 petalinux python3[15725]: 2026-09-02 02:04:53,665 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:04:58 petalinux python3[15725]: 2026-09-02 02:04:58,806 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:05:03 petalinux python3[15725]: 2026-09-02 02:05:03,947 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:05:09 petalinux python3[15725]: 2026-09-02 02:05:09,139 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:05:14 petalinux python3[15725]: 2026-09-02 02:05:14,272 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:05:19 petalinux python3[15725]: 2026-09-02 02:05:19,407 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:05:24 petalinux python3[15725]: 2026-09-02 02:05:24,543 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:05:29 petalinux python3[15725]: 2026-09-02 02:05:29,678 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:05:34 petalinux python3[15725]: 2026-09-02 02:05:34,812 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:05:39 petalinux python3[15725]: 2026-09-02 02:05:39,961 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:05:45 petalinux python3[15725]: 2026-09-02 02:05:45,114 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:05:50 petalinux python3[15725]: 2026-09-02 02:05:50,246 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:05:55 petalinux python3[15725]: 2026-09-02 02:05:55,405 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:06:00 petalinux python3[15725]: 2026-09-02 02:06:00,539 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:06:05 petalinux python3[15725]: 2026-09-02 02:06:05,666 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:06:10 petalinux python3[15725]: 2026-09-02 02:06:10,794 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 02:06:15 petalinux python3[15725]: 2026-09-02 02:06:15,939 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"

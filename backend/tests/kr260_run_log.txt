@@ -1,0 +1,25 @@
+Sep 02 01:58:07 petalinux python3[15086]: INFO:     Finished server process [15086]
+Sep 02 01:58:07 petalinux systemd[1]: board-agent.service: Deactivated successfully.
+Sep 02 01:58:07 petalinux systemd[1]: Stopped FPGA Board Agent Daemon.
+Sep 02 01:58:07 petalinux systemd[1]: board-agent.service: Consumed 2.898s CPU time, 36.8M memory peak, 0B memory swap peak.
+Sep 02 01:58:07 petalinux systemd[1]: Started FPGA Board Agent Daemon.
+Sep 02 01:58:10 petalinux python3[15234]: INFO:     Started server process [15234]
+Sep 02 01:58:10 petalinux python3[15234]: INFO:     Waiting for application startup.
+Sep 02 01:58:10 petalinux python3[15234]: 2026-09-02 01:58:10,394 INFO board_agent: agent starting board_id=kr260-28d429 backend=http://192.168.1.103:8000 dry_run=False
+Sep 02 01:58:10 petalinux python3[15234]: 2026-09-02 01:58:10,452 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/register "HTTP/1.1 200 OK"
+Sep 02 01:58:10 petalinux python3[15234]: 2026-09-02 01:58:10,454 INFO board_agent.client: registered board kr260-28d429 -> {'status': 'registered', 'ip': '192.168.1.111', 'is_new': False}
+Sep 02 01:58:10 petalinux python3[15234]: 2026-09-02 01:58:10,564 INFO board_agent.runner: Local queue processor loop started
+Sep 02 01:58:10 petalinux python3[15234]: INFO:     Application startup complete.
+Sep 02 01:58:10 petalinux python3[15234]: INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+Sep 02 01:58:10 petalinux python3[15234]: 2026-09-02 01:58:10,584 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 01:58:11 petalinux python3[15234]: INFO:     192.168.1.103:64182 - "GET /health HTTP/1.1" 200 OK
+Sep 02 01:58:15 petalinux python3[15234]: 2026-09-02 01:58:15,722 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 01:58:20 petalinux python3[15234]: 2026-09-02 01:58:20,859 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 01:58:26 petalinux python3[15234]: 2026-09-02 01:58:26,000 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 01:58:31 petalinux python3[15234]: 2026-09-02 01:58:31,130 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 01:58:36 petalinux python3[15234]: 2026-09-02 01:58:36,263 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 01:58:41 petalinux python3[15234]: 2026-09-02 01:58:41,404 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 01:58:46 petalinux python3[15234]: 2026-09-02 01:58:46,545 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 01:58:51 petalinux python3[15234]: 2026-09-02 01:58:51,675 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 01:58:56 petalinux python3[15234]: 2026-09-02 01:58:56,806 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"
+Sep 02 01:59:01 petalinux python3[15234]: 2026-09-02 01:59:01,943 INFO httpx: HTTP Request: POST http://192.168.1.103:8000/api/agent/heartbeat "HTTP/1.1 200 OK"

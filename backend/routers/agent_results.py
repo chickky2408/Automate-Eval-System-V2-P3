@@ -276,6 +276,11 @@ async def complete_upload(upload_id: str, payload: CompleteUploadRequest) -> dic
 
         async with async_session() as db:
             run = (await db.execute(select(ResultORM).where(ResultORM.id == result_id))).scalar_one_or_none()
+            if run:
+                run.status = "completed"
+                run.passed = True
+                if run.completed_at is None:
+                    run.completed_at = now
             
             # 1. Register HDF5 Record
             wf_h5 = FileORM(

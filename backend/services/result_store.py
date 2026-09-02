@@ -7,6 +7,7 @@ from datetime import datetime
 import os
 import uuid
 import json
+import aiofiles
 import h5py
 import numpy as np
 from sqlalchemy import select, delete, and_
@@ -54,7 +55,7 @@ class ResultStore:
         snap = orm.snapshot_data or {}
         metrics = orm.metrics_json or {}
         
-        job_name = snap.get("job_name", "")
+        job_name = snap.get("job_name") or snap.get("test_case_name") or f"Job #{orm.job_id}"
         board_id = snap.get("board_id", "")
         board_name = snap.get("board_name", "")
         vcd_file_id = snap.get("vcd_file_id")
