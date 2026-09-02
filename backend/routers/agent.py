@@ -1,7 +1,11 @@
 """
 Agent API Router
-Endpoints for Zybo Boards to communicate with the Backend.
+Endpoints for Zybo / KR260 Boards to communicate with the Central Backend.
 """
+import os
+import logging
+from pathlib import Path
+from datetime import datetime
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Request
 from pydantic import BaseModel
 from typing import Optional, List
@@ -9,6 +13,24 @@ from services.board_manager import board_manager
 from services.pending_job_dispatcher import pending_job_dispatcher
 from services.notification_store import notification_store
 from models.board import BoardState
+
+# Configure Dedicated FPGA Agent Logger
+LOG_DIR = Path("/app/logs") if os.path.exists("/app") else Path("backend/logs")
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+FPGA_LOG_FILE = LOG_DIR / "fpga_agent.log"
+
+fpga_logger = logging.getLogger("fpga_agent")
+fpga_logger.setLevel(logging.INFO)
+if not fpga_logger.handlers:
+    try:
+        fh = logging.FileHandler(FPGA_LOG_FILE, encoding="utf-8")
+        fh.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s - %(message)s"))
+        fpga_logger.addHandler(fh)
+    except Exception as e:
+        print(f"Failed to create file handler for fpga_agent.log: {e}")
+    sh = logging.StreamHandler()
+    sh.setFormatter(logging.Formatter("[%(asctime)s] [FPGA Agent] %(levelname)s - %(message)s"))
+    fpga_logger.addHandler(sh)
 
 router = APIRouter()
 
@@ -40,6 +62,11 @@ async def register_board(payload: BoardRegisterRequest, request: Request):
     """
     client_ip = payload.ip_address or request.client.host
     board_name = payload.name or payload.board_id
+    
+    fpga_logger.info(
+        f"[REGISTER] board_id='{payload.board_id}', name='{board_name}', IP={client_ip}, "
+        f"MAC={payload.mac_address}, Model={payload.model}, FW={payload.firmware_version}"
+    )
     
     board, is_new = await board_manager.create_board(
         board_id=payload.board_id,
@@ -75,6 +102,12 @@ async def heartbeat(payload: HeartbeatRequest, request: Request, background_task
     """
     client_ip = payload.ip_address or request.client.host
     
+    fpga_logger.info(
+        f"[HEARTBEAT] board_id='{payload.board_id}', IP={client_ip}, status={payload.status}, "
+        f"temp={payload.cpu_temp}°C, cpu={payload.cpu_load}%, ram={payload.ram_usage}%, "
+        f"fpga={payload.fpga_status}, arm={payload.arm_status}"
+    )
+    
     success = await board_manager.update_heartbeat(
         board_id=payload.board_id,
         ip=client_ip,
@@ -87,6 +120,7 @@ async def heartbeat(payload: HeartbeatRequest, request: Request, background_task
     
     if not success:
         # Auto-register board on heartbeat if not registered yet (Zero-Config Plug & Play)
+        fpga_logger.info(f"[AUTO-REGISTER] Auto-registering board '{payload.board_id}' from heartbeat.")
         await board_manager.create_board(
             board_id=payload.board_id,
             name=payload.board_id,
@@ -114,3 +148,21 @@ async def heartbeat(payload: HeartbeatRequest, request: Request, background_task
         background_tasks.add_task(pending_job_dispatcher.trigger_now)
         
     return {"status": "ok"}
+
+
+@router.get("/logs")
+async def get_fpga_agent_logs(lines: int = 100):
+    """Get the latest FPGA Board Agent communication logs."""
+    if not FPGA_LOG_FILE.exists():
+        return {"logs": [], "total_lines": 0}
+    try:
+        with open(FPGA_LOG_FILE, "r", encoding="utf-8") as f:
+            all_lines = f.readlines()
+            tail_lines = [l.strip() for l in all_lines[-lines:]]
+            return {
+                "logs": tail_lines,
+                "total_lines": len(all_lines),
+                "file_path": str(FPGA_LOG_FILE)
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read logs: {e}")
