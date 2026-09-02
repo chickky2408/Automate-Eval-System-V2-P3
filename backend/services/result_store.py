@@ -1,6 +1,7 @@
 """
 Result Store Service with normalized results table and unified files storage for logs/waveforms.
 """
+import hashlib
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 import os
