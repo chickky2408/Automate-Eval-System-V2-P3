@@ -1143,29 +1143,12 @@ const DashboardPageInline = ({ onNavigateBoards, onNavigateJobs }) => {
   const [systemModalJobId, setSystemModalJobId] = useState(null);
   const [systemModalBoardId, setSystemModalBoardId] = useState(null);
 
-  // ใช้ข้อมูลเดียวกับ Fleet Manager (รวม mock boards) เพื่อให้ Dashboard แสดงสถานะตรงกัน
-  const dashboardDemoBoards = useMemo(
-    () => [],
-    []
-  );
-
   const fleetBoards = useMemo(() => {
-    const realBoards = boards || [];
-    const byId = new Map();
-    realBoards.forEach((b) => {
-      byId.set(String(b.id), b);
-    });
-    dashboardDemoBoards.forEach((demo) => {
-      const id = String(demo.id);
-      const base = byId.get(id) || {};
-      byId.set(id, { ...base, ...demo });
-    });
-    const merged = Array.from(byId.values());
-    return merged.map((b) => {
+    return (boards || []).map((b) => {
       const override = boardQueuePaused[String(b.id)];
       return override === undefined ? b : { ...b, queuePaused: override };
     });
-  }, [boards, dashboardDemoBoards, boardQueuePaused]);
+  }, [boards, boardQueuePaused]);
 
   const fleetTotalBoards = fleetBoards.length;
   const fleetOnlineBoards = fleetBoards.filter((b) => b.status === 'online').length;
