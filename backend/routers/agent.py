@@ -86,8 +86,27 @@ async def heartbeat(payload: HeartbeatRequest, request: Request, background_task
     )
     
     if not success:
-        # Auto-register if not found? Or return 404 to force re-register
-        raise HTTPException(status_code=404, detail="Board not registered")
+        # Auto-register board on heartbeat if not registered yet (Zero-Config Plug & Play)
+        await board_manager.create_board(
+            board_id=payload.board_id,
+            name=payload.board_id,
+            ip_address=client_ip,
+            mac_address=None,
+            firmware_version="v2.1.0",
+            model="KR260",
+            tag=None,
+            connections=["REST API", "SSH"],
+            state=BoardState.ONLINE
+        )
+        await board_manager.update_heartbeat(
+            board_id=payload.board_id,
+            ip=client_ip,
+            temp=payload.cpu_temp,
+            cpu_load=payload.cpu_load,
+            ram_usage=payload.ram_usage,
+            fpga_status=payload.fpga_status,
+            arm_status=payload.arm_status,
+        )
 
     # เมื่อบอร์ดรายงานตัวว่าว่าง (IDLE) → ให้ dispatcher ตรวจ pending jobs ทันที
     # ใช้ background_tasks เพื่อไม่บล็อก response ให้ agent
