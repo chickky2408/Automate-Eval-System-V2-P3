@@ -2670,7 +2670,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                   }}
                   className={itemCls}
                 >
-                  Add VCD
+                  Add IST
                 </button>
                 <button
                   type="button"
@@ -4527,7 +4527,7 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                         </select>
                       </div>
                       <div className="flex flex-col gap-0.5 min-w-0">
-                        <span className="text-[10px] font-semibold text-slate-500">VCD</span>
+                        <span className="text-[10px] font-semibold text-slate-500">IST</span>
                         <select
                           value={tc.vcdName || ''}
                           onChange={(e) => updateDisplayedTestCase(tc.id, { vcdName: e.target.value })}
@@ -4536,10 +4536,10 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                           title={
                             isTestCaseLocked(tc.id)
                               ? 'Files are locked because this test case is used in a run set. Use “Save as new test case” to change files.'
-                              : 'Select VCD file'
+                              : 'Select Stimulus (.ist) file'
                           }
                         >
-                          <option value="">— VCD —</option>
+                          <option value="">— Stimulus (.ist) —</option>
                           {vcdFilesList.map((f) => (
                             <option key={f.id} value={f.name}>
                               {f.name}
@@ -4699,9 +4699,9 @@ const TestCasesPage = ({ onNavigateBackToLibrary, onNavigateToRunSet } = {}) => 
                     {(tc.commands && tc.commands.length > 0) ? (
                       <div className="space-y-1 mt-1">
                         {(tc.commands || []).map((cmd) => {
-                          const label = cmd.type === 'mdi' ? 'MDI:' : cmd.type === 'vcd' ? 'VCD:' : cmd.type === 'erom' ? 'EROM:' : 'ULP:';
+                          const label = cmd.type === 'mdi' ? 'MDI:' : cmd.type === 'vcd' ? 'IST:' : cmd.type === 'erom' ? 'EROM:' : 'ULP:';
                           const fileList = cmd.type === 'mdi' ? mdiFilesList : cmd.type === 'vcd' ? vcdFilesList : cmd.type === 'erom' ? binFilesList : linFilesList;
-                          const placeholder = cmd.type === 'mdi' ? '— Text file —' : cmd.type === 'vcd' ? '— VCD —' : cmd.type === 'erom' ? '— EROM —' : '— ULP —';
+                          const placeholder = cmd.type === 'mdi' ? '— Text file —' : cmd.type === 'vcd' ? '— Stimulus (.ist) —' : cmd.type === 'erom' ? '— EROM —' : '— ULP —';
                           return (
                             <div key={cmd.id} className="flex items-center gap-2 min-h-[28px]">
                               <span className="text-xs font-medium text-slate-500 w-12 shrink-0">{label}</span>

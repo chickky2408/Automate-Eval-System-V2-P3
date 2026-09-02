@@ -1281,7 +1281,7 @@ const SetupPage = ({ editJobId, onEditComplete }) => {
               <div className="flex items-center gap-2">
                 {[
                   { key: 'all', label: 'All' },
-                  { key: 'vcd', label: 'VCD' },
+                  { key: 'vcd', label: 'IST' },
                   { key: 'bin', label: 'ERoM' },
                   { key: 'lin', label: 'ULP' },
                 ].map((opt) => (

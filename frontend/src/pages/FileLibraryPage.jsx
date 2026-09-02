@@ -8875,7 +8875,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                 : 'bg-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70'
                               }`}
                           >
-                            {k === 'all' ? 'All' : k === 'mdi' ? 'MDI' : k.toUpperCase()}
+                            {k === 'all' ? 'All' : k === 'vcd' ? 'IST' : k === 'mdi' ? 'MDI' : k.toUpperCase()}
                           </button>
                         ))}
                       </div>
