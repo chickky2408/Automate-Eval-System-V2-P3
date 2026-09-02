@@ -1,18 +1,29 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import {
   Activity,
+  CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
+  Clock,
+  Cpu,
   Eye,
+  FileCode,
   FileSpreadsheet,
+  Filter,
   Gauge,
   ImageDown,
   Maximize2,
   Minimize2,
   Pause,
   Play,
+  RefreshCw,
+  Search,
+  Sparkles,
   Trash2,
   X,
+  XCircle,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
@@ -109,6 +120,72 @@ const WaveformPage = () => {
       ch5: 'CH4', ch6: 'CH5', ch7: 'CH6', ch8: 'CH7',
     };
   });
+
+  const [isFinderOpen, setIsFinderOpen] = useState(false);
+  const [finderSearch, setFinderSearch] = useState('');
+  const [finderFilter, setFinderFilter] = useState('ALL'); // 'ALL' | 'PASS' | 'FAIL' | 'KR260'
+  const finderRef = useRef(null);
+  const finderSearchInputRef = useRef(null);
+
+  useEffect(() => {
+    if (!isFinderOpen) return;
+    const handleClickOutside = (e) => {
+      if (finderRef.current && !finderRef.current.contains(e.target)) {
+        setIsFinderOpen(false);
+      }
+    };
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setIsFinderOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    setTimeout(() => finderSearchInputRef.current?.focus(), 50);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isFinderOpen]);
+
+  const filteredWaveforms = useMemo(() => {
+    return waveformResults.filter((r) => {
+      const statusStr = (r.status || '').toLowerCase();
+      if (finderFilter === 'PASS' && statusStr !== 'passed' && statusStr !== 'success' && statusStr !== 'pass') return false;
+      if (finderFilter === 'FAIL' && statusStr !== 'failed' && statusStr !== 'error' && statusStr !== 'fail') return false;
+      if (finderFilter === 'KR260' && !((r.board_id || '').toLowerCase().includes('kr260') || (r.board_model || '').toLowerCase().includes('kr260') || (r.job_name || '').toLowerCase().includes('kr260'))) return false;
+
+      if (!finderSearch.trim()) return true;
+      const q = finderSearch.toLowerCase().trim();
+      const matchTitle = (r.job_name || '').toLowerCase().includes(q);
+      const matchFile = (r.vcd_filename || '').toLowerCase().includes(q);
+      const matchId = String(r.id || '').toLowerCase().includes(q);
+      const matchBoard = (r.board_id || r.board_model || '').toLowerCase().includes(q);
+      const matchStatus = statusStr.includes(q);
+      const matchTag = (r.tag || '').toLowerCase().includes(q);
+      return matchTitle || matchFile || matchId || matchBoard || matchStatus || matchTag;
+    });
+  }, [waveformResults, finderSearch, finderFilter]);
+
+  const selectedResult = useMemo(() => {
+    return waveformResults.find((r) => String(r.id) === String(selectedResultId)) || null;
+  }, [waveformResults, selectedResultId]);
+
+  const currentIndex = useMemo(() => {
+    return waveformResults.findIndex((r) => String(r.id) === String(selectedResultId));
+  }, [waveformResults, selectedResultId]);
+
+  const handlePrevWaveform = () => {
+    if (currentIndex > 0) {
+      setSelectedResultId(waveformResults[currentIndex - 1].id);
+    }
+  };
+
+  const handleNextWaveform = () => {
+    if (currentIndex >= 0 && currentIndex < waveformResults.length - 1) {
+      setSelectedResultId(waveformResults[currentIndex + 1].id);
+    }
+  };
 
   const handleAliasChange = (key, val) => {
     const next = { ...channelAliases, [key]: val || '' };
@@ -1226,56 +1303,265 @@ const WaveformPage = () => {
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50/70 dark:bg-blue-950/30 px-3 py-2">
-            <span className="text-xs font-bold text-blue-900 dark:text-blue-100 shrink-0">Stored Result:</span>
-            <select
-              value={selectedResultId}
-              onChange={(e) => setSelectedResultId(e.target.value)}
-              className="min-w-[220px] flex-1 px-2.5 py-1.5 rounded-lg border border-blue-200 dark:border-blue-700 bg-white dark:bg-slate-900 text-xs text-slate-800 dark:text-slate-100 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">— Select waveform result —</option>
-              {waveformResults.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {(r.job_name || r.vcd_filename || r.id)} · {r.completed_at ? new Date(r.completed_at).toLocaleString() : r.id}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={loadSelectedResultPreview}
-              disabled={!selectedResultId || resultLoading}
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors shrink-0"
-            >
-              {resultLoading ? 'Loading…' : 'Reload Preview'}
-            </button>
-            <button
-              type="button"
-              onClick={() => downloadSelectedResult('h5')}
-              disabled={!selectedResultId}
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-100 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 disabled:opacity-50 transition-colors shrink-0"
-              title="Download full resolution HDF5 dataset"
-            >
-              Download H5
-            </button>
-            <button
-              type="button"
-              onClick={() => downloadSelectedResult('vcd')}
-              disabled={!selectedResultId}
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-purple-300 dark:border-purple-700 bg-purple-50 dark:bg-purple-950/60 text-purple-800 dark:text-purple-100 hover:bg-purple-100 dark:hover:bg-purple-900/50 disabled:opacity-50 transition-colors shrink-0"
-              title="Download VCD waveform for GTKWave / Surfer"
-            >
-              Download VCD
-            </button>
-            <button
-              type="button"
-              onClick={() => downloadSelectedResult('csv')}
-              disabled={!selectedResultId}
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-100 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 disabled:opacity-50 transition-colors shrink-0"
-            >
-              Export CSV
-            </button>
+          {/* Enhanced Searchable Combobox / Quick Finder Toolbar */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 rounded-2xl border border-blue-200/80 dark:border-blue-900/60 bg-gradient-to-r from-blue-50/80 via-indigo-50/40 to-slate-50/80 dark:from-blue-950/40 dark:via-slate-900/40 dark:to-slate-900/80 p-3 shadow-sm">
+            {/* Left: Quick Finder Combobox & Stepper */}
+            <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 flex-1 min-w-0">
+              {/* Prev / Next Stepper */}
+              <div className="flex items-center gap-0.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-0.5 shadow-sm shrink-0">
+                <button
+                  type="button"
+                  onClick={handlePrevWaveform}
+                  disabled={currentIndex <= 0}
+                  className="p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                  title="Previous Waveform (Alt+Left)"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <span className="px-1.5 text-[11px] font-bold text-slate-500 dark:text-slate-400 tabular-nums select-none" title="Current waveform index">
+                  {waveformResults.length > 0 ? `${currentIndex + 1}/${waveformResults.length}` : '0/0'}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleNextWaveform}
+                  disabled={currentIndex < 0 || currentIndex >= waveformResults.length - 1}
+                  className="p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                  title="Next Waveform (Alt+Right)"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+
+              {/* Combobox Trigger Button & Floating Finder Modal */}
+              <div className="relative flex-1 min-w-[260px]" ref={finderRef}>
+                <button
+                  type="button"
+                  onClick={() => setIsFinderOpen((o) => !o)}
+                  className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-blue-200 dark:border-blue-800/80 bg-white dark:bg-slate-900 hover:border-blue-400 dark:hover:border-blue-600 text-left shadow-sm transition-all group"
+                  title="Click to search and select waveform results"
+                >
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <div className="p-1 rounded-lg bg-blue-100 dark:bg-blue-900/60 text-blue-600 dark:text-blue-300 shrink-0">
+                      <Search size={14} />
+                    </div>
+                    {selectedResult ? (
+                      <div className="min-w-0 flex-1 flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                        <span className="font-bold text-xs text-slate-800 dark:text-slate-100 truncate">
+                          {selectedResult.job_name || selectedResult.vcd_filename || `Result #${selectedResult.id}`}
+                        </span>
+                        {selectedResult.status && (
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0 uppercase ${
+                              (selectedResult.status || '').toLowerCase() === 'passed' || (selectedResult.status || '').toLowerCase() === 'success'
+                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
+                                : (selectedResult.status || '').toLowerCase() === 'failed' || (selectedResult.status || '').toLowerCase() === 'error'
+                                ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border border-rose-300 dark:border-rose-800'
+                                : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                            }`}
+                          >
+                            {selectedResult.status}
+                          </span>
+                        )}
+                        {(selectedResult.board_id || selectedResult.board_model) && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 shrink-0 hidden md:inline-block">
+                            {selectedResult.board_id || selectedResult.board_model}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-slate-400 font-medium">Search / Select Waveform Result...</span>
+                    )}
+                  </div>
+                  <ChevronDown
+                    size={15}
+                    className={`text-slate-400 transition-transform duration-200 shrink-0 ${isFinderOpen ? 'rotate-180 text-blue-500' : ''}`}
+                  />
+                </button>
+
+                {/* Floating Finder Popover */}
+                {isFinderOpen && (
+                  <div className="absolute top-full left-0 mt-1.5 w-full sm:w-[480px] max-w-[95vw] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl z-[999] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+                    {/* Search Input Bar */}
+                    <div className="p-2.5 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700">
+                      <div className="relative">
+                        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          ref={finderSearchInputRef}
+                          type="text"
+                          value={finderSearch}
+                          onChange={(e) => setFinderSearch(e.target.value)}
+                          placeholder="Search job, file, batch #, board, status..."
+                          className="w-full pl-9 pr-8 py-2 rounded-xl text-xs font-medium border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        {finderSearch && (
+                          <button
+                            type="button"
+                            onClick={() => setFinderSearch('')}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                          >
+                            <X size={14} />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Filter Chips */}
+                      <div className="flex items-center gap-1.5 mt-2 overflow-x-auto pb-0.5">
+                        {[
+                          { id: 'ALL', label: `All (${waveformResults.length})` },
+                          {
+                            id: 'PASS',
+                            label: `Passed (${waveformResults.filter((r) => (r.status || '').toLowerCase() === 'passed' || (r.status || '').toLowerCase() === 'success').length})`,
+                          },
+                          {
+                            id: 'FAIL',
+                            label: `Failed (${waveformResults.filter((r) => (r.status || '').toLowerCase() === 'failed' || (r.status || '').toLowerCase() === 'error').length})`,
+                          },
+                          {
+                            id: 'KR260',
+                            label: `KR260 (${waveformResults.filter((r) => (r.board_id || '').toLowerCase().includes('kr260') || (r.board_model || '').toLowerCase().includes('kr260') || (r.job_name || '').toLowerCase().includes('kr260')).length})`,
+                          },
+                        ].map((chip) => (
+                          <button
+                            key={chip.id}
+                            type="button"
+                            onClick={() => setFinderFilter(chip.id)}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap transition-all ${
+                              finderFilter === chip.id
+                                ? 'bg-blue-600 text-white shadow-sm'
+                                : 'bg-slate-200/80 dark:bg-slate-700/70 text-slate-600 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
+                            }`}
+                          >
+                            {chip.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Results List */}
+                    <div className="max-h-72 overflow-y-auto p-1.5 divide-y divide-slate-100 dark:divide-slate-800">
+                      {filteredWaveforms.length === 0 ? (
+                        <div className="py-8 text-center text-xs text-slate-400">
+                          <Activity size={24} className="mx-auto mb-2 opacity-40" />
+                          No matching waveform results found
+                        </div>
+                      ) : (
+                        filteredWaveforms.map((r) => {
+                          const isSelected = String(r.id) === String(selectedResultId);
+                          const isPass = (r.status || '').toLowerCase() === 'passed' || (r.status || '').toLowerCase() === 'success';
+                          const isFail = (r.status || '').toLowerCase() === 'failed' || (r.status || '').toLowerCase() === 'error';
+
+                          return (
+                            <button
+                              key={r.id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedResultId(r.id);
+                                setIsFinderOpen(false);
+                              }}
+                              className={`w-full flex items-center justify-between gap-3 p-2.5 rounded-xl text-left transition-all ${
+                                isSelected
+                                  ? 'bg-blue-50 dark:bg-blue-950/70 border border-blue-300 dark:border-blue-700'
+                                  : 'hover:bg-slate-100/80 dark:hover:bg-slate-800/80 border border-transparent'
+                              }`}
+                            >
+                              <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                                <div className="mt-0.5 shrink-0">
+                                  {isPass ? (
+                                    <CheckCircle2 size={16} className="text-emerald-500" />
+                                  ) : isFail ? (
+                                    <XCircle size={16} className="text-rose-500" />
+                                  ) : (
+                                    <Activity size={16} className="text-blue-500" />
+                                  )}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-bold text-xs text-slate-900 dark:text-slate-100 truncate">
+                                      {r.job_name || r.vcd_filename || `Batch #${r.id}`}
+                                    </span>
+                                    {r.vcd_filename && r.job_name && (
+                                      <span className="text-[10px] text-slate-400 truncate hidden sm:inline">
+                                        ({r.vcd_filename})
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+                                    <span className="flex items-center gap-1 shrink-0">
+                                      <Clock size={11} />
+                                      {r.completed_at ? new Date(r.completed_at).toLocaleString() : 'Recent'}
+                                    </span>
+                                    {(r.board_id || r.board_model) && (
+                                      <span className="flex items-center gap-1 shrink-0">
+                                        <Cpu size={11} />
+                                        {r.board_id || r.board_model}
+                                      </span>
+                                    )}
+                                    {r.preview_count && (
+                                      <span className="shrink-0 font-medium">
+                                        {Number(r.preview_count).toLocaleString()} pts
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                              {isSelected && (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-600 text-white shrink-0">
+                                  Viewing
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Right: Actions (Reload, Download H5, VCD, CSV) */}
+            <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+              <button
+                type="button"
+                onClick={loadSelectedResultPreview}
+                disabled={!selectedResultId || resultLoading}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-all shadow-sm"
+                title="Reload preview data"
+              >
+                <RefreshCw size={13} className={resultLoading ? 'animate-spin' : ''} />
+                <span>{resultLoading ? 'Loading…' : 'Reload'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => downloadSelectedResult('h5')}
+                disabled={!selectedResultId}
+                className="px-2.5 py-1.5 rounded-xl text-xs font-semibold border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-100 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 disabled:opacity-50 transition-colors shrink-0"
+                title="Download full resolution HDF5 dataset"
+              >
+                H5
+              </button>
+              <button
+                type="button"
+                onClick={() => downloadSelectedResult('vcd')}
+                disabled={!selectedResultId}
+                className="px-2.5 py-1.5 rounded-xl text-xs font-semibold border border-purple-300 dark:border-purple-700 bg-purple-50 dark:bg-purple-950/60 text-purple-800 dark:text-purple-100 hover:bg-purple-100 dark:hover:bg-purple-900/50 disabled:opacity-50 transition-colors shrink-0"
+                title="Download VCD waveform for GTKWave / Surfer"
+              >
+                VCD
+              </button>
+              <button
+                type="button"
+                onClick={() => downloadSelectedResult('csv')}
+                disabled={!selectedResultId}
+                className="px-2.5 py-1.5 rounded-xl text-xs font-semibold border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-100 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 disabled:opacity-50 transition-colors shrink-0"
+                title="Export CSV of full run"
+              >
+                CSV
+              </button>
+            </div>
+
             {resultPreviewError && (
-              <span className="text-xs font-semibold text-red-600 dark:text-red-300 ml-2">
+              <span className="text-xs font-semibold text-rose-600 dark:text-rose-400">
                 {resultPreviewError}
               </span>
             )}
