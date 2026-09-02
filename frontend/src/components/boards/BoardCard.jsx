@@ -294,6 +294,23 @@ const BoardCard = ({
             </span>
           </div>
         )}
+        {board.status !== 'offline' && (
+          <>
+            <div className="flex justify-between">
+              <span className="text-slate-400 dark:text-slate-500">CPU Temp:</span>
+              <span className={`font-bold ${board.temp != null && board.temp > 70 ? 'text-red-500' : 'text-slate-800 dark:text-slate-200'}`}>
+                {board.temp != null ? `${board.temp}°C` : '—'}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400 dark:text-slate-500">CPU / RAM:</span>
+              <span className="font-bold text-slate-800 dark:text-slate-200">
+                {board.cpuLoad != null ? `${board.cpuLoad}%` : '0%'}
+                {board.ramUsage != null ? ` · ${board.ramUsage}% RAM` : ''}
+              </span>
+            </div>
+          </>
+        )}
         {board.lastHeartbeat && (
           <div className="flex justify-between">
             <span className="text-slate-400 dark:text-slate-500">Last online:</span>
