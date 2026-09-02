@@ -228,6 +228,10 @@ class BoardManager:
             del self._rebooting_boards[board_id]
             
         async with async_session() as session:
+            board_row = (await session.execute(select(BoardORM).where(BoardORM.id == board_id))).scalar_one_or_none()
+            if not board_row:
+                return False
+
             values = {
                 "ip_address": ip,
                 "state": BoardState.ONLINE.value,
@@ -245,7 +249,7 @@ class BoardManager:
                 status_values["fpga_status"] = fpga_status
             if arm_status is not None:
                 status_values["arm_status"] = arm_status
-            result = await session.execute(
+            await session.execute(
                 update(BoardORM).where(BoardORM.id == board_id).values(**values)
             )
             status_row = (await session.execute(select(BoardStatusORM).where(BoardStatusORM.board_id == board_id))).scalar_one_or_none()
@@ -285,7 +289,7 @@ class BoardManager:
                 )
                 
             await session.commit()
-            return result.rowcount > 0
+            return True
 
 
     async def set_board_busy(self, board_id: str, job_id: str) -> bool:
