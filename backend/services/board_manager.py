@@ -168,10 +168,24 @@ class BoardManager:
             return self._orm_to_model(orm, s) if orm else None
 
     async def delete_board(self, board_id: str) -> bool:
+        """Delete a board and all its associated telemetry/status records."""
         async with async_session() as session:
+            await session.execute(delete(BoardTelemetryLogORM).where(BoardTelemetryLogORM.board_id == board_id))
+            await session.execute(delete(BoardStatusORM).where(BoardStatusORM.board_id == board_id))
             result = await session.execute(delete(BoardORM).where(BoardORM.id == board_id))
             await session.commit()
             return result.rowcount > 0
+
+    async def delete_boards_bulk(self, board_ids: List[str]) -> int:
+        """Delete multiple boards by ID list."""
+        if not board_ids:
+            return 0
+        async with async_session() as session:
+            await session.execute(delete(BoardTelemetryLogORM).where(BoardTelemetryLogORM.board_id.in_(board_ids)))
+            await session.execute(delete(BoardStatusORM).where(BoardStatusORM.board_id.in_(board_ids)))
+            result = await session.execute(delete(BoardORM).where(BoardORM.id.in_(board_ids)))
+            await session.commit()
+            return result.rowcount
 
     async def get_available_board(self, target_board_id: Optional[str] = None) -> Optional[BoardInfo]:
         """Get a free board. If target_board_id is specified, check if it's free."""

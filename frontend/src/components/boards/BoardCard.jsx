@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Activity, AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Clock, Copy, Eye, MoreVertical, Pause, Play, RefreshCw, Search, Settings, Square, Tag, Terminal, Trash2, Wifi, WifiOff, X, XCircle } from 'lucide-react';
 import { useTestStore } from '../../store/useTestStore';
+import { formatRelativeTime } from '../../utils/timeFormat';
 import LiveTestPipelineTracker from './LiveTestPipelineTracker';
 
 const BoardCard = ({
@@ -210,9 +211,9 @@ const BoardCard = ({
         )}
         {board.lastHeartbeat && (
           <div className="flex justify-between">
-            <span className="text-slate-400 dark:text-slate-500">Last heartbeat:</span>
-            <span className="font-bold text-slate-800 dark:text-slate-200 text-[10px]" title={board.lastHeartbeat}>
-              {new Date(board.lastHeartbeat).toLocaleTimeString()}
+            <span className="text-slate-400 dark:text-slate-500">Last online:</span>
+            <span className="font-bold text-slate-800 dark:text-slate-200 text-[10px]" title={new Date(board.lastHeartbeat).toLocaleString()}>
+              {formatRelativeTime(board.lastHeartbeat)}
             </span>
           </div>
         )}

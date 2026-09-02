@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 from services.board_manager import board_manager
 from services.pending_job_dispatcher import pending_job_dispatcher
+from services.notification_store import notification_store
 from models.board import BoardState
 
 router = APIRouter()
@@ -35,13 +36,14 @@ class HeartbeatRequest(BaseModel):
 async def register_board(payload: BoardRegisterRequest, request: Request):
     """
     Called by Agent on boot.
-    Registers the board and captures its IP address from the request.
+    Registers the board, saves notification and captures its IP address from the request.
     """
     client_ip = payload.ip_address or request.client.host
+    board_name = payload.name or payload.board_id
     
     board = await board_manager.create_board(
         board_id=payload.board_id,
-        name=payload.name or payload.board_id,
+        name=board_name,
         ip_address=client_ip,
         mac_address=payload.mac_address,
         firmware_version=payload.firmware_version,
@@ -50,6 +52,16 @@ async def register_board(payload: BoardRegisterRequest, request: Request):
         connections=[],
         state=BoardState.ONLINE
     )
+    
+    try:
+        await notification_store.add_notification(
+            title="New Board Registered",
+            message=f"FPGA Board '{board_name}' ({client_ip}) registered and is now Online.",
+            notif_type="success"
+        )
+    except Exception as exc:
+        pass
+
     return {"status": "registered", "ip": client_ip}
 
 @router.post("/heartbeat")

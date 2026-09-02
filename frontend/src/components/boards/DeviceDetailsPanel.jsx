@@ -4,6 +4,7 @@ import {
   Wifi, WifiOff, Server, Tag, Activity, Clock, Zap, Signal
 } from 'lucide-react';
 import { useTestStore } from '../../store/useTestStore';
+import { formatRelativeTime } from '../../utils/timeFormat';
 import api from '../../services/api';
 import BoardTelemetryPanel from './BoardTelemetryPanel';
 
@@ -253,7 +254,7 @@ const DeviceDetailsPanel = ({ board, onClose, onSSHClick }) => {
                   <div className="grid grid-cols-2 gap-2">
                     <InfoChip icon={Wifi}   label="IP Address"  value={board.ip}  color="#38bdf8" />
                     <InfoChip icon={Signal} label="MAC Address" value={board.mac} color="#38bdf8" />
-                    <InfoChip icon={Zap}    label="Signal"      value={board.signal != null ? `${board.signal} dBm` : '—'} color="#f59e0b" />
+                    <InfoChip icon={Clock}  label="Last Online" value={board.lastHeartbeat ? formatRelativeTime(board.lastHeartbeat) : '—'} color="#38bdf8" />
                     <InfoChip icon={Zap}    label="Voltage"     value={board.voltage != null ? `${board.voltage} V` : '—'} color="#f59e0b" />
                   </div>
                 </div>

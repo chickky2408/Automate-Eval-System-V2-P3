@@ -194,6 +194,15 @@ async def update_board(board_id: str, payload: BoardUpdateRequest):
     return _board_to_fe(updated)
 
 
+@router.delete("/{board_id}")
+async def delete_board(board_id: str):
+    """Delete a board from the fleet."""
+    success = await board_manager.delete_board(board_id)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Board {board_id} not found")
+    return {"success": True, "message": f"Board {board_id} deleted"}
+
+
 @router.get("/{board_id}/status", response_model=BoardStatus)
 async def get_board_status(board_id: str):
     """Get real-time status of a board."""

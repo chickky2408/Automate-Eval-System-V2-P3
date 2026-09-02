@@ -3655,7 +3655,33 @@ export const useTestStore = create((set, get) => {
             newStatus === 'offline' ||
             newArm === 'error' ||
             newFpga === 'error';
-          if (!wasError && isError) {
+          if (!prev && prevBoards.length > 0) {
+            newLocal.push({
+              id: `local-board-reg-${b.id}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+              title: 'New Board Registered',
+              message: `FPGA Board '${b.name || b.id}' (${b.ip || 'LAN'}) is now Online.`,
+              type: 'success',
+              read: false,
+              createdAt: now,
+            });
+            state.addToast({
+              type: 'success',
+              message: `🎉 New Board Registered: "${b.name || b.id}" (${b.ip || 'LAN'}) is now Online!`,
+            });
+          } else if (wasError && !isError && (newStatus === 'online' || newStatus === 'busy')) {
+            newLocal.push({
+              id: `local-board-online-${b.id}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+              title: 'Board Online',
+              message: `Board '${b.name || b.id}' is back online.`,
+              type: 'success',
+              read: false,
+              createdAt: now,
+            });
+            state.addToast({
+              type: 'success',
+              message: `🟢 Board "${b.name || b.id}" is back online.`,
+            });
+          } else if (!wasError && isError) {
             newLocal.push({
               id: `local-board-${b.id}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
               title: 'Board error',
@@ -3712,7 +3738,33 @@ export const useTestStore = create((set, get) => {
             newStatus === 'offline' ||
             newArm === 'error' ||
             newFpga === 'error';
-          if (!wasError && isError) {
+          if (!prev && prevBoards.length > 0) {
+            newLocal.push({
+              id: `local-board-reg-${b.id}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+              title: 'New Board Registered',
+              message: `FPGA Board '${b.name || b.id}' (${b.ip || 'LAN'}) is now Online.`,
+              type: 'success',
+              read: false,
+              createdAt: now,
+            });
+            state.addToast({
+              type: 'success',
+              message: `🎉 New Board Registered: "${b.name || b.id}" (${b.ip || 'LAN'}) is now Online!`,
+            });
+          } else if (wasError && !isError && (newStatus === 'online' || newStatus === 'busy')) {
+            newLocal.push({
+              id: `local-board-online-${b.id}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+              title: 'Board Online',
+              message: `Board '${b.name || b.id}' is back online.`,
+              type: 'success',
+              read: false,
+              createdAt: now,
+            });
+            state.addToast({
+              type: 'success',
+              message: `🟢 Board "${b.name || b.id}" is back online.`,
+            });
+          } else if (!wasError && isError) {
             newLocal.push({
               id: `local-board-${b.id}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
               title: 'Board error',
