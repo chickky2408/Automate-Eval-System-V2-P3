@@ -88,19 +88,26 @@ class BoardManager:
         tag: Optional[str],
         connections: Optional[list],
         state: BoardState,
-    ) -> BoardInfo:
+    ) -> tuple[BoardInfo, bool]:
         async with async_session() as session:
-            # Check if exists
-            existing = await session.execute(select(BoardORM).where(BoardORM.id == board_id))
-            if existing.scalar_one_or_none():
-                # Update existing
-                await self.update_board(board_id, {
+            # Check if exists by board_id or mac_address
+            existing = None
+            if board_id:
+                existing = (await session.execute(select(BoardORM).where(BoardORM.id == board_id))).scalar_one_or_none()
+            if not existing and mac_address:
+                existing = (await session.execute(select(BoardORM).where(BoardORM.mac_address == mac_address))).scalar_one_or_none()
+
+            if existing:
+                # Update existing board (e.g. IP updated via DHCP)
+                target_id = existing.id
+                await self.update_board(target_id, {
                     "ip_address": ip_address,
-                    "mac_address": mac_address,
+                    "mac_address": mac_address or existing.mac_address,
                     "state": state.value,
                     "last_heartbeat": datetime.utcnow()
                 })
-                return await self.get_board(board_id)
+                board_info = await self.get_board(target_id)
+                return board_info, False
 
             orm = BoardORM(
                 id=board_id,
@@ -127,7 +134,8 @@ class BoardManager:
                 )
             )
             await session.commit()
-            return self._orm_to_model(orm, (await session.execute(select(BoardStatusORM).where(BoardStatusORM.board_id == board_id))).scalar_one_or_none())
+            status_orm = (await session.execute(select(BoardStatusORM).where(BoardStatusORM.board_id == board_id))).scalar_one_or_none()
+            return self._orm_to_model(orm, status_orm), True
 
     async def update_board(self, board_id: str, updates: dict) -> Optional[BoardInfo]:
         async with async_session() as session:

@@ -41,7 +41,7 @@ async def register_board(payload: BoardRegisterRequest, request: Request):
     client_ip = payload.ip_address or request.client.host
     board_name = payload.name or payload.board_id
     
-    board = await board_manager.create_board(
+    board, is_new = await board_manager.create_board(
         board_id=payload.board_id,
         name=board_name,
         ip_address=client_ip,
@@ -53,16 +53,17 @@ async def register_board(payload: BoardRegisterRequest, request: Request):
         state=BoardState.ONLINE
     )
     
-    try:
-        await notification_store.add_notification(
-            title="New Board Registered",
-            message=f"FPGA Board '{board_name}' ({client_ip}) registered and is now Online.",
-            notif_type="success"
-        )
-    except Exception as exc:
-        pass
+    if is_new:
+        try:
+            await notification_store.add_notification(
+                title="New Board Registered",
+                message=f"FPGA Board '{board_name}' ({client_ip}) registered and is now Online.",
+                notif_type="success"
+            )
+        except Exception as exc:
+            pass
 
-    return {"status": "registered", "ip": client_ip}
+    return {"status": "registered", "ip": client_ip, "is_new": is_new}
 
 @router.post("/heartbeat")
 async def heartbeat(payload: HeartbeatRequest, request: Request, background_tasks: BackgroundTasks):

@@ -16,6 +16,7 @@ const BoardCard = ({
   onResumeQueue,
   onRestart,
   onShutdown,
+  onDelete,
   pulseHighlight = false,
 }) => {
   const updateBoardTag = useTestStore((s) => s.updateBoardTag);
@@ -125,6 +126,15 @@ const BoardCard = ({
             >
               <XCircle size={16} />
               Shutdown Board
+            </button>
+            <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
+            <button
+              type="button"
+              onClick={() => { onDelete?.(board); setMenuOpen(false); }}
+              className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 flex items-center gap-2 font-bold"
+            >
+              <Trash2 size={16} />
+              Delete Board
             </button>
           </div>
         )}

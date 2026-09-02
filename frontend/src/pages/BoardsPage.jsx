@@ -175,6 +175,7 @@ const BoardsPage = () => {
 
   const [restartConfirmBoard, setRestartConfirmBoard] = useState(null);
   const [restartSubmitting, setRestartSubmitting] = useState(false);
+  const [deleteModal, setDeleteModal] = useState({ open: false, boardIds: [] });
 
   const restartSummary = useMemo(
     () => (restartConfirmBoard ? buildRestartBoardSummary(restartConfirmBoard, jobs || []) : null),
@@ -486,18 +487,7 @@ const BoardsPage = () => {
           </span>
           <div className="flex flex-wrap gap-2">
             <button
-              onClick={async () => {
-                if (!window.confirm(`Delete ${selectedBoards.length} board(s)?`)) return;
-                if (isDeletingSelected) return;
-                setIsDeletingSelected(true);
-                const success = await deleteBoards(selectedBoards);
-                setIsDeletingSelected(false);
-                if (success) {
-                  addToast({ type: 'success', message: 'Boards deleted successfully.' });
-                } else {
-                  addToast({ type: 'error', message: 'Failed to delete boards.' });
-                }
-              }}
+              onClick={() => setDeleteModal({ open: true, boardIds: selectedBoards })}
               disabled={isDeletingSelected}
               className={`px-4 py-2 bg-red-50 border border-red-200 rounded-lg text-sm font-bold text-red-700 transition-all ${isDeletingSelected ? 'opacity-60 cursor-not-allowed' : 'hover:bg-red-100'}`}
             >
@@ -563,6 +553,7 @@ const BoardsPage = () => {
               onResumeQueue={handleResumeQueue}
               onRestart={requestRestartBoard}
               onShutdown={handleShutdownBoard}
+              onDelete={(b) => setDeleteModal({ open: true, boardIds: [b.id] })}
               pulseHighlight={pulseBoardId != null && String(pulseBoardId) === String(board.id)}
             />
       ))}
@@ -625,19 +616,10 @@ const BoardsPage = () => {
             style={{ left: contextMenu.x, top: contextMenu.y }}
           >
             <button
-              onClick={async () => {
+              onClick={() => {
                 const targetBoards = contextMenu?.boards || [];
                 if (targetBoards.length === 0) return;
-                if (!window.confirm(`Delete ${targetBoards.length} board(s)?`)) return;
-                if (isDeletingSelected) return;
-                setIsDeletingSelected(true);
-                const success = await deleteBoards(targetBoards);
-                setIsDeletingSelected(false);
-                if (success) {
-                  addToast({ type: 'success', message: 'Boards deleted successfully.' });
-                } else {
-                  addToast({ type: 'error', message: 'Failed to delete boards.' });
-                }
+                setDeleteModal({ open: true, boardIds: targetBoards });
                 setShowContextMenu(false);
                 setContextMenu(null);
               }}
@@ -813,6 +795,66 @@ const BoardsPage = () => {
                 className="w-full sm:w-auto px-4 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 text-white text-sm font-bold disabled:opacity-50"
               >
                 {restartSubmitting ? 'Restarting…' : 'Restart board'}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteModal.open && (
+        <>
+          <div
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 transition-opacity"
+            onClick={() => !isDeletingSelected && setDeleteModal({ open: false, boardIds: [] })}
+          />
+          <div className="fixed inset-x-4 top-[50%] -translate-y-1/2 sm:inset-auto sm:left-[50%] sm:-translate-x-1/2 sm:max-w-md w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl z-50 p-6">
+            <div className="flex items-start gap-4">
+              <div className="p-3 bg-red-50 dark:bg-red-900/30 text-red-600 rounded-2xl shrink-0">
+                <Trash2 size={24} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                  Delete {deleteModal.boardIds.length} Selected Board(s)?
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  This will remove the selected boards and all their historical telemetry logs permanently.
+                </p>
+                <div className="mt-3 max-h-28 overflow-y-auto bg-slate-50 dark:bg-slate-800/60 rounded-lg p-2 text-xs font-mono text-slate-700 dark:text-slate-300">
+                  {deleteModal.boardIds.map((id) => (
+                    <div key={id} className="truncate">• {id}</div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={isDeletingSelected}
+                onClick={() => setDeleteModal({ open: false, boardIds: [] })}
+                className="px-4 py-2 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingSelected}
+                onClick={async () => {
+                  setIsDeletingSelected(true);
+                  const success = await deleteBoards(deleteModal.boardIds);
+                  setIsDeletingSelected(false);
+                  setDeleteModal({ open: false, boardIds: [] });
+                  clearBoardSelection();
+                  if (success) {
+                    addToast({ type: 'success', message: `${deleteModal.boardIds.length} board(s) deleted successfully.` });
+                  } else {
+                    addToast({ type: 'error', message: 'Failed to delete boards.' });
+                  }
+                }}
+                className="px-4 py-2 text-xs font-bold bg-red-600 hover:bg-red-700 text-white rounded-xl shadow-sm disabled:opacity-50"
+              >
+                {isDeletingSelected ? 'Deleting...' : 'Delete Permanently'}
               </button>
             </div>
           </div>
