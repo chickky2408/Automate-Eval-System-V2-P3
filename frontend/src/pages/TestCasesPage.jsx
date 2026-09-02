@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import {
-    ArrowUp, ArrowDown, ArrowUpFromLine, ArrowDownFromLine, ChevronDown, Copy, FileUp, FolderOpen, Globe, GripVertical, Lock, Plus, Save, Trash2, X, Play
+    ArrowUp, ArrowDown, ArrowUpFromLine, ArrowDownFromLine, ChevronDown, Copy, FileDown, FileUp, FolderOpen, Globe, GripVertical, Lock, Plus, Save, Trash2, X, Play
 } from 'lucide-react';
 import { useTestStore } from '../store/useTestStore';
 import api from '../services/api';

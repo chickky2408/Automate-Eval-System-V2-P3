@@ -944,9 +944,9 @@ const WaveformPage = () => {
       stopped = true;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [connected, showWaveform, zoomLevel, containerWidth, chartHeight, paused, theme, layoutMode, visibleSignals, viewerMode]);
+  }, [showWaveform, zoomLevel, containerWidth, chartHeight, paused, theme, layoutMode, visibleSignals]);
 
-  const isLive = connected && lastChunkAt != null && Date.now() - lastChunkAt < 500;
+  const isLive = false;
   const LIVE_PULSE = 'animate-pulse';
   const displayCountUI = Math.max(
     2,
@@ -1347,10 +1347,6 @@ const WaveformPage = () => {
                     <label className="flex items-center gap-2 py-1.5 text-sm text-slate-800 dark:text-slate-100 select-none">
                       <input type="checkbox" checked={showMinimap} onChange={(e) => setShowMinimap(e.target.checked)} className="w-4 h-4 shrink-0 rounded border-slate-300 dark:border-slate-600 text-cyan-600 focus:ring-cyan-500" />
                       Overview Minimap
-                    </label>
-                    <label className="flex items-center gap-2 py-1.5 text-sm text-slate-800 dark:text-slate-100 select-none">
-                      <input type="checkbox" checked={showPlayhead} onChange={(e) => setShowPlayhead(e.target.checked)} className="w-4 h-4 shrink-0 rounded border-slate-300 dark:border-slate-600 text-rose-600 focus:ring-rose-500" />
-                      Playhead
                     </label>
                     <label className="flex items-center gap-2 py-1.5 text-sm text-slate-800 dark:text-slate-100 select-none">
                       <input type="checkbox" checked={showGrid} onChange={(e) => setShowGrid(e.target.checked)} className="w-4 h-4 shrink-0 rounded border-slate-300 dark:border-slate-600 text-slate-600 focus:ring-slate-500" />
