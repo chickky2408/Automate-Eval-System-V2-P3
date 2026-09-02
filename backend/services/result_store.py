@@ -138,8 +138,8 @@ class ResultStore:
     ) -> List[TestResult]:
         """Get filtered completed results."""
         async with async_session() as session:
-            # Query completed or errored results only (or all)
-            query = select(ResultORM).order_by(ResultORM.completed_at.desc())
+            # Query completed or errored results with valid completed_at first
+            query = select(ResultORM).order_by(ResultORM.completed_at.desc().nulls_last(), ResultORM.created_at.desc().nulls_last())
             if board_id:
                 # filter by board_id in snapshot or actual_board_id
                 query = query.join(JobTargetORM, JobTargetORM.id == ResultORM.job_target_id).where(
