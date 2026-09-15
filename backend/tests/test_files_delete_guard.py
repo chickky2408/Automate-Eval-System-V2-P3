@@ -13,6 +13,12 @@ class _FileStore:
         return {"id": file_id, "name": "case.vcd", "ownerId": None}
 
     async def delete_file(self, file_id):
+        # Hard delete -- exercised via ?force=true, not the default path.
+        self._deleted.append(file_id)
+        return True
+
+    async def soft_delete_file(self, file_id):
+        # PROJECT.md B1.8: DELETE /api/files/{id} now soft-deletes by default.
         self._deleted.append(file_id)
         return True
 
@@ -62,7 +68,9 @@ class TestDeleteFileParentGuard(unittest.IsolatedAsyncioTestCase):
 
         result = await files.delete_file("f1")
 
-        self.assertEqual(result, {"success": True})
+        # PROJECT.md B1.8: default delete is soft (hardDeleted: False), not the
+        # hard delete this test originally asserted.
+        self.assertEqual(result, {"success": True, "hardDeleted": False})
         self.assertEqual(deleted, ["f1"])
 
 

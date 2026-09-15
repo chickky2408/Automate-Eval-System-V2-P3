@@ -8,7 +8,7 @@ import os
 import uuid
 import hashlib
 import aiofiles
-from sqlalchemy import select, delete, and_
+from sqlalchemy import select, delete, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.database import async_session
@@ -272,10 +272,22 @@ class FileStore:
                 out["duplicateByName"] = True
             return out
 
-    async def list_files(self, set_id: Optional[str] = None) -> List[dict]:
-        """List all files in library."""
+    async def list_files(self, set_id: Optional[str] = None, include_archived: bool = False) -> List[dict]:
+        """List all files in library.
+
+        PROJECT.md B1.8: excludes soft-deleted (status='archived') files by
+        default, so a deleted file disappears from the Library while its row
+        and disk file remain for existing references (get_file/get_file_content
+        are intentionally NOT filtered by status -- a test case's vcd_file_id
+        must keep resolving after the file is "deleted").
+        """
         async with async_session() as session:
             q = select(FileORM).order_by(FileORM.uploaded_at.desc())
+            if not include_archived:
+                # SQL three-valued logic: `status != 'archived'` would silently
+                # drop any row where status IS NULL, so NULL must be allowed
+                # through explicitly.
+                q = q.where(or_(FileORM.status.is_(None), FileORM.status != "archived"))
             result = await session.execute(q)
             files = result.scalars().all()
             out = []
@@ -387,8 +399,30 @@ class FileStore:
                 "tagColor": tag_color,
             }
 
+    async def soft_delete_file(self, file_id: str) -> bool:
+        """PROJECT.md B1.8: mark a file archived instead of removing its row and
+        disk file. The row stays exactly as it was -- any existing FK reference
+        (test_cases.vcd_file_id, etc.) keeps resolving via get_file/get_file_content,
+        which are NOT status-filtered. Only list_files() excludes archived rows,
+        so the file disappears from the Library. A real disk purge is a separate,
+        later GC step (out of scope here); this is the reversible half."""
+        async with async_session() as session:
+            result = await session.execute(select(FileORM).where(FileORM.id == file_id))
+            f = result.scalar_one_or_none()
+            if not f:
+                return False
+            if f.status == "archived":
+                return True  # already archived; idempotent
+            f.status = "archived"
+            f.deleted_at = datetime.utcnow()
+            await session.commit()
+            return True
+
     async def delete_file(self, file_id: str) -> bool:
-        """Delete file from DB and Disk."""
+        """Hard-delete a file from DB and disk. PROJECT.md B1.8: the default
+        DELETE /api/files/{id} path is now soft_delete_file(); this remains for
+        ?force=true (immediate purge) and for the GC/cleanup-candidate flows
+        that already do their own reverse-reference checks before calling it."""
         async with async_session() as session:
             result = await session.execute(select(FileORM).where(FileORM.id == file_id))
             f = result.scalar_one_or_none()
@@ -703,18 +737,5 @@ class FileStore:
                     pass
 
         return True
-
-    # ========== Legacy set-file copies (stubs for backwards compatibility) ==========
-    async def delete_files_by_set_id(self, set_id: str) -> int:
-        return 0
-
-    async def save_set_files(self, set_id: str, file_ids: List[str]) -> List[dict]:
-        return []
-
-    async def list_set_files(self, set_id: str) -> List[dict]:
-        return []
-
-    async def restore_set_files_to_library(self, set_id: str) -> List[dict]:
-        return []
 
 file_store = FileStore()

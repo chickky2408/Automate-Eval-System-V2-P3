@@ -351,9 +351,16 @@ async def get_file(file_id: str):
 @router.delete("/{file_id}")
 async def delete_file(
     file_id: str,
+    force: bool = False,
     x_acting_profile_id: Optional[str] = Header(default=None, alias="X-Acting-Profile-Id"),
     x_acting_client_id: Optional[str] = Header(default=None, alias="X-Acting-Client-Id"),
+    x_cleanup_passcode: Optional[str] = Header(default=None, alias="X-Cleanup-Passcode"),
 ):
+    """PROJECT.md B1.8: default is a soft delete (status='archived') -- the row
+    and disk file stay put so existing references keep resolving, and the
+    file just disappears from the Library. `?force=true` does the previous
+    hard delete instead, gated behind the same passcode used by every other
+    destructive maintenance endpoint in this router (require_cleanup_passcode)."""
     record = await file_store.get_file(file_id)
     if not record:
         raise HTTPException(status_code=404, detail="File not found")
@@ -388,7 +395,11 @@ async def delete_file(
             status_code=409,
             detail=f"File is referenced by {len(referencing)} test case(s): {names}. Remove or update them before deleting this file.",
         )
-    success = await file_store.delete_file(file_id)
+    if force:
+        require_cleanup_passcode(x_cleanup_passcode)
+        success = await file_store.delete_file(file_id)
+    else:
+        success = await file_store.soft_delete_file(file_id)
     if not success:
         raise HTTPException(status_code=404, detail="File not found")
-    return {"success": True}
+    return {"success": True, "hardDeleted": force}

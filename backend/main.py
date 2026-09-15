@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
-from routers import boards, jobs, results, system, files, notifications, ws, agent, sets, profiles, test_cases, test_commands, job_files, agent_results
+from routers import boards, jobs, results, system, files, notifications, ws, agent, profiles, test_cases, test_commands, job_files, agent_results
 from services.job_queue import job_queue_service
 from services.board_manager import board_manager
 from services.pending_job_dispatcher import pending_job_dispatcher
@@ -172,8 +172,14 @@ app.include_router(jobs.router, prefix="/api/jobs", tags=["Jobs"])
 app.include_router(results.router, prefix="/api/results", tags=["Results"])
 app.include_router(system.router, prefix="/api/system", tags=["System"])
 app.include_router(files.router, prefix="/api/files", tags=["Files"])
-app.include_router(sets.router, prefix="/api/sets", tags=["Sets"])
-app.include_router(sets.router, prefix="/api/run-sets", tags=["RunSets"])
+# PROJECT.md B1.8: routers/sets.py (mounted here at /api/sets and /api/run-sets)
+# was removed -- every one of its handlers delegated to no-op stubs in
+# file_store.py ("Legacy set-file copies (stubs for backwards compatibility)":
+# save/list/restore/delete all did nothing or returned an empty list). Nothing
+# in the frontend called it (frontend/src/utils/apiEndpoints.js's RUN_SETS
+# points at /api/test-management/run-sets/{id}, the real endpoint in
+# routers/test_cases.py); the dead router only risked a caller getting a
+# misleading 200 {"deleted": 0} from /api/run-sets/{id} instead of a 404.
 app.include_router(profiles.router, prefix="/api/profiles", tags=["Profiles"])
 app.include_router(notifications.router, prefix="/api/notifications", tags=["Notifications"])
 app.include_router(test_cases.router, prefix="/api/test-management", tags=["Test Management"])

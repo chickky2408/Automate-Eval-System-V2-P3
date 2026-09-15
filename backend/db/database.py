@@ -284,6 +284,35 @@ async def init_db():
 
             await conn.run_sync(_add_files_updated_at)
 
+        # Migration: add status/deleted_at to files (PROJECT.md B1.8 soft-delete).
+        # Backfill existing rows to status='active' explicitly -- ADD COLUMN with
+        # a server-side DEFAULT backfills existing rows on Postgres automatically,
+        # but the SQLite branch below does not pass a DEFAULT clause, so it needs
+        # the explicit UPDATE.
+        async with engine.begin() as conn:
+            def _add_files_soft_delete(sync_conn):
+                is_sqlite = "sqlite" in DATABASE_URL
+                if is_sqlite:
+                    cur = sync_conn.execute(text("PRAGMA table_info(files)"))
+                    cols = [row[1] for row in cur.fetchall()]
+                    if "status" not in cols:
+                        sync_conn.execute(text("ALTER TABLE files ADD COLUMN status VARCHAR(16)"))
+                        sync_conn.execute(text("UPDATE files SET status = 'active' WHERE status IS NULL"))
+                    if "deleted_at" not in cols:
+                        sync_conn.execute(text("ALTER TABLE files ADD COLUMN deleted_at DATETIME"))
+                else:
+                    try:
+                        sync_conn.execute(text("ALTER TABLE files ADD COLUMN IF NOT EXISTS status VARCHAR(16)"))
+                        sync_conn.execute(text("UPDATE files SET status = 'active' WHERE status IS NULL"))
+                    except Exception:
+                        pass
+                    try:
+                        sync_conn.execute(text("ALTER TABLE files ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP"))
+                    except Exception:
+                        pass
+
+            await conn.run_sync(_add_files_soft_delete)
+
         # Migration: ensure all BoardORM columns exist
         async with engine.begin() as conn:
             def _add_board_status_columns(sync_conn):

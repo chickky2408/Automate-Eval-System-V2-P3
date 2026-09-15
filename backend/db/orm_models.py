@@ -33,6 +33,14 @@ class FileORM(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     owner_id = Column(String(36), ForeignKey("profiles.id", ondelete="SET NULL"), nullable=True)
     result_id = Column(String(32), ForeignKey("results.id", ondelete="SET NULL"), nullable=True) # Non-null for output files
+    # PROJECT.md B1.8: soft-delete. DELETE /api/files/{id} sets status='archived'
+    # + deleted_at instead of removing the row and disk file -- historical
+    # references (test_cases.vcd_file_id etc.) keep resolving by id/content
+    # exactly as before; only the Library listing (file_store.list_files)
+    # excludes archived rows. A real disk purge is a separate, later GC step
+    # (?force=true on the endpoint does an immediate hard delete instead).
+    status = Column(String(16), nullable=False, default="active")  # active | archived
+    deleted_at = Column(DateTime, nullable=True)
 
 class DeletionCandidateORM(Base):
     """Table for staging orphaned or requested files for manual deletion by user."""
