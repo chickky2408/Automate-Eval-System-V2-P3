@@ -154,6 +154,11 @@ async def init_db():
                     ("profile_display_name", "VARCHAR(255)", "VARCHAR(255)"),
                     ("config_name", "VARCHAR(255)", "VARCHAR(255)"),
                     ("pairs_data", "TEXT", "JSONB"),
+                    ("enable_picoscope", "BOOLEAN DEFAULT FALSE", "BOOLEAN DEFAULT FALSE"),
+                    ("current_step", "VARCHAR(255)", "VARCHAR(255)"),
+                    ("error_message", "TEXT", "TEXT"),
+                    ("priority", "INTEGER DEFAULT 0", "INTEGER DEFAULT 0"),
+                    ("timeout_seconds", "INTEGER DEFAULT 60", "INTEGER DEFAULT 60"),
                 ]
                 for col_name, sqlite_type, pg_type in to_add:
                     if is_sqlite:
@@ -161,7 +166,7 @@ async def init_db():
                             sync_conn.execute(text(f"ALTER TABLE jobs ADD COLUMN {col_name} {sqlite_type}"))
                     else:
                         try:
-                            sync_conn.execute(text(f"ALTER TABLE jobs ADD COLUMN {col_name} {pg_type}"))
+                            sync_conn.execute(text(f"ALTER TABLE jobs ADD COLUMN IF NOT EXISTS {col_name} {pg_type}"))
                         except Exception:
                             pass
             await conn.run_sync(_add_job_columns)
@@ -235,21 +240,37 @@ async def init_db():
 
             await conn.run_sync(_add_files_updated_at)
 
-        # Migration: add fpga_status, arm_status to boards if not present
+        # Migration: ensure all BoardORM columns exist
         async with engine.begin() as conn:
             def _add_board_status_columns(sync_conn):
                 is_sqlite = "sqlite" in DATABASE_URL
+                board_cols = [
+                    ("ip_address", "VARCHAR(64)", "VARCHAR(64)"),
+                    ("mac_address", "VARCHAR(64)", "VARCHAR(64)"),
+                    ("firmware_version", "VARCHAR(128)", "VARCHAR(128)"),
+                    ("model", "VARCHAR(128)", "VARCHAR(128)"),
+                    ("tag", "VARCHAR(255)", "VARCHAR(255)"),
+                    ("connections", "TEXT", "JSONB"),
+                    ("state", "VARCHAR(32)", "VARCHAR(32)"),
+                    ("cpu_temp", "FLOAT", "FLOAT"),
+                    ("cpu_load", "FLOAT", "FLOAT"),
+                    ("ram_usage", "FLOAT", "FLOAT"),
+                    ("current_job_id", "VARCHAR(32)", "VARCHAR(32)"),
+                    ("last_heartbeat", "DATETIME", "TIMESTAMP"),
+                    ("fpga_status", "VARCHAR(32)", "VARCHAR(32)"),
+                    ("arm_status", "VARCHAR(32)", "VARCHAR(32)"),
+                    ("created_at", "DATETIME", "TIMESTAMP"),
+                ]
                 if is_sqlite:
                     cur = sync_conn.execute(text("PRAGMA table_info(boards)"))
                     cols = [row[1] for row in cur.fetchall()]
-                    if "fpga_status" not in cols:
-                        sync_conn.execute(text("ALTER TABLE boards ADD COLUMN fpga_status VARCHAR(32)"))
-                    if "arm_status" not in cols:
-                        sync_conn.execute(text("ALTER TABLE boards ADD COLUMN arm_status VARCHAR(32)"))
+                    for col, sq_t, _ in board_cols:
+                        if col not in cols:
+                            sync_conn.execute(text(f"ALTER TABLE boards ADD COLUMN {col} {sq_t}"))
                 else:
-                    for col in ["fpga_status", "arm_status"]:
+                    for col, _, pg_t in board_cols:
                         try:
-                            sync_conn.execute(text(f"ALTER TABLE boards ADD COLUMN {col} VARCHAR(32)"))
+                            sync_conn.execute(text(f"ALTER TABLE boards ADD COLUMN IF NOT EXISTS {col} {pg_t}"))
                         except Exception:
                             pass
             await conn.run_sync(_add_board_status_columns)

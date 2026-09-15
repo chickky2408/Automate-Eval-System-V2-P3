@@ -290,6 +290,24 @@ const BoardsPage = () => {
   const uniqueStatuses = [...new Set(boards.map(b => b.status))];
   const uniqueModels = [...new Set(boards.map(b => b.model))];
   const uniqueFirmwares = [...new Set(boards.map(b => b.firmware))];
+
+  const allFilteredBoardsSelected = useMemo(
+    () => filteredBoards.length > 0 && filteredBoards.every(b => selectedBoards.includes(b.id)),
+    [filteredBoards, selectedBoards]
+  );
+
+  const handleToggleSelectAllBoards = () => {
+    const filteredIds = filteredBoards.map(b => b.id);
+    if (allFilteredBoardsSelected) {
+      useTestStore.setState((state) => ({
+        selectedBoards: state.selectedBoards.filter(id => !filteredIds.includes(id))
+      }));
+    } else {
+      useTestStore.setState((state) => ({
+        selectedBoards: Array.from(new Set([...state.selectedBoards, ...filteredIds]))
+      }));
+    }
+  };
   
   const handleBoardClick = (board) => {
     setSelectedBoard(board);
@@ -464,20 +482,31 @@ const BoardsPage = () => {
           </button>
         )}
         
-        {selectedBoards.length > 0 && (
-          <div className="ml-auto flex items-center gap-2">
-            <span className="text-sm text-slate-600 dark:text-slate-300 font-bold">
-              {selectedBoards.length} selected
-            </span>
+        <div className="ml-auto flex items-center gap-3">
+          {filteredBoards.length > 0 && (
             <button
-              onClick={clearBoardSelection}
-              className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+              type="button"
+              onClick={handleToggleSelectAllBoards}
+              className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
             >
-              Clear
+              {allFilteredBoardsSelected ? 'Deselect visible' : `Select all visible (${filteredBoards.length})`}
             </button>
-          </div>
-        )}
-          </div>
+          )}
+          {selectedBoards.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-slate-600 dark:text-slate-300 font-bold">
+                {selectedBoards.length} selected
+              </span>
+              <button
+                onClick={clearBoardSelection}
+                className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
       
       {/* Batch Actions Bar */}
       {selectedBoards.length > 0 && (
@@ -564,12 +593,14 @@ const BoardsPage = () => {
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
                 <th className="px-6 py-4 text-left">
-                  <input
-                    type="checkbox"
-                    checked={selectedBoards.length === filteredBoards.length && filteredBoards.length > 0}
-                    onChange={selectedBoards.length === filteredBoards.length ? clearBoardSelection : selectAllBoards}
-                    className="w-4 h-4 rounded border-slate-300 text-blue-600"
-                  />
+                  <label className="inline-flex items-center cursor-pointer select-none" title="Select all visible boards">
+                    <input
+                      type="checkbox"
+                      checked={allFilteredBoardsSelected}
+                      onChange={handleToggleSelectAllBoards}
+                      className="w-4 h-4 rounded border-slate-300 text-blue-600 cursor-pointer"
+                    />
+                  </label>
                 </th>
                 <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Board</th>
                 <th className="px-6 py-4 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Status</th>

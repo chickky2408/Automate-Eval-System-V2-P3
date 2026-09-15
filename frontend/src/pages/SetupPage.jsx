@@ -1215,17 +1215,17 @@ const SetupPage = ({ editJobId, onEditComplete }) => {
             className="bg-white rounded-3xl border-2 border-slate-200 shadow-sm overflow-hidden transition-all"
           >
             <div className="p-3 sm:p-4 bg-slate-50 border-b border-slate-200 flex flex-wrap justify-between items-center gap-2">
-              <div className="flex items-center gap-3 min-w-0">
+              <label className="flex items-center gap-3 min-w-0 cursor-pointer select-none">
                 <input
                   type="checkbox"
                   className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                  checked={selectedIds.length === uploadedFiles.length && uploadedFiles.length > 0}
+                  checked={uploadedFiles.length > 0 && selectedIds.length === uploadedFiles.length}
                   onChange={handleSelectAll}
                 />
                 <span className="text-sm font-bold text-slate-600 uppercase tracking-wider">
                   Select All ({selectedIds.length}/{uploadedFiles.length})
                 </span>
-              </div>
+              </label>
 
               <div className="flex items-center gap-2">
                 {/* Clear All Button - Clear UI only, don't delete files */}
@@ -1632,13 +1632,14 @@ const SetupPage = ({ editJobId, onEditComplete }) => {
                       </div>
                       <div className="grid bg-slate-200 dark:bg-slate-700 text-xs font-bold text-black dark:text-white border border-slate-300 dark:border-slate-600 rounded-t-lg" style={{ gridTemplateColumns: '40px 40px 1fr 1fr 1fr 100px 110px 120px' }}>
                         <div className="px-2 py-2.5 flex items-center justify-center border-r border-slate-300 dark:border-slate-600">
-                          <input
-                            type="checkbox"
-                            checked={selectedTestCaseIds.length === selectedPairs.length && selectedPairs.length > 0}
-                            onChange={toggleSelectAllTestCases}
-                            className="w-4 h-4 rounded border-slate-400 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                            title="Select all"
-                          />
+                          <label className="inline-flex items-center justify-center cursor-pointer select-none" title="Select all test cases">
+                            <input
+                              type="checkbox"
+                              checked={selectedPairs.length > 0 && selectedTestCaseIds.length === selectedPairs.length}
+                              onChange={toggleSelectAllTestCases}
+                              className="w-4 h-4 rounded border-slate-400 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                            />
+                          </label>
                         </div>
                         <div className="px-2 py-2.5 text-center border-r border-slate-300 dark:border-slate-600">#</div>
                         <div className="px-3 py-2.5 border-r border-slate-300 dark:border-slate-600">VCD</div>

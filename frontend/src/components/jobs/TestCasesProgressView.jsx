@@ -339,42 +339,47 @@ const TestCasesProgressView = ({
         {/* Test Cases List */}
         <div className={`bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 shadow-sm dark:shadow-slate-950/40 ${compactKanbanDetails ? 'rounded-lg' : 'rounded-xl'}`}>
           {/* Select All Header (if there are files) */}
-          {filteredFiles.length > 0 && (
-            <div className={`bg-slate-50 dark:bg-slate-800/95 border-b border-slate-200 dark:border-slate-600 flex items-center justify-between flex-wrap gap-2 ${compactKanbanDetails ? 'px-3 py-1.5' : 'px-4 py-2'}`}>
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={selectedFileIds.length === filteredFiles.length && filteredFiles.length > 0}
-                  onChange={() => {
-                    if (selectedFileIds.length === filteredFiles.length) {
-                      setSelectedFileIds([]);
-                    } else {
-                      setSelectedFileIds(filteredFiles.map(f => f.id));
-                    }
-                  }}
-                  className="w-4 h-4 rounded border-slate-300 dark:border-slate-500 dark:bg-slate-900 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                  title="Select all test cases"
-                />
-                <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                  {selectedFileIds.length > 0 
-                    ? `${selectedFileIds.length} of ${filteredFiles.length} selected`
-                    : `Select All (${filteredFiles.length} test cases)`}
-                </span>
+          {filteredFiles.length > 0 && (() => {
+            const allFilteredSelected = filteredFiles.length > 0 && filteredFiles.every((f) => selectedFileIds.includes(f.id));
+            const toggleAllFiltered = () => {
+              const fIds = filteredFiles.map((f) => f.id);
+              if (allFilteredSelected) {
+                setSelectedFileIds((prev) => prev.filter((id) => !fIds.includes(id)));
+              } else {
+                setSelectedFileIds((prev) => Array.from(new Set([...prev, ...fIds])));
+              }
+            };
+            return (
+              <div className={`bg-slate-50 dark:bg-slate-800/95 border-b border-slate-200 dark:border-slate-600 flex items-center justify-between flex-wrap gap-2 ${compactKanbanDetails ? 'px-3 py-1.5' : 'px-4 py-2'}`}>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={allFilteredSelected}
+                    onChange={toggleAllFiltered}
+                    className="w-4 h-4 rounded border-slate-300 dark:border-slate-500 dark:bg-slate-900 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                    title="Select all test cases"
+                  />
+                  <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                    {selectedFileIds.length > 0 
+                      ? `${selectedFileIds.length} of ${filteredFiles.length} selected`
+                      : `Select All (${filteredFiles.length} test cases)`}
+                  </span>
+                </label>
+                {typeof onReportDownload === 'function' && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => onReportDownload?.()}
+                      className="text-xs font-bold text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300 flex items-center gap-1 cursor-pointer"
+                    >
+                      <Download size={12} />
+                      Download report {reportSelectedCount > 0 ? `(${reportSelectedCount} selected)` : '(all)'}
+                    </button>
+                  </div>
+                )}
               </div>
-              {typeof onReportDownload === 'function' && (
-                <div className="flex items-center gap-2 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => onReportDownload?.()}
-                    className="text-xs font-bold text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300 flex items-center gap-1"
-                  >
-                    <Download size={12} />
-                    Download report {reportSelectedCount > 0 ? `(${reportSelectedCount} selected)` : '(all)'}
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
+            );
+          })()}
           <div className="max-h-[600px] overflow-y-auto">
             {filteredFiles.length === 0 ? (
               <div className="p-12 text-center text-slate-400 dark:text-slate-500">
