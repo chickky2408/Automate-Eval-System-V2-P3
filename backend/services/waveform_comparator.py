@@ -8,7 +8,6 @@ Provides:
 """
 
 from dataclasses import dataclass, field
-import datetime
 import json
 import os
 import time
@@ -742,8 +741,13 @@ class WaveformComparatorService:
 
     def save_diff_artifact(self, result_id: str, diff_payload: Dict[str, Any]) -> str:
         """Saves compressed .diff.json.lz4 or .diff.json artifact."""
-        now = datetime.datetime.now(datetime.timezone.utc)
-        target_dir = os.path.join(self.storage_dir, str(now.year), f"{now.month:02d}")
+        # PROJECT.md B1.11: year/month now comes from the same
+        # file_store.current_year_month() routers/agent_results.py uses for its
+        # WAVEFORM artifacts, instead of computing it here independently.
+        from services.file_store import file_store
+
+        yr, mo = file_store.current_year_month()
+        target_dir = os.path.join(self.storage_dir, yr, mo)
         os.makedirs(target_dir, exist_ok=True)
 
         raw_json = json.dumps(diff_payload).encode("utf-8")

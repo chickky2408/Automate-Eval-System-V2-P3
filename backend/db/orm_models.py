@@ -18,6 +18,14 @@ class FileType(str, enum.Enum):
     WAVEFORM = "WAVEFORM"
     REPORT = "REPORT"
     OTHER = "OTHER"
+    # PROJECT.md B1.11: services/waveform_comparator.py writes
+    # uploads/DIFF/YYYY/MM/{result_id}.diff.json.lz4 artifacts, but they were
+    # never registered as FileORM rows at all (found/loaded by os.walk +
+    # filename prefix instead of a DB query) -- there was no enum member to
+    # register them under even if that changes later. Added for that reason;
+    # also added to _ensure_postgres_filetype_enum_values() below so a future
+    # INSERT using it doesn't fail on Postgres the way ULP/TXT originally did.
+    DIFF = "DIFF"
 
 class FileORM(Base):
     """File registry table."""

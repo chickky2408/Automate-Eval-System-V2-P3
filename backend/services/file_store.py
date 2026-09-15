@@ -31,6 +31,25 @@ class FileStore:
             return path
         return os.path.abspath(os.path.join(os.getcwd(), path))
 
+    @staticmethod
+    def current_year_month() -> tuple[str, str]:
+        """Return ("YYYY", "MM") for now (UTC) -- the one place that decides
+        the year/month values used to bucket per-result artifacts on disk.
+
+        PROJECT.md B1.11: routers/agent_results.py's WAVEFORM outputs and
+        services/waveform_comparator.py's DIFF outputs each computed this
+        independently (one via `f"{now:%Y}/{now:%m}"`, the other via
+        `str(now.year), f"{now.month:02d}"`) instead of going through
+        _get_storage_path. Deliberately narrow: this centralizes only the
+        year/month VALUES, not each caller's differing path-join style
+        (relative f-string vs. os.path.join on an already-resolved absolute
+        dir) -- unifying the styles too would risk changing the on-disk
+        layout `waveform_comparator.load_diff_artifact()`'s os.walk depends
+        on, for a purely cosmetic gain.
+        """
+        now = datetime.utcnow()
+        return f"{now:%Y}", f"{now:%m}"
+
     async def _get_tags_for_file(self, session: AsyncSession, file_uuid: str) -> tuple[Optional[str], Optional[str]]:
         """Retrieve comma-separated tags and tag color for a file from centralized tag mapping."""
         q = (

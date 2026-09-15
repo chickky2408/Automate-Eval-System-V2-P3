@@ -390,13 +390,17 @@ async def complete_upload(
 
         result_id = _result_id_from_filename(session.target_filename)
         now = datetime.utcnow()
-        rel_h5 = f"uploads/WAVEFORM/{now:%Y}/{now:%m}/{result_id}.h5"
+        # PROJECT.md B1.11: year/month bucketing now comes from the one shared
+        # file_store.current_year_month() instead of being computed here
+        # independently of waveform_comparator.py's DIFF artifact path.
+        yr, mo = file_store.current_year_month()
+        rel_h5 = f"uploads/WAVEFORM/{yr}/{mo}/{result_id}.h5"
         abs_h5 = file_store.resolve_path(rel_h5)
 
-        rel_vcd = f"uploads/WAVEFORM/{now:%Y}/{now:%m}/{result_id}.vcd"
+        rel_vcd = f"uploads/WAVEFORM/{yr}/{mo}/{result_id}.vcd"
         abs_vcd = file_store.resolve_path(rel_vcd)
 
-        rel_lz4 = f"uploads/WAVEFORM/{now:%Y}/{now:%m}/{result_id}_capture.bin.lz4"
+        rel_lz4 = f"uploads/WAVEFORM/{yr}/{mo}/{result_id}_capture.bin.lz4"
         abs_lz4 = file_store.resolve_path(rel_lz4)
 
         try:

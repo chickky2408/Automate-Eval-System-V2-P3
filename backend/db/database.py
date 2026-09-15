@@ -145,7 +145,7 @@ async def _ensure_postgres_filetype_enum_values() -> None:
 
     async with engine.begin() as conn:
         typ = await conn.run_sync(_pg_filetype_enum_name)
-        for val in ("EROM", "ULP", "TXT", "SCRIPT", "LOG", "WAVEFORM", "REPORT", "OTHER"):
+        for val in ("EROM", "ULP", "TXT", "SCRIPT", "LOG", "WAVEFORM", "REPORT", "OTHER", "DIFF"):
             try:
                 await conn.execute(text(f'ALTER TYPE "{typ}" ADD VALUE IF NOT EXISTS \'{val}\''))
             except Exception:
