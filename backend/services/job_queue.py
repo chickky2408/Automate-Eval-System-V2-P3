@@ -7,7 +7,7 @@ import asyncio
 import uuid
 import os
 
-from sqlalchemy import select, update, delete, and_
+from sqlalchemy import select, update, delete, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.job import Job, JobCreate, JobStatus, JobState
@@ -272,9 +272,15 @@ class JobQueueService:
                             "error": f"vcd_file_id '{explicit_vcd_id}' does not exist"}
 
             if not resolved_vcd_id and vcd_name:
+                # Exclude soft-deleted rows (PROJECT.md B1.8 added FileORM.status) --
+                # otherwise a re-uploaded file can silently resolve back to the
+                # archived copy a user just deleted, instead of the live one.
                 f_res = await session.execute(
                     select(FileORM)
-                    .where(FileORM.filename == vcd_name)
+                    .where(
+                        FileORM.filename == vcd_name,
+                        or_(FileORM.status.is_(None), FileORM.status != "archived"),
+                    )
                     .order_by(FileORM.uploaded_at.desc())
                 )
                 candidates = f_res.scalars().all()
