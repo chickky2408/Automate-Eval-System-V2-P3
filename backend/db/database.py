@@ -183,25 +183,31 @@ async def init_db():
                         sync_conn.execute(text("ALTER TABLE files ADD COLUMN library_tags TEXT"))
                     if "tag_color" not in cols:
                         sync_conn.execute(text("ALTER TABLE files ADD COLUMN tag_color VARCHAR(32)"))
+                    if "result_id" not in cols:
+                        sync_conn.execute(text("ALTER TABLE files ADD COLUMN result_id VARCHAR(36)"))
                 else:
                     try:
-                        sync_conn.execute(text("ALTER TABLE files ADD COLUMN owner_id VARCHAR(128)"))
+                        sync_conn.execute(text("ALTER TABLE files ADD COLUMN IF NOT EXISTS owner_id VARCHAR(128)"))
                     except Exception:
                         pass
                     try:
-                        sync_conn.execute(text("ALTER TABLE files ADD COLUMN visibility VARCHAR(32)"))
+                        sync_conn.execute(text("ALTER TABLE files ADD COLUMN IF NOT EXISTS visibility VARCHAR(32)"))
                     except Exception:
                         pass
                     try:
-                        sync_conn.execute(text("ALTER TABLE files ADD COLUMN owner_display_name VARCHAR(255)"))
+                        sync_conn.execute(text("ALTER TABLE files ADD COLUMN IF NOT EXISTS owner_display_name VARCHAR(255)"))
                     except Exception:
                         pass
                     try:
-                        sync_conn.execute(text("ALTER TABLE files ADD COLUMN library_tags TEXT"))
+                        sync_conn.execute(text("ALTER TABLE files ADD COLUMN IF NOT EXISTS library_tags TEXT"))
                     except Exception:
                         pass
                     try:
-                        sync_conn.execute(text("ALTER TABLE files ADD COLUMN tag_color VARCHAR(32)"))
+                        sync_conn.execute(text("ALTER TABLE files ADD COLUMN IF NOT EXISTS tag_color VARCHAR(32)"))
+                    except Exception:
+                        pass
+                    try:
+                        sync_conn.execute(text("ALTER TABLE files ADD COLUMN IF NOT EXISTS result_id VARCHAR(36)"))
                     except Exception:
                         pass
             await conn.run_sync(_add_file_owner_visibility)
