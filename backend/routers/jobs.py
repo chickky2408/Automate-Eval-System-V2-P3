@@ -211,12 +211,13 @@ async def _start_job_internal(job_id: str):
                 },
             )
 
-    # pending_job_dispatcher (started unconditionally in main.py's lifespan) picks up
-    # any target with JobORM.state=="pending" and dispatches it to real hardware via
-    # job_queue_service._execute_target(), independent of job_queue_service._running.
-    # So Run always enqueues to pending here; it never falls back to the in-memory
-    # _simulate_job() mock (kept below, unreachable from this endpoint, for future
-    # no-hardware dev use).
+    # pending_job_dispatcher (started unconditionally in main.py's lifespan) is the
+    # only dispatcher (PROJECT.md B4.1 removed the legacy JobQueueService._process_queue
+    # loop and its POST /jobs/start, which raced this one with unshared locks). It
+    # picks up any target with JobORM.state=="pending" and dispatches it to real
+    # hardware via job_queue_service._execute_target(). So Run always enqueues to
+    # pending here; it never falls back to the in-memory _simulate_job() mock (kept
+    # below, unreachable from this endpoint, for future no-hardware dev use).
     from db.database import async_session
     from sqlalchemy import update
     from db.orm_models import JobORM, JobTargetORM, ResultORM
@@ -256,8 +257,6 @@ async def _start_job_internal(job_id: str):
 
 
 async def _autostart_next_pending():
-    if job_queue_service._running:
-        return False
     jobs = await job_queue_service.get_all_jobs()
     if any(_map_job_state(j.status.state) == "running" for j in jobs):
         return False
@@ -992,20 +991,6 @@ async def run_command(payload: RunCommandPayload):
         default_file_name=vcd_filename,
     )
     return await _build_fe_job(job)
-
-
-@router.post("/start")
-async def start_queue():
-    """Start processing the job queue."""
-    await job_queue_service.start()
-    return {"message": "Queue processing started"}
-
-
-@router.post("/stop")
-async def stop_queue():
-    """Stop processing the job queue."""
-    await job_queue_service.stop()
-    return {"message": "Queue processing stopped"}
 
 
 @router.get("/status/summary")

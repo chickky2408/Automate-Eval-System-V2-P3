@@ -461,48 +461,6 @@ class JobQueueService:
                 )
             await session.commit()
 
-    async def start(self):
-        """Start queue processing."""
-        if self._running:
-            return
-        self._running = True
-        self._current_task = asyncio.create_task(self._process_queue())
-        print("[JobQueue] Started processing loop")
-
-    async def stop(self):
-        """Stop queue processing."""
-        self._running = False
-        if self._current_task:
-            self._current_task.cancel()
-            self._current_task = None
-        print("[JobQueue] Stopped processing loop")
-
-    async def _process_queue(self):
-        """Main queue loop processing pending job targets."""
-        while self._running:
-            try:
-                async with async_session() as session:
-                    # 1. Fetch next pending job target
-                    q = (
-                        select(JobTargetORM)
-                        .where(JobTargetORM.status == "pending")
-                        .join(JobORM, JobORM.id == JobTargetORM.job_id)
-                        .where(JobORM.state == "pending")
-                        .order_by(JobORM.priority.desc(), JobORM.created_at.asc())
-                        .limit(1)
-                    )
-                    res = await session.execute(q)
-                    target = res.scalar_one_or_none()
-                    
-                    if target:
-                        # 2. Lock board and execute target
-                        await self._execute_target(target.id)
-                    else:
-                        await asyncio.sleep(1)
-            except Exception as e:
-                print(f"[JobQueue] Loop Error: {e}")
-                await asyncio.sleep(1)
-
     async def _execute_target(self, target_id: str):
         """Assign board and run all test items (ResultORM queue) for a job target."""
         async with async_session() as session:
