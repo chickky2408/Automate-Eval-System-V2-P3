@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Header, Depends
-from fastapi.responses import Response
+from fastapi.responses import FileResponse
 from typing import Optional, Set
 from datetime import datetime
+import os
 from pydantic import BaseModel
 from services.file_store import file_store
 from utils.file_type_utils import classify_file_type_from_filename
@@ -20,6 +21,32 @@ router = APIRouter()
 ACTIVE_JOB_STATES = {JobState.PENDING, JobState.CONFIGURING, JobState.FLASHING, JobState.RUNNING}
 ALLOWED_UPLOAD_EXTENSIONS = {"ist", "erom", "ulp"}
 LIBRARY_VISIBLE_FILE_TYPES = {"VCD", "EROM", "ULP"}
+
+# PROJECT.md B1.10: there was no server-side upload size cap at all -- the 50 MB
+# limit the frontend enforces (SetupPage.jsx) is a client-side courtesy check
+# only, trivially bypassed by any direct API call. Mirrors the frontend's limit.
+MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024
+_UPLOAD_READ_CHUNK_BYTES = 1024 * 1024
+
+
+async def _read_upload_with_size_cap(file: UploadFile, max_bytes: int) -> bytes:
+    """Read an UploadFile in bounded chunks, aborting with 413 as soon as
+    max_bytes is exceeded -- instead of `await file.read()`, which buffers the
+    entire body into memory before any size check can happen at all."""
+    chunks = []
+    total = 0
+    while True:
+        chunk = await file.read(_UPLOAD_READ_CHUNK_BYTES)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File exceeds the maximum upload size of {max_bytes // (1024 * 1024)} MB.",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 async def _file_names_in_use_by_active_jobs() -> Set[str]:
@@ -91,13 +118,29 @@ async def check_file(payload: FileCheckPayload):
 
 @router.get("/{file_id}/content")
 async def get_file_content(file_id: str):
-    """Return raw file content (for copying to set storage or download)."""
-    content = await file_store.get_file_content(file_id)
-    if content is None:
-        raise HTTPException(status_code=404, detail="File not found")
+    """Return raw file content (for copying to set storage or download).
+
+    PROJECT.md B1.10: previously `file_store.get_file_content()` read the whole
+    file into memory before returning it as an in-memory `Response`, and no
+    integrity signal was exposed at all -- asymmetric with the upload path,
+    which hashes every part. The board agent's `download_asset()` has no way
+    to verify what it downloaded before flashing it. `FileResponse` streams
+    from disk instead of buffering, and `X-Content-SHA256` (when the row has
+    one -- some legacy rows don't, see B1.7) lets any caller, agent included,
+    verify the bytes it received.
+    """
     record = await file_store.get_file(file_id)
-    name = record.get("name", "file") if record else "file"
-    return Response(content=content, media_type="application/octet-stream", headers={"Content-Disposition": f"inline; filename={name}"})
+    if not record or not record.get("path"):
+        raise HTTPException(status_code=404, detail="File not found")
+    resolved_path = file_store.resolve_path(record["path"])
+    if not os.path.exists(resolved_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    name = record.get("name", "file")
+    headers = {"Content-Disposition": f"inline; filename={name}"}
+    checksum = record.get("checksum")
+    if checksum:
+        headers["X-Content-SHA256"] = checksum
+    return FileResponse(resolved_path, media_type="application/octet-stream", headers=headers)
 
 @router.post("/upload")
 async def upload_file(
@@ -111,7 +154,7 @@ async def upload_file(
     """Upload file. If force_new is 'true', save a new copy even when content (checksum) already exists.
     owner_id: client_id or profile_id of uploader. owner_display_name: profile display name snapshot for Owner column.
     visibility: 'private' | 'team' | 'public'."""
-    content = await file.read()
+    content = await _read_upload_with_size_cap(file, MAX_UPLOAD_SIZE_BYTES)
     filename = file.filename or "upload.bin"
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext not in ALLOWED_UPLOAD_EXTENSIONS:
@@ -316,14 +359,19 @@ async def delete_file(
         raise HTTPException(status_code=404, detail="File not found")
     owner_id = (record.get("ownerId") or "").strip()
     if owner_id:
+        # PROJECT.md B1.10: was `if actor_profile or actor_client: if owner_id
+        # != both: deny` -- omitting BOTH headers skipped the check entirely
+        # and let anyone delete an owned file. Deny-by-default: a file with an
+        # owner requires the caller to identify as that owner via one of the
+        # two headers; empty/missing headers never match a real owner_id, so
+        # this denies exactly the case that used to slip through.
         actor_profile = (x_acting_profile_id or "").strip()
         actor_client = (x_acting_client_id or "").strip()
-        if actor_profile or actor_client:
-            if owner_id != actor_profile and owner_id != actor_client:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Cannot delete a file owned by another profile.",
-                )
+        if owner_id != actor_profile and owner_id != actor_client:
+            raise HTTPException(
+                status_code=403,
+                detail="Cannot delete a file owned by another profile.",
+            )
     in_use = await _file_names_in_use_by_active_jobs()
     if record.get("name") and record["name"] in in_use:
         raise HTTPException(
