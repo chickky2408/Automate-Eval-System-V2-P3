@@ -24,14 +24,13 @@ from services.file_store import file_store
 # Both NO_TEST_CASE and NO_GOLDEN_VCD_ASSIGNED need a real backing row whose id
 # is the empty string, since results.test_case_id and test_cases.vcd_file_id
 # are FK'd and PRAGMA foreign_keys=ON (B1.9) requires a matching row even for
-# an empty-string value. This is inserted in its OWN transaction, with no
-# preceding SELECT on that connection -- empirically, issuing a plain SELECT
-# before an INSERT within the same transaction defeats PRAGMA
-# defer_foreign_keys=ON's deferral for this specific empty-string-PK case (the
-# per-statement FK check fires immediately instead of waiting for commit, even
-# though the pragma reads back as still enabled). That is a separate,
-# deeper gap in B1.9 worth its own investigation; sidestepped here by never
-# mixing a read and a write of this row in one transaction.
+# an empty-string value. Inserted in its own transaction, separate from each
+# test's writes -- this is also what surfaced the before_flush gap fixed in
+# db/database.py (see test_defer_foreign_keys_survives_select.py): a plain
+# SELECT before a multi-branch INSERT in the same transaction used to defeat
+# PRAGMA defer_foreign_keys=ON's deferral. That is fixed at the DB layer now;
+# this two-transaction split is kept anyway since it also solves the
+# unrelated problem of two tests both wanting a row with the same PK ("").
 _PLACEHOLDER_ID = ""
 
 

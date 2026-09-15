@@ -103,6 +103,29 @@ if "sqlite" in DATABASE_URL:
     def _defer_sqlite_foreign_keys(conn):
         conn.exec_driver_sql("PRAGMA defer_foreign_keys=ON")
 
+    # PROJECT.md B1.9 follow-up (found while working on B5.3): the "begin"
+    # listener above is NOT sufficient by itself. Per SQLite docs,
+    # `defer_foreign_keys` reverts to OFF at the conclusion of every commit --
+    # including an *implicit* one. pysqlite's default `isolation_level=""`
+    # does not issue a real `BEGIN` for a plain SELECT, so a read-only query
+    # issued earlier in the same ORM-level transaction (autoflush or an
+    # explicit `session.execute(select(...))`) can run in autocommit mode and
+    # silently clear the pragma before the multi-branch INSERT batch it exists
+    # to protect ever runs. Verified empirically: a Job+JobTarget+File+
+    # TestCase+Result commit that succeeds with no preceding SELECT fails with
+    # "FOREIGN KEY constraint failed" (with every referenced row valid) when a
+    # single unrelated SELECT runs first in the same session -- and re-issuing
+    # this pragma between that SELECT and the writes fixes it. `before_flush`
+    # fires immediately before the flush's INSERT/UPDATE/DELETE statements, so
+    # re-asserting it there closes the gap regardless of what ran earlier.
+    from sqlalchemy.orm import Session as _SyncSession
+
+    @event.listens_for(_SyncSession, "before_flush")
+    def _redefer_sqlite_foreign_keys_before_flush(session, flush_context, instances):
+        bind = session.get_bind()
+        if bind is not None and "sqlite" in str(bind.url):
+            session.connection().exec_driver_sql("PRAGMA defer_foreign_keys=ON")
+
 
 class Base(DeclarativeBase):
     """Base class for all ORM models."""
