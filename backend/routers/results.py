@@ -79,7 +79,12 @@ async def preview_result_waveform(result_id: str, max_samples: int = Query(2000,
 async def export_result_file(result_id: str, format: str = Query("h5")):
     """Export stored waveform result as canonical HDF5, VCD, LZ4 compressed binary, or generated CSV."""
     export_format = (format or "h5").strip().lower()
-    if export_format not in {"h5", "csv", "vcd", "lz4", "bin"}:
+    # PROJECT.md B5.6: "bin" was accepted but the raw capture .bin is purged
+    # right after ingest (only LZ4 + VCD + HDF5 are kept) -- format=bin either
+    # silently returned the LZ4 file mislabeled with a .bin filename (via the
+    # lz4-candidate fallback below) or 404'd. LZ4 is the real raw-capture
+    # download; "bin" never was.
+    if export_format not in {"h5", "csv", "vcd", "lz4"}:
         raise HTTPException(status_code=400, detail=f"Unsupported export format: {format}")
 
     path = await result_store.get_waveform_path(result_id)
@@ -114,7 +119,7 @@ async def export_result_file(result_id: str, format: str = Query("h5")):
                 )
         raise HTTPException(status_code=404, detail="VCD waveform file not found on disk for this result")
 
-    if export_format in {"lz4", "bin"}:
+    if export_format == "lz4":
         base_dir = os.path.dirname(path)
         base_name = os.path.splitext(os.path.basename(path))[0]
         candidate_lz4_names = [
@@ -132,14 +137,6 @@ async def export_result_file(result_id: str, format: str = Query("h5")):
                     path=c_path,
                     media_type="application/x-lz4",
                     filename=f"result_{result_id}_capture.bin.lz4",
-                )
-        if export_format == "bin":
-            bin_path = os.path.splitext(path)[0] + ".bin"
-            if os.path.exists(bin_path):
-                return FileResponse(
-                    path=bin_path,
-                    media_type="application/octet-stream",
-                    filename=f"result_{result_id}.bin",
                 )
         raise HTTPException(status_code=404, detail="LZ4 capture binary file not found on disk for this result")
 
