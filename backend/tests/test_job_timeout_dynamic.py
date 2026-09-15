@@ -10,6 +10,7 @@ import os
 os.environ["USE_SQLITE_DEMO"] = "1"
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from db.database import init_db, async_session
@@ -41,6 +42,24 @@ async def test_job_created_with_explicit_timeout_is_respected():
     async with async_session() as session:
         orm = (await session.execute(select(JobORM).where(JobORM.id == job.id))).scalar_one()
     assert orm.timeout_seconds == 300
+
+
+@pytest.mark.asyncio
+async def test_run_command_endpoint_does_not_hardcode_timeout():
+    """POST /jobs/run-command (live, called from frontend useTestStore.js's
+    runCommand()) hardcoded timeout_seconds=60 independently of the main
+    create-job path fixed in B1.5 -- same bug, different endpoint."""
+    await init_db()
+    from main import app
+    client = TestClient(app)
+
+    resp = client.post("/api/jobs/run-command", json={"command": "echo hi"})
+    assert resp.status_code == 200
+    job_id = resp.json()["id"]
+
+    async with async_session() as session:
+        orm = (await session.execute(select(JobORM).where(JobORM.id == job_id))).scalar_one()
+    assert orm.timeout_seconds is None
 
 
 if __name__ == "__main__":

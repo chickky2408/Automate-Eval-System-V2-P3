@@ -906,7 +906,11 @@ async def upload_files(
     name: str = Form(...),
     target_board_id: Optional[str] = Form(None),
     priority: int = Form(0),
-    timeout_seconds: int = Form(60),
+    # PROJECT.md B1.5/B4.2: 60 here would re-hardcode the same cap B1.5 removed
+    # from the main create path, defeating job_queue.py's size-based dynamic
+    # timeout. This endpoint is unreachable from the frontend (dead route) but
+    # keep it consistent so a future caller doesn't reintroduce the bug.
+    timeout_seconds: Optional[int] = Form(None),
 ):
     """Upload VCD/firmware files and create a job."""
     vcd_filename = f"{uuid.uuid4()}_{vcd_file.filename}"
@@ -974,7 +978,10 @@ async def run_command(payload: RunCommandPayload):
         firmware_filename=payload.firmware,
         target_board_id=None,
         priority=0,
-        timeout_seconds=60,
+        # PROJECT.md B1.5: was hardcoded 60 here too -- this path (POST
+        # /jobs/run-command) is live from useTestStore.js's runCommand(), so it
+        # had the same 60s hardware-run cap the main create path was fixed for.
+        timeout_seconds=None,
         client_id=payload.clientId,
         profile_id=payload.profileId,
         profile_display_name=(payload.profileDisplayName or "").strip() or None,
