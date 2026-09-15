@@ -394,7 +394,9 @@ class BoardManager:
         """
         Background watchdog: mark boards offline if no heartbeat within timeout.
 
-        Called periodically (every 30 s) from main.py lifespan.
+        Called periodically (every WATCHDOG_SWEEP_INTERVAL_SECONDS -- 15 s,
+        see services/liveness.py) from main.py lifespan. Docstring previously
+        said 30 s, which was never the real value (PROJECT.md B7 doc drift).
         Only flips boards that are currently 'online' or 'busy' — avoids
         repeatedly touching boards already marked 'offline' or 'error'.
 
