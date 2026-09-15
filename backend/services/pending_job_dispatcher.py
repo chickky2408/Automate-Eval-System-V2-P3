@@ -34,6 +34,7 @@ from sqlalchemy import select, and_
 
 from db.database import async_session
 from db.orm_models import JobORM, JobTargetORM, BoardStatusORM
+from services.liveness import DISPATCH_FRESH_CUTOFF_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -123,8 +124,9 @@ class PendingJobDispatcher:
             board_rows = board_result.scalars().all()
 
         now = datetime.utcnow()
-        # Cutoff: พิจารณาว่า online ต่อเมื่อมี heartbeat ภายใน 35 วินาทีล่าสุด
-        heartbeat_cutoff = now - timedelta(seconds=35)
+        # Cutoff: พิจารณาว่า online ต่อเมื่อมี heartbeat ภายใน DISPATCH_FRESH_CUTOFF_SECONDS
+        # วินาทีล่าสุด (PROJECT.md B4.5: derived from services.liveness, was a bare 35).
+        heartbeat_cutoff = now - timedelta(seconds=DISPATCH_FRESH_CUTOFF_SECONDS)
 
         # index: board_id → (state, is_fresh)
         board_info: dict[str, tuple[str, bool]] = {}

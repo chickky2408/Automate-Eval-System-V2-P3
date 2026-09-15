@@ -51,8 +51,18 @@ def _print_startup_browser_urls() -> None:
 
 import asyncio
 
-HEARTBEAT_TIMEOUT_SEC = 30   # Board considered offline after this many seconds of silence
-WATCHDOG_INTERVAL_SEC = 15   # How often we sweep for stale boards
+from services.liveness import (
+    OFFLINE_TIMEOUT_SECONDS,
+    WATCHDOG_SWEEP_INTERVAL_SECONDS,
+    STUCK_BUSY_EVICTION_SECONDS,
+    STALE_UPLOAD_SESSION_GC_SECONDS,
+)
+
+# PROJECT.md B4.5: these used to be independent magic numbers here. Now
+# derived from services.liveness's single HEARTBEAT_INTERVAL_SECONDS -- see
+# that module's docstring for why the ratios are what they are.
+HEARTBEAT_TIMEOUT_SEC = OFFLINE_TIMEOUT_SECONDS   # Board considered offline after this many seconds of silence
+WATCHDOG_INTERVAL_SEC = WATCHDOG_SWEEP_INTERVAL_SECONDS   # How often we sweep for stale boards
 
 
 async def _board_watchdog_loop() -> None:
@@ -67,12 +77,12 @@ async def _board_watchdog_loop() -> None:
                 print(f"[watchdog] Marked {flipped} board(s) offline")
 
             # Evict boards stuck in busy state > 15 minutes
-            evicted = await board_manager.evict_stale_busy_boards(max_busy_seconds=900)
+            evicted = await board_manager.evict_stale_busy_boards(max_busy_seconds=STUCK_BUSY_EVICTION_SECONDS)
             if evicted:
                 print(f"[watchdog] Evicted {evicted} stuck busy board(s)")
 
             # Clean up stale upload sessions idle for >10 mins
-            await agent_results.cleanup_stale_upload_sessions(max_idle_seconds=600)
+            await agent_results.cleanup_stale_upload_sessions(max_idle_seconds=STALE_UPLOAD_SESSION_GC_SECONDS)
         except Exception:
             logger.exception("board watchdog error")
         await asyncio.sleep(WATCHDOG_INTERVAL_SEC)

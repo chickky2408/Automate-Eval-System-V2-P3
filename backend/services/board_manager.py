@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models.board import BoardInfo, BoardStatus, BoardState
 from db.database import async_session
 from db.orm_models import BoardORM, BoardStatusORM, BoardTelemetryLogORM, JobTargetORM, ResultORM, JobORM
+from services.liveness import REBOOT_COOLDOWN_SECONDS, EVICT_BUSY_ONLINE_RECHECK_SECONDS
 
 class BoardManager:
     """Manages the fleet of Zybo boards."""
@@ -217,9 +218,9 @@ class BoardManager:
     ) -> bool:
         """Process heartbeat from board."""
         import time
-        # If the board was recently requested to reboot, ignore heartbeats for 35 seconds
+        # PROJECT.md B4.5: was a bare 35, now derived from services.liveness.
         reboot_time = self._rebooting_boards.get(board_id)
-        if reboot_time and (time.time() - reboot_time < 35):
+        if reboot_time and (time.time() - reboot_time < REBOOT_COOLDOWN_SECONDS):
             # Return True so the agent thinks it succeeded, but do not update status back to online in DB
             return True
             
@@ -516,7 +517,8 @@ class BoardManager:
 
                 if board_id:
                     st_row = (await session.execute(select(BoardStatusORM).where(BoardStatusORM.board_id == board_id))).scalar_one_or_none()
-                    is_online = bool(st_row and st_row.last_heartbeat and (now - st_row.last_heartbeat).total_seconds() < 45)
+                    # PROJECT.md B4.5: was a bare 45, now derived from services.liveness.
+                    is_online = bool(st_row and st_row.last_heartbeat and (now - st_row.last_heartbeat).total_seconds() < EVICT_BUSY_ONLINE_RECHECK_SECONDS)
                     target_state = BoardState.ONLINE.value if is_online else BoardState.OFFLINE.value
 
                     await session.execute(
