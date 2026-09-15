@@ -7,13 +7,19 @@ os.environ.setdefault("USE_SQLITE_DEMO", "1")
 from sqlalchemy import delete as sa_delete
 
 from db.database import async_session, init_db
-from db.orm_models import FileORM, FileType, TestCaseORM, DeletionCandidateORM
+from db.orm_models import FileORM, FileType, TestCaseORM, DeletionCandidateORM, ResultORM
 from services.file_store import file_store
 from services.test_case_store import test_case_store
 
 
 async def _clean():
     async with async_session() as s:
+        # PROJECT.md B1.2/B1.9: results.test_case_id is now ondelete="RESTRICT"
+        # and SQLite actually enforces it (PRAGMA foreign_keys=ON). All test files
+        # in this suite share one SQLite file per run, so a leftover ResultORM row
+        # from a *different* test module can block this DELETE FROM test_cases --
+        # purge results first.
+        await s.execute(sa_delete(ResultORM))
         await s.execute(sa_delete(DeletionCandidateORM))
         await s.execute(sa_delete(TestCaseORM))
         await s.execute(sa_delete(FileORM))

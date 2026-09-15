@@ -55,8 +55,21 @@ class TestWaveformVerificationPipeline(unittest.IsolatedAsyncioTestCase):
         async with async_session() as db:
             job = JobORM(id=job_id, name="TestJob")
             tgt = JobTargetORM(id=target_id, job_id=job_id)
-            # Test case with non-existent or dummy vcd_file_id
-            tc = TestCaseORM(id=tc_id, name="TestCaseWithoutGolden", vcd_file_id="non-existent-file-id")
+            # PROJECT.md B1.9: PRAGMA foreign_keys=ON now enforces
+            # test_cases.vcd_file_id -> files.id, so a literally dangling id
+            # ("non-existent-file-id") can no longer be inserted -- which is the
+            # point of B1.9. The equivalent, still-reachable-in-production case for
+            # exercising the SKIPPED path is a real files row whose file went
+            # missing on disk (deleted/moved after being registered).
+            missing_file_id = f"file-missing-{uuid.uuid4().hex[:8]}"
+            golden_file = FileORM(
+                id=missing_file_id,
+                filename="golden_removed.vcd",
+                file_type=FileType.VCD,
+                storage_path=f"uploads/VCD/2026/09/{missing_file_id}_golden_removed.vcd",
+                size_bytes=1,
+            )
+            tc = TestCaseORM(id=tc_id, name="TestCaseWithoutGolden", vcd_file_id=missing_file_id)
             res = ResultORM(
                 id=result_id,
                 job_id=job_id,
@@ -65,7 +78,7 @@ class TestWaveformVerificationPipeline(unittest.IsolatedAsyncioTestCase):
                 status="completed",
                 verification_status="PENDING"
             )
-            db.add_all([job, tgt, tc, res])
+            db.add_all([job, tgt, golden_file, tc, res])
             await db.commit()
 
         # Run verification

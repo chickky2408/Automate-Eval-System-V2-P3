@@ -5,7 +5,7 @@ import pytest
 from datetime import datetime, timedelta
 
 from db.database import init_db, async_session
-from db.orm_models import JobORM, JobTargetORM, TestCaseORM, ResultORM, FileORM, FileType
+from db.orm_models import JobORM, JobTargetORM, TestCaseORM, ResultORM, FileORM, FileType, BoardORM
 from services.job_queue import job_queue_service
 from services.file_store import file_store
 
@@ -58,7 +58,11 @@ async def test_stimulus_file_collision_prefers_real_disk_file():
         # Add Job and JobTarget
         job = JobORM(id=job_id, name="Collision Test Job", state="pending")
         session.add(job)
-        target = JobTargetORM(id=target_id, job_id=job_id, requested_board_id="kr260-test", status="pending")
+        # PROJECT.md B1.9: PRAGMA foreign_keys=ON now enforces
+        # job_targets.requested_board_id -> boards.id.
+        board_id = f"kr260-test-{uuid.uuid4().hex[:6]}"
+        session.add(BoardORM(id=board_id, name="KR260 Test Board"))
+        target = JobTargetORM(id=target_id, job_id=job_id, requested_board_id=board_id, status="pending")
         session.add(target)
         await session.commit()
 
@@ -108,7 +112,9 @@ async def test_stimulus_file_explicit_id_priority():
         ))
         job = JobORM(id=job_id, name="Explicit Test Job", state="pending")
         session.add(job)
-        target = JobTargetORM(id=target_id, job_id=job_id, requested_board_id="kr260-test", status="pending")
+        board_id = f"kr260-test-{uuid.uuid4().hex[:6]}"
+        session.add(BoardORM(id=board_id, name="KR260 Test Board"))
+        target = JobTargetORM(id=target_id, job_id=job_id, requested_board_id=board_id, status="pending")
         session.add(target)
         await session.commit()
 

@@ -8,10 +8,11 @@ matching the values in ``.env.example`` and ``docker-compose*.yml``.
 For quick offline/demo runs (no Postgres service required) you can opt in to
 the SQLite fallback by setting the environment variable ``USE_SQLITE_DEMO=1``.
 """
-from sqlalchemy import text
+from sqlalchemy import text, event
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 import os
+import traceback
 
 try:
     # Auto-load .env when present (for local `pipenv run uvicorn ...` dev);
@@ -58,6 +59,49 @@ async_session = async_sessionmaker(
     class_=AsyncSession,
     expire_on_commit=False,
 )
+
+# PROJECT.md B1.9: SQLite does not enforce foreign keys by default -- every
+# ON DELETE CASCADE / SET NULL / RESTRICT declared on the ORM models (including
+# the RESTRICT added on results.test_case_id for B1.2) was previously a no-op
+# under USE_SQLITE_DEMO=1. `PRAGMA foreign_keys` is a per-connection setting in
+# SQLite, so it must be set on every new DBAPI connection, not once at startup.
+#
+# `defer_foreign_keys=ON` is also required, and is NOT just a nicety: none of
+# these ORM models declare `relationship()` (grep confirms zero uses in
+# db/orm_models.py) -- only raw Column(ForeignKey(...)). Without relationship()
+# metadata, SQLAlchemy's flush-order dependency sort cannot reliably compute a
+# fully-correct topological INSERT order across a multi-branch object graph
+# (verified empirically: committing Job+JobTarget+File+TestCase+Result together
+# in one session, with SQLite FK enforcement on, fails with "FOREIGN KEY
+# constraint failed" on the results insert even though every referenced row IS
+# present and `PRAGMA foreign_key_check` afterwards finds zero violations --
+# it's a statement-ordering problem, not a data problem). `defer_foreign_keys`
+# moves the check from "per-statement" to "per-transaction commit", which
+# tolerates any statement order as long as the transaction is internally
+# consistent by COMMIT time -- exactly what an ORM flush without
+# relationship()-derived ordering produces. Per SQLite docs this value does NOT
+# persist across transactions, so it must be re-applied on every transaction
+# start, not just once per connection.
+#
+# UNVERIFIED ON POSTGRES: Postgres has no equivalent pragma (FK constraints
+# there are checked per-statement unless declared DEFERRABLE, which these
+# models are not), so if SQLAlchemy's computed insert order for this same
+# five-object graph is ALSO wrong under the postgresql+asyncpg dialect, this
+# exact failure could occur in production with no fix applied yet -- this
+# workaround is deliberately scoped to `if "sqlite" in DATABASE_URL` only, and
+# was never tested against a live Postgres (no docker daemon was available
+# while writing it). See tests/test_postgres_flush_order.py -- run it against
+# the project's docker-compose Postgres before relying on this in production.
+if "sqlite" in DATABASE_URL:
+    @event.listens_for(engine.sync_engine, "connect")
+    def _enable_sqlite_foreign_keys(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+    @event.listens_for(engine.sync_engine, "begin")
+    def _defer_sqlite_foreign_keys(conn):
+        conn.exec_driver_sql("PRAGMA defer_foreign_keys=ON")
 
 
 class Base(DeclarativeBase):
@@ -439,9 +483,18 @@ async def init_db():
                     )
             await conn.run_sync(_create_backfill_board_status)
 
-        # Migration: add owner_id / visibility / owner_display_name to test_cases + test_sets.
+        # Migration: add owner_id / visibility / owner_display_name to test_cases.
         # Mirrors the shape of files.owner_id so Library filters can be served from
         # normalized tables instead of walking profiles.data JSON.
+        #
+        # NOTE (PROJECT.md B1.4): there is no physical `test_sets` table -- "test sets"
+        # are an alias over `run_sets` (services/test_case_store.py). This migration
+        # used to also target `test_sets`, and on SQLite `PRAGMA table_info()` against a
+        # nonexistent table returns an empty result rather than erroring, so the "column
+        # not present" check passed and the following `ALTER TABLE test_sets ADD COLUMN`
+        # raised `OperationalError: no such table`. That exception unwound to init_db()'s
+        # outer try/except and was swallowed as "[DB] Connection failed", silently
+        # abandoning every migration block below this one on every single startup.
         async with engine.begin() as conn:
             def _add_tc_set_owner_visibility(sync_conn):
                 is_sqlite = "sqlite" in DATABASE_URL
@@ -449,9 +502,6 @@ async def init_db():
                     ("test_cases", "owner_id", "VARCHAR(128)", "VARCHAR(128)"),
                     ("test_cases", "owner_display_name", "VARCHAR(255)", "VARCHAR(255)"),
                     ("test_cases", "visibility", "VARCHAR(32)", "VARCHAR(32)"),
-                    ("test_sets", "owner_id", "VARCHAR(128)", "VARCHAR(128)"),
-                    ("test_sets", "owner_display_name", "VARCHAR(255)", "VARCHAR(255)"),
-                    ("test_sets", "visibility", "VARCHAR(32)", "VARCHAR(32)"),
                 ]
                 if is_sqlite:
                     existing = {}
@@ -589,8 +639,16 @@ async def init_db():
             print(f"[DB] Seeded {inserted} default board(s) for local demo")
 
         print(f"[DB] Database ready at {DATABASE_URL}")
-    except Exception as e:
-        print(f"[DB] Connection failed: {e}")
+    except Exception:
+        # PROJECT.md B1.4: this used to be `print(f"[DB] Connection failed: {e}")`,
+        # which swallowed the exception -- any migration failure (e.g. an ALTER TABLE
+        # against a table that doesn't exist) silently abandoned every migration block
+        # below it, on every startup, with no visible error. Fail loud instead: log the
+        # full traceback and re-raise so app startup actually fails when a migration
+        # can't complete, rather than serving traffic against a half-migrated schema.
+        print("[DB] init_db() failed -- startup aborted. Full traceback:")
+        traceback.print_exc()
+        raise
 
 
 async def get_session() -> AsyncSession:

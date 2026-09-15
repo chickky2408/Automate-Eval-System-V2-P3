@@ -14,7 +14,7 @@ from sqlalchemy import select
 
 from main import app
 from db.database import init_db, async_session
-from db.orm_models import JobORM, JobTargetORM, TestCaseORM, ResultORM, FileORM, FileType
+from db.orm_models import JobORM, JobTargetORM, TestCaseORM, ResultORM, FileORM, FileType, BoardORM
 
 
 @pytest.mark.asyncio
@@ -28,12 +28,18 @@ async def test_post_measurements_ingests_console_log():
     board_id = "test-kr260-board"
 
     # Seed DB with Job, Target, TestCase, Result
+    # PROJECT.md B1.9: PRAGMA foreign_keys=ON now enforces job_targets.*_board_id
+    # -> boards.id and test_cases.vcd_file_id -> files.id; both need a real row.
     async with async_session() as session:
+        session.add(BoardORM(id=board_id, name="Test KR260 Board"))
+        dummy_vcd_id = str(uuid.uuid4())
+        session.add(FileORM(id=dummy_vcd_id, filename="dummy.vcd", file_type=FileType.VCD,
+                             storage_path="uploads/VCD/dummy.vcd", size_bytes=1))
         job = JobORM(id=job_id, name="Log Test Job", state="running")
         session.add(job)
         target = JobTargetORM(id=target_id, job_id=job_id, requested_board_id=board_id, actual_board_id=board_id, status="running")
         session.add(target)
-        tc = TestCaseORM(id=tc_id, name="Test Case 1", vcd_file_id="dummy-vcd")
+        tc = TestCaseORM(id=tc_id, name="Test Case 1", vcd_file_id=dummy_vcd_id)
         session.add(tc)
         res = ResultORM(
             id=res_id,

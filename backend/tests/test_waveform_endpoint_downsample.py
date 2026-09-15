@@ -8,7 +8,7 @@ from httpx import ASGITransport, AsyncClient
 
 from main import app
 from db.database import init_db, async_session
-from db.orm_models import JobORM, JobTargetORM, TestCaseORM, ResultORM, FileORM, FileType
+from db.orm_models import JobORM, JobTargetORM, TestCaseORM, ResultORM, FileORM, FileType, BoardORM
 from services.result_store import result_store
 from services.file_store import file_store
 
@@ -46,9 +46,18 @@ async def test_waveform_reading_and_downsampling():
     async with async_session() as session:
         job = JobORM(id=job_id, name="Downsample Test Job", state="completed")
         session.add(job)
-        target = JobTargetORM(id=target_id, job_id=job_id, requested_board_id="kr260-test", status="completed")
+        # PROJECT.md B1.9: PRAGMA foreign_keys=ON now enforces
+        # job_targets.requested_board_id -> boards.id ("kr260-test" was a bare
+        # placeholder string with no backing row).
+        board_id = f"kr260-test-{uuid.uuid4().hex[:6]}"
+        session.add(BoardORM(id=board_id, name="KR260 Test Board"))
+        target = JobTargetORM(id=target_id, job_id=job_id, requested_board_id=board_id, status="completed")
         session.add(target)
-        tc = TestCaseORM(id=tc_id, name="Downsample TC", vcd_file_id="dummy")
+        # PROJECT.md B1.9: PRAGMA foreign_keys=ON now enforces
+        # test_cases.vcd_file_id -> files.id.
+        dummy_vcd_id = str(uuid.uuid4())
+        session.add(FileORM(id=dummy_vcd_id, filename="dummy.vcd", file_type=FileType.VCD, storage_path="uploads/VCD/dummy.vcd", size_bytes=1))
+        tc = TestCaseORM(id=tc_id, name="Downsample TC", vcd_file_id=dummy_vcd_id)
         session.add(tc)
         res = ResultORM(
             id=res_id,

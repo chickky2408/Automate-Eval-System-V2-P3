@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 
 from db.database import init_db, async_session
-from db.orm_models import JobORM, JobTargetORM, ResultORM, BoardORM, BoardStatusORM, TestCaseORM
+from db.orm_models import JobORM, JobTargetORM, ResultORM, BoardORM, BoardStatusORM, TestCaseORM, FileORM
 from services.board_manager import board_manager
 from services.job_queue import job_queue_service
 
@@ -50,7 +50,11 @@ async def test_mark_stale_boards_offline_fails_running_targets():
             actual_board_id=board_id,
             status="running"
         ))
-        session.add(TestCaseORM(id=tc_id, name="TC Stale", vcd_file_id="dummy"))
+        # PROJECT.md B1.9: PRAGMA foreign_keys=ON now enforces test_cases.vcd_file_id
+        # -> files.id, so the placeholder must be a real files row.
+        vcd_file_id = str(uuid.uuid4())
+        session.add(FileORM(id=vcd_file_id, filename="dummy.vcd", file_type="VCD", storage_path="uploads/VCD/dummy.vcd", size_bytes=1))
+        session.add(TestCaseORM(id=tc_id, name="TC Stale", vcd_file_id=vcd_file_id))
         session.add(ResultORM(
             id=res_id,
             job_id=job_id,
@@ -117,7 +121,9 @@ async def test_startup_reconciliation_cleans_interrupted_jobs():
             actual_board_id=board_id,
             status="running"
         ))
-        session.add(TestCaseORM(id=tc_id, name="TC Reconcile", vcd_file_id="dummy"))
+        vcd_file_id = str(uuid.uuid4())
+        session.add(FileORM(id=vcd_file_id, filename="dummy.vcd", file_type="VCD", storage_path="uploads/VCD/dummy.vcd", size_bytes=1))
+        session.add(TestCaseORM(id=tc_id, name="TC Reconcile", vcd_file_id=vcd_file_id))
         session.add(ResultORM(
             id=res_id,
             job_id=job_id,
