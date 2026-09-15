@@ -6338,8 +6338,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
             Boolean(row && (row._status === 'running' || row._status === 'pending' || isTcManuallyClosed(row)));
           const selectableTcKeys = libraryFilteredRows
             .filter((r) => !isTcSelectionDisabled(r))
-            .map((r) => r._key)
-            .filter(Boolean);
+            .map((r, idx) => r._key || `row-${idx}`);
           const hasRunningOrPendingInSelection = libraryFilteredRows.some(
             (r) => selectedSet.has(r._key) && (r._status === 'running' || r._status === 'pending'),
           );
@@ -8685,7 +8684,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
             (f) => !isFileOwnerMine(f, currentClientId, activeProfileId)
           ).length;
           const selectableFileIds = filteredFiles
-            .filter((f) => !fileNamesLockedForLibraryDelete.has(f.name) && !isFileManuallyClosed(f))
+            .filter((f) => !isFileManuallyClosed(f))
             .map((f) => f.id)
             .filter(Boolean);
           const allFilesInUse = (uploadedFiles || []).length > 0 && (uploadedFiles || []).every((f) => fileNamesLockedForLibraryDelete.has(f.name));
@@ -9396,7 +9395,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                       <thead className="sticky top-0 z-10 bg-slate-100 dark:bg-slate-900/95 border-b border-slate-200 dark:border-slate-600">
                         <tr>
                           <th colSpan={10} className="px-2 py-2 text-left bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700">
-                            <div className="flex items-center gap-2">
+                            <label className="inline-flex items-center gap-2 cursor-pointer select-none">
                               <input
                                 type="checkbox"
                                 checked={selectableFileIds.length > 0 && selectableFileIds.every((id) => selectedFileSet.has(id))}
@@ -9405,14 +9404,13 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                                   else setSelectedLibraryFileIds([]);
                                 }}
                                 className="w-4 h-4 rounded cursor-pointer"
-                                title="Select all (excluding files referenced by saved Test Cases/Sets or active jobs)"
+                                title="Select all"
                               />
                               <span className="text-xs text-slate-500 dark:text-slate-400">
                                 Select all ({filteredFiles.length})
-                                {selectableFileIds.length < filteredFiles.length ? ` — ${filteredFiles.length - selectableFileIds.length} locked (referenced)` : ''}
                                 {otherOwnerFileCount > 0 ? ` — ${otherOwnerFileCount} other owner (delete disabled for those)` : ''}
                               </span>
-                            </div>
+                            </label>
                           </th>
                         </tr>
                         <tr className="text-slate-600 dark:text-slate-300">
@@ -9819,10 +9817,10 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                     ) : filesBySet.length === 0 ? <div className="p-8 text-center text-slate-400">No saved jobs — create a job on the Test Cases page (Save job)</div> : (
                       <>
                         {filteredFiles.length > 0 && (
-                          <div className="flex items-center gap-2 pb-2">
-                            <input type="checkbox" checked={selectableFileIds.length > 0 && selectableFileIds.every((id) => selectedFileSet.has(id))} onChange={(e) => { if (e.target.checked) setSelectedLibraryFileIds([...selectableFileIds]); else setSelectedLibraryFileIds([]); }} className="w-4 h-4 rounded cursor-pointer" title="Select all (excluding in use)" />
+                          <label className="inline-flex items-center gap-2 pb-2 cursor-pointer select-none">
+                            <input type="checkbox" checked={selectableFileIds.length > 0 && selectableFileIds.every((id) => selectedFileSet.has(id))} onChange={(e) => { if (e.target.checked) setSelectedLibraryFileIds([...selectableFileIds]); else setSelectedLibraryFileIds([]); }} className="w-4 h-4 rounded cursor-pointer" title="Select all" />
                             <span className="text-xs text-slate-500">Select all ({filteredFiles.length})</span>
-                          </div>
+                          </label>
                         )}
                         {filesBySet.map(({ set: setInfo, files }, idx) => {
                           if (files.length === 0) return null;
