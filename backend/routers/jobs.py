@@ -7,7 +7,7 @@ import time
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query
 from pydantic import BaseModel
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 from datetime import datetime
 import os
 import uuid
@@ -52,6 +52,10 @@ class JobCreatePayload(BaseModel):
     profileDisplayName: Optional[str] = None  # snapshot at create/update (shown as Owner for all viewers)
     pairsData: Optional[List[dict]] = None  # เก็บ pairs data สำหรับ edit batch
     saveAsDraft: bool = False  # ถ้า True → สร้าง job ด้วย state=draft โดยไม่รันทันที
+    # PROJECT.md B4.2: priority was hardcoded 0 at creation and only settable to
+    # 10 via a query param on /{job_id}/start -- undiscoverable. Now settable at
+    # creation with the same two-level vocabulary /start already uses.
+    priority: Optional[Literal["high", "normal"]] = None
 
 
 class JobTagUpdate(BaseModel):
@@ -540,7 +544,7 @@ async def create_job(payload: JobCreatePayload):
         vcd_file_id=vcd_file_id,
         firmware_file_id=firmware_file_id,
         target_board_id=None,
-        priority=0,
+        priority=10 if payload.priority == "high" else 0,
         # PROJECT.md B1.5: was hardcoded 60, which capped every hardware run at
         # 60s (job_queue.py's size-based dynamic timeout only engages when this
         # is falsy). Omitted -> JobCreate.timeout_seconds defaults to None -> dynamic.
