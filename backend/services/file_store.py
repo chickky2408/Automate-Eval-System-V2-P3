@@ -9,6 +9,7 @@ import uuid
 import hashlib
 import aiofiles
 from sqlalchemy import select, delete, and_, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.database import async_session
@@ -268,7 +269,48 @@ class FileStore:
                 result_id=None,
             )
             session.add(orm)
-            await session.commit()
+            try:
+                await session.commit()
+            except IntegrityError:
+                # PROJECT.md B1.7: files_checksum_dedup_uq closes the race the
+                # SELECT-then-INSERT above couldn't -- two concurrent uploads of
+                # identical bytes can both pass the dedup SELECT (candidates
+                # empty) and then race the INSERT; the loser lands here instead
+                # of a raw 500. The winner's row is now visible; re-query and
+                # return it as a duplicate, and remove the file we just wrote
+                # to disk since its DB row was never committed.
+                await session.rollback()
+                try:
+                    os.remove(resolved_storage_path)
+                except OSError:
+                    pass
+                winner = (await session.execute(
+                    select(FileORM).where(
+                        and_(
+                            FileORM.checksum_sha256 == checksum,
+                            FileORM.filename == name,
+                            FileORM.size_bytes == size,
+                        )
+                    )
+                )).scalars().first()
+                if winner is None:
+                    raise
+                tags, tag_color = await self._get_tags_for_file(session, winner.id)
+                return {
+                    "id": winner.id,
+                    "name": winner.filename,
+                    "size": winner.size_bytes,
+                    "type": winner.file_type.value,
+                    "uploadDate": winner.uploaded_at.isoformat() + "Z",
+                    "updatedAt": (winner.updated_at or winner.uploaded_at).isoformat() + "Z",
+                    "checksum": winner.checksum_sha256,
+                    "path": winner.storage_path.replace("\\", "/"),
+                    "ownerId": winner.owner_id,
+                    "visibility": "public",
+                    "tags": tags,
+                    "tagColor": tag_color,
+                    "duplicateByContent": True,
+                }
             await session.refresh(orm)
 
             tags, tag_color = await self._get_tags_for_file(session, orm.id)

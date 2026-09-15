@@ -336,6 +336,31 @@ async def init_db():
 
             await conn.run_sync(_add_files_soft_delete)
 
+        # Migration: dedup UNIQUE index on files (PROJECT.md B1.7). Dedup was a
+        # racy application-level select-then-insert (services/file_store.py
+        # add_file()) -- two simultaneous uploads of identical bytes could both
+        # pass the SELECT and both INSERT. Backfill legacy empty-string
+        # checksums (result_store.py used to write "" for a fabricated file
+        # row) to NULL first, since the partial index below excludes NULLs
+        # but "" would still collide with itself across multiple such rows.
+        async with engine.begin() as conn:
+            def _add_files_checksum_dedup_index(sync_conn):
+                sync_conn.execute(text("UPDATE files SET checksum_sha256 = NULL WHERE checksum_sha256 = ''"))
+                try:
+                    sync_conn.execute(text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS files_checksum_dedup_uq "
+                        "ON files(checksum_sha256, size_bytes, LOWER(filename)) "
+                        "WHERE checksum_sha256 IS NOT NULL"
+                    ))
+                except Exception as e:
+                    # Pre-existing duplicate (checksum, size, lower(filename)) rows
+                    # would make this index creation fail -- don't block startup on
+                    # a data-quality issue in an existing deployment; log loudly so
+                    # it isn't missed like the swallowed exceptions B1.4 fixed.
+                    print(f"[DB] WARNING: could not create files_checksum_dedup_uq (pre-existing duplicates?): {e}")
+
+            await conn.run_sync(_add_files_checksum_dedup_index)
+
         # Migration: add verification_skip_reason to results (PROJECT.md B5.3 --
         # distinguishes the five different SKIPPED causes instead of one bucket).
         async with engine.begin() as conn:

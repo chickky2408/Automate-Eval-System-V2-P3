@@ -319,7 +319,11 @@ class ResultStore:
                             filename=result.vcd_filename or "instructions.ist",
                             file_type=FileType.VCD,
                             storage_path="uploads/VCD/default.vcd",
-                            checksum_sha256="",
+                            # PROJECT.md B1.7: "" would collide with every other
+                            # row missing a checksum under the new UNIQUE(checksum,
+                            # size, lower(filename)) partial index (which excludes
+                            # NULL, not ""). NULL is the correct "no hash yet" value.
+                            checksum_sha256=None,
                             size_bytes=0
                         )
                         session.add(mock_file)
