@@ -79,6 +79,9 @@ async def test_skipped_when_no_golden_reference_resolves_passed_true():
     run = await _get_result(res_id)
     assert run.verification_status == "SKIPPED"
     assert run.passed is True  # nothing to check against -> hardware success stands
+    # PROJECT.md B5.3: this fixture's golden file row exists but was never
+    # written to disk, so it resolves to GOLDEN_MISSING_ON_DISK specifically.
+    assert run.verification_skip_reason == "GOLDEN_MISSING_ON_DISK"
 
 
 @pytest.mark.asyncio
@@ -94,6 +97,7 @@ async def test_fail_verdict_sets_passed_false():
     assert run.verification_status == "FAIL"
     # This is the actual bug: before B1.6 this was always True regardless of the verdict.
     assert run.passed is False
+    assert run.verification_skip_reason is None
 
 
 @pytest.mark.asyncio

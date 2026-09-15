@@ -44,6 +44,9 @@ class TestResult(BaseModel):
     sample_xor_score: Optional[float] = None
     majority_score: Optional[float] = None
     verification_status: Optional[str] = None
+    # PROJECT.md B5.3: which of the five SKIPPED causes this was, when
+    # verification_status == "SKIPPED"; None otherwise (including PASS/FAIL/ERROR).
+    verification_skip_reason: Optional[str] = None
 
     class Config:
         from_attributes = True

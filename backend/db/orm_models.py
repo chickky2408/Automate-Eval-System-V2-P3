@@ -215,6 +215,11 @@ class ResultORM(Base):
     sample_xor_score = Column(Float, nullable=True)
     majority_score = Column(Float, nullable=True)
     verification_status = Column(String(32), default="SKIPPED", index=True)
+    # PROJECT.md B5.3: SKIPPED used to be one bucket for five different causes
+    # (no test_case_id, no golden vcd_file_id, golden missing on disk, golden
+    # not a .vcd, no captured vcd) -- indistinguishable from each other and
+    # from "verified and clean" in the UI. Populated only on SKIPPED.
+    verification_skip_reason = Column(String(64), nullable=True)
     duration_seconds = Column(Float, nullable=True)
     error_message = Column(Text, nullable=True)
     metrics_json = Column(JSON, nullable=True) # CRC, packet_count, etc.

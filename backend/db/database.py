@@ -313,6 +313,24 @@ async def init_db():
 
             await conn.run_sync(_add_files_soft_delete)
 
+        # Migration: add verification_skip_reason to results (PROJECT.md B5.3 --
+        # distinguishes the five different SKIPPED causes instead of one bucket).
+        async with engine.begin() as conn:
+            def _add_results_skip_reason(sync_conn):
+                is_sqlite = "sqlite" in DATABASE_URL
+                if is_sqlite:
+                    cur = sync_conn.execute(text("PRAGMA table_info(results)"))
+                    cols = [row[1] for row in cur.fetchall()]
+                    if "verification_skip_reason" not in cols:
+                        sync_conn.execute(text("ALTER TABLE results ADD COLUMN verification_skip_reason VARCHAR(64)"))
+                else:
+                    try:
+                        sync_conn.execute(text("ALTER TABLE results ADD COLUMN IF NOT EXISTS verification_skip_reason VARCHAR(64)"))
+                    except Exception:
+                        pass
+
+            await conn.run_sync(_add_results_skip_reason)
+
         # Migration: ensure all BoardORM columns exist
         async with engine.begin() as conn:
             def _add_board_status_columns(sync_conn):

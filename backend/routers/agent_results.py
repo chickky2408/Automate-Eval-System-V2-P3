@@ -311,8 +311,14 @@ async def run_waveform_verification(result_id: str, vcd_abs_path: Optional[str] 
         # the hardware capture itself still succeeded, so passed=True here matches
         # the pre-B1.6 behavior for jobs that were never expected to be verified.
         # It must NOT be left at None: nothing else will ever resolve it.
+        #
+        # PROJECT.md B5.3: these five early returns used to all write the same
+        # verification_status="SKIPPED" with no way to tell them apart in the
+        # UI -- indistinguishable from each other and from "nothing to check".
+        # verification_skip_reason now names which of the five it was.
         if not run.test_case_id:
             run.verification_status = "SKIPPED"
+            run.verification_skip_reason = "NO_TEST_CASE"
             run.passed = True
             await db.commit()
             return
@@ -320,6 +326,7 @@ async def run_waveform_verification(result_id: str, vcd_abs_path: Optional[str] 
         test_case = (await db.execute(select(TestCaseORM).where(TestCaseORM.id == run.test_case_id))).scalar_one_or_none()
         if not test_case or not test_case.vcd_file_id:
             run.verification_status = "SKIPPED"
+            run.verification_skip_reason = "NO_GOLDEN_VCD_ASSIGNED"
             run.passed = True
             await db.commit()
             return
@@ -327,13 +334,21 @@ async def run_waveform_verification(result_id: str, vcd_abs_path: Optional[str] 
         golden_file = (await db.execute(select(FileORM).where(FileORM.id == test_case.vcd_file_id))).scalar_one_or_none()
         if not golden_file or not golden_file.storage_path:
             run.verification_status = "SKIPPED"
+            run.verification_skip_reason = "GOLDEN_FILE_ROW_MISSING"
             run.passed = True
             await db.commit()
             return
 
         golden_abs = file_store.resolve_path(golden_file.storage_path)
-        if not os.path.exists(golden_abs) or not golden_file.filename.lower().endswith(".vcd"):
+        if not os.path.exists(golden_abs):
             run.verification_status = "SKIPPED"
+            run.verification_skip_reason = "GOLDEN_MISSING_ON_DISK"
+            run.passed = True
+            await db.commit()
+            return
+        if not golden_file.filename.lower().endswith(".vcd"):
+            run.verification_status = "SKIPPED"
+            run.verification_skip_reason = "GOLDEN_NOT_VCD"
             run.passed = True
             await db.commit()
             return
@@ -351,6 +366,7 @@ async def run_waveform_verification(result_id: str, vcd_abs_path: Optional[str] 
 
         if not actual_abs or not os.path.exists(actual_abs):
             run.verification_status = "SKIPPED"
+            run.verification_skip_reason = "NO_CAPTURED_VCD"
             run.passed = True
             await db.commit()
             return
@@ -371,6 +387,7 @@ async def run_waveform_verification(result_id: str, vcd_abs_path: Optional[str] 
             run.majority_score = summary.get("avg_majority_score")
             overall_pass = bool(summary.get("overall_pass"))
             run.verification_status = "PASS" if overall_pass else "FAIL"
+            run.verification_skip_reason = None
             # This is the actual fix: passed now reflects whether the capture
             # matched the golden reference, not just whether hardware upload succeeded.
             run.passed = overall_pass
@@ -379,6 +396,7 @@ async def run_waveform_verification(result_id: str, vcd_abs_path: Optional[str] 
         except Exception as exc:
             print(f"[waveform_verification] Verification error for {result_id}: {exc}")
             run.verification_status = "ERROR"
+            run.verification_skip_reason = None
             # Fail closed: an inconclusive verdict must not read as a pass.
             run.passed = False
             await db.commit()
