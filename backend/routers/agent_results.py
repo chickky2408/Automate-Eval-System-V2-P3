@@ -43,15 +43,21 @@ class CompleteUploadRequest(BaseModel):
 
 
 class _Session:
-    def __init__(self, upload_id: str, target_filename: str, tmp_path: str):
+    def __init__(self, upload_id: str, target_filename: str, tmp_path: str, part_dir: str):
         self.upload_id = upload_id
         self.target_filename = target_filename
         self.tmp_path = tmp_path
-        self.file_obj = open(tmp_path, "wb")
+        # PROJECT.md B4.4: each part is written to its own file under part_dir,
+        # keyed by part_index, instead of being appended to one shared file
+        # opened at init() time. This is what lets complete() assemble parts in
+        # index order regardless of arrival order, and lets a retried part
+        # simply overwrite its own slot instead of corrupting the append stream.
+        self.part_dir = part_dir
+        os.makedirs(self.part_dir, exist_ok=True)
         self.bytes_received = 0
         self.parts_received = 0
         self.received_parts: set[int] = set()
-        self.hasher = hashlib.sha256()
+        self.part_sizes: Dict[int, int] = {}
         self.last_activity = datetime.utcnow().timestamp()
         self.lock = asyncio.Lock()
 
@@ -74,7 +80,7 @@ async def cleanup_stale_upload_sessions(max_idle_seconds: float = 600) -> int:
         session = SESSIONS.pop(upload_id, None)
         if session:
             try:
-                session.file_obj.close()
+                shutil.rmtree(session.part_dir, ignore_errors=True)
             except Exception:
                 pass
             try:
@@ -229,7 +235,8 @@ async def init_upload(payload: InitUploadRequest) -> dict:
     target = (payload.target_filename or f"{upload_id}.bin").strip()
     target = Path(target).name
     tmp_path = os.path.join(_TMP_DIR, f"{upload_id}.part")
-    SESSIONS[upload_id] = _Session(upload_id, target, tmp_path)
+    part_dir = os.path.join(_TMP_DIR, f"{upload_id}.parts")
+    SESSIONS[upload_id] = _Session(upload_id, target, tmp_path, part_dir)
     return {"upload_id": upload_id, "target_filename": target}
 
 
@@ -263,20 +270,27 @@ async def upload_part(upload_id: str, part_index: int, request: Request) -> dict
 
     async with session.lock:
         session.last_activity = datetime.utcnow().timestamp()
-        local = hashlib.sha256()
-        written = 0
+        body = bytearray()
         async for chunk in request.stream():
-            if not chunk:
-                continue
-            session.file_obj.write(chunk)
-            session.hasher.update(chunk)
-            local.update(chunk)
-            written += len(chunk)
-        if local.hexdigest() != part_sha.lower():
+            if chunk:
+                body.extend(chunk)
+        # PROJECT.md B4.4: hash the part BEFORE writing anything durable. The
+        # previous version wrote each chunk to the shared upload file as it
+        # streamed in and only compared the hash afterward, so a rejected part
+        # had already left its (possibly corrupt) bytes appended to the file.
+        if hashlib.sha256(bytes(body)).hexdigest() != part_sha.lower():
             raise HTTPException(status_code=400, detail=f"SHA256 mismatch for part {part_index}")
-        session.bytes_received += written
-        session.parts_received += 1
+
+        part_path = os.path.join(session.part_dir, f"part.{part_index}")
+        with open(part_path, "wb") as f:
+            f.write(body)
+
+        # A retried part overwrites its own slot; only count it once toward
+        # parts_received / bytes_received.
+        session.part_sizes[part_index] = len(body)
         session.received_parts.add(part_index)
+        session.parts_received = len(session.received_parts)
+        session.bytes_received = sum(session.part_sizes.values())
     return {"status": "ok", "part_index": part_index, "bytes_received": session.bytes_received}
 
 
@@ -382,8 +396,32 @@ async def complete_upload(
 
     async with session.lock:
         session.last_activity = datetime.utcnow().timestamp()
-        session.file_obj.flush()
-        session.file_obj.close()
+
+        # PROJECT.md B4.4: expected_total_parts was accepted and modeled but
+        # never compared against what actually arrived -- a client that thought
+        # it sent 40 parts and only 39 landed got no error, just a silently
+        # truncated capture. Verify the count and that indices 0..N-1 are all
+        # present (no gaps) before assembling anything.
+        if payload.expected_total_parts is not None and len(session.received_parts) != payload.expected_total_parts:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Expected {payload.expected_total_parts} parts, received {len(session.received_parts)}",
+            )
+        expected_count = payload.expected_total_parts if payload.expected_total_parts is not None else len(session.received_parts)
+        missing = set(range(expected_count)) - session.received_parts
+        if missing:
+            raise HTTPException(status_code=400, detail=f"Missing part indices: {sorted(missing)}")
+
+        # Assemble strictly in index order -- not arrival order -- since parts
+        # can land out of order or be retried (PROJECT.md B4.4).
+        whole_hasher = hashlib.sha256()
+        with open(session.tmp_path, "wb") as out:
+            for idx in range(expected_count):
+                with open(os.path.join(session.part_dir, f"part.{idx}"), "rb") as pf:
+                    data = pf.read()
+                out.write(data)
+                whole_hasher.update(data)
+        whole_sha256 = whole_hasher.hexdigest()
 
         if payload.expected_total_size_bytes is not None and payload.expected_total_size_bytes != session.bytes_received:
             raise HTTPException(status_code=400, detail="Total size mismatch")
@@ -411,6 +449,10 @@ async def complete_upload(
             try:
                 os.remove(session.tmp_path)
             except OSError:
+                pass
+            try:
+                shutil.rmtree(session.part_dir, ignore_errors=True)
+            except Exception:
                 pass
             SESSIONS.pop(upload_id, None)
 
@@ -506,7 +548,7 @@ async def complete_upload(
         "upload_id": upload_id,
         "result_id": result_id,
         "bytes_received": session.bytes_received,
-        "sha256": session.hasher.hexdigest(),
+        "sha256": whole_sha256,
         "hdf5_file_path": rel_h5,
         "vcd_file_path": rel_vcd if vcd_size > 0 else None,
         "lz4_file_path": rel_lz4 if lz4_size > 0 else None,
