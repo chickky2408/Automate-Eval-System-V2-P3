@@ -10,8 +10,21 @@ from sqlalchemy import select, update, delete, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.database import async_session
-from db.orm_models import TestCaseORM, RunSetORM
+from db.orm_models import TestCaseORM, RunSetORM, ResultORM
 from models.test_case import TestCaseCreate, RunSetCreate
+
+
+class TestCaseInUseError(Exception):
+    """PROJECT.md B1.2: raised by delete_test_case() when results still reference
+    the test case. results.test_case_id is ondelete="RESTRICT" (was CASCADE, which
+    silently destroyed every result that ever referenced a deleted test case) --
+    this is the application-level guard the file-delete path already had
+    (find_test_cases_referencing_file) that test-case delete never got."""
+
+    def __init__(self, result_ids: List[str]):
+        self.result_ids = result_ids
+        super().__init__(f"Test case is referenced by {len(result_ids)} result(s)")
+
 
 class TestCaseStore:
     """Manages test cases and run sets (suites) with database persistence."""
@@ -173,8 +186,25 @@ class TestCaseStore:
             await session.commit()
             return result.rowcount > 0
 
+    async def find_results_referencing_test_case(self, test_case_id: str) -> List[str]:
+        """Result ids that still reference this test case. See TestCaseInUseError."""
+        async with async_session() as session:
+            rows = await session.execute(
+                select(ResultORM.id).where(ResultORM.test_case_id == test_case_id)
+            )
+            return [r[0] for r in rows.all()]
+
     async def delete_test_case(self, test_case_id: str) -> bool:
-        """Delete a test case."""
+        """Delete a test case.
+
+        Raises TestCaseInUseError (-> 409 at the router) if any result still
+        references it, instead of letting the CASCADE that used to be on
+        results.test_case_id silently delete that result history.
+        """
+        referencing = await self.find_results_referencing_test_case(test_case_id)
+        if referencing:
+            raise TestCaseInUseError(referencing)
+
         async with async_session() as session:
             # Check and clean references in RunSets
             sets = await session.execute(select(RunSetORM))

@@ -34,7 +34,14 @@ class JobCreate(BaseModel):
     target_board_id: Optional[str] = None  # None = auto-assign
     target_board_ids: Optional[List[str]] = None  # For broadcast mode
     priority: int = 0  # Higher = more priority
-    timeout_seconds: int = 60
+    # PROJECT.md B1.5: was `int = 60`. Every job created through the main
+    # POST /api/jobs path had the router pass timeout_seconds=60 explicitly
+    # (routers/jobs.py), which is truthy, so job_queue.py's size-based dynamic
+    # timeout (`if not timeout_seconds or timeout_seconds <= 0: ...`) never
+    # engaged -- every hardware run was capped at 60s regardless of capture size.
+    # None here means "let the dynamic timeout decide"; callers that genuinely
+    # want a fixed timeout still pass an explicit int.
+    timeout_seconds: Optional[int] = None
     retries: int = 0
     enable_picoscope: bool = False
     save_to_db: bool = True
@@ -60,7 +67,7 @@ class Job(BaseModel):
     target_board_ids: Optional[List[str]] = None  # For broadcast mode
     assigned_board_id: Optional[str] = None
     priority: int = 0
-    timeout_seconds: int = 60
+    timeout_seconds: Optional[int] = None  # None = dynamic (size-based); see JobCreate
     retries: int = 0
     enable_picoscope: bool = False
     save_to_db: bool = True

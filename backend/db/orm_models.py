@@ -139,7 +139,13 @@ class JobORM(Base):
     state = Column(String(32), default="draft") # draft, pending, running, completed, cancelled, failed
     progress = Column(Integer, default=0)
     priority = Column(Integer, default=0)
-    timeout_seconds = Column(Integer, default=60)
+    # PROJECT.md B1.5: was `default=60`. SQLAlchemy's Python-side column default
+    # fires even when the ORM attribute is explicitly set to None (only an
+    # attribute that was never assigned at all skips the default) -- so passing
+    # timeout_seconds=None from JobCreate still landed as 60 in the row, permanently
+    # defeating the "None means use the dynamic size-based timeout" contract in
+    # job_queue.py. No default here: None must actually persist as NULL.
+    timeout_seconds = Column(Integer, nullable=True)
     enable_picoscope = Column(Boolean, default=False)
     current_step = Column(String(255), nullable=True)
     error_message = Column(Text, nullable=True)
@@ -181,7 +187,10 @@ class ResultORM(Base):
     id = Column(String(32), primary_key=True)
     job_id = Column(String(32), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
     job_target_id = Column(String(36), ForeignKey("job_targets.id", ondelete="CASCADE"), nullable=False)
-    test_case_id = Column(String(36), ForeignKey("test_cases.id", ondelete="CASCADE"), nullable=False)
+    # PROJECT.md B1.2: was ondelete="CASCADE" -- deleting one test case silently
+    # deleted every result that ever referenced it. RESTRICT + the application-level
+    # guard in DELETE /test-cases/{id} (routers/test_cases.py) makes that a 409 instead.
+    test_case_id = Column(String(36), ForeignKey("test_cases.id", ondelete="RESTRICT"), nullable=False)
     status = Column(String(32), default="pending") # pending, running, completed, stopped, error
     execution_order = Column(Integer, nullable=False, default=0)
     try_count = Column(Integer, default=0)

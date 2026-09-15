@@ -5,8 +5,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
 
-from services.test_case_store import test_case_store
-from models.test_case import TestCaseCreate, TestSetCreate, RunSetCreate
+from services.test_case_store import test_case_store, TestCaseInUseError
+from models.test_case import TestCaseCreate, TestCaseUpdate, TestSetCreate, RunSetCreate
 
 router = APIRouter()
 
@@ -41,17 +41,24 @@ async def get_test_case(test_case_id: str):
 
 
 @router.patch("/test-cases/{test_case_id}")
-async def update_test_case(
-    test_case_id: str,
-    name: Optional[str] = None,
-    vcd_file_id: Optional[str] = None,
-    firmware_filename: Optional[str] = None,
-    tags: Optional[str] = None,
-):
-    """Update a test case."""
+async def update_test_case(test_case_id: str, payload: TestCaseUpdate):
+    """Update a test case.
+
+    PROJECT.md B1.3: previously took bare query params (name, vcd_file_id,
+    firmware_filename, tags) and passed firmware_filename= / tags= straight
+    through to test_case_store.update_test_case(), whose signature accepts
+    neither -- every call raised TypeError -> 500. This now uses a JSON body
+    matching the store exactly, and exposes bin_file_id / lin_file_id /
+    mdi_file_id / config_options, which were previously unreachable over HTTP.
+    """
     success = await test_case_store.update_test_case(
-        test_case_id, name=name, vcd_file_id=vcd_file_id,
-        firmware_filename=firmware_filename, tags=tags,
+        test_case_id,
+        name=payload.name,
+        vcd_file_id=payload.vcd_file_id,
+        bin_file_id=payload.bin_file_id,
+        lin_file_id=payload.lin_file_id,
+        mdi_file_id=payload.mdi_file_id,
+        config_options=payload.config_options,
     )
     if not success:
         raise HTTPException(status_code=404, detail="Test case not found")
@@ -60,8 +67,23 @@ async def update_test_case(
 
 @router.delete("/test-cases/{test_case_id}")
 async def delete_test_case(test_case_id: str):
-    """Delete a test case."""
-    success = await test_case_store.delete_test_case(test_case_id)
+    """Delete a test case.
+
+    PROJECT.md B1.2: previously unguarded, and results.test_case_id was
+    ondelete="CASCADE" -- this deleted every result that ever referenced the
+    test case. Now 409s if any result still references it.
+    """
+    try:
+        success = await test_case_store.delete_test_case(test_case_id)
+    except TestCaseInUseError as e:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "TEST_CASE_IN_USE",
+                "message": "Test case is referenced by existing results and cannot be deleted",
+                "result_ids": e.result_ids,
+            },
+        )
     if not success:
         raise HTTPException(status_code=404, detail="Test case not found")
     return {"success": True}

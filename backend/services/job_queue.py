@@ -20,6 +20,18 @@ from models.result import TestResult
 from db.database import async_session
 from db.orm_models import JobORM, JobTargetORM, ResultORM, TestCaseORM, RunSetORM, FileORM
 
+
+class JobValidationError(Exception):
+    """Raised by add_job() when pairs_data / target boards reference something that
+    does not exist. Carries structured per-item errors so the router can return a 422
+    with the exact list of what was missing, instead of the job being created with a
+    dangling/fabricated reference (see PROJECT.md B1.1)."""
+
+    def __init__(self, errors: List[Dict]):
+        self.errors = errors
+        super().__init__(f"Job validation failed: {len(errors)} error(s)")
+
+
 class JobQueueService:
     """Manages the job queue and execution schedule using redesigned ORM tables."""
 
@@ -134,9 +146,23 @@ class JobQueueService:
             return self._orm_to_model(orm) if orm else None
 
     async def add_job(self, job_data: JobCreate) -> Job:
-        """Add a new job to the queue and initialize target boards."""
+        """Add a new job to the queue and initialize target boards.
+
+        Validates target boards and every pairs_data entry BEFORE creating any row.
+        Previously an unresolvable pair fabricated a TestCaseORM pointing at a random
+        UUID (dangling FK) instead of being rejected -- see PROJECT.md B1.1. A
+        JobValidationError here means nothing was written to the database.
+        """
+        errors: List[Dict] = []
+        async with async_session() as session:
+            errors.extend(await self._validate_target_boards(job_data))
+            if job_data.pairs_data:
+                errors.extend(await self._validate_pairs_data(session, job_data.pairs_data))
+        if errors:
+            raise JobValidationError(errors)
+
         job_id = str(uuid.uuid4())[:8]
-        
+
         async with async_session() as session:
             # 1. Create JobORM record (default state is draft if specified, else pending)
             state = "draft" if job_data.save_to_db is False else "pending"
@@ -199,6 +225,109 @@ class JobQueueService:
 
             return self._orm_to_model(orm)
 
+    async def _validate_target_boards(self, job_data: JobCreate) -> List[Dict]:
+        """Reject a job that names a board that does not exist, instead of writing
+        job_targets.requested_board_id unvalidated (previous behavior)."""
+        errors: List[Dict] = []
+        board_ids = list(job_data.target_board_ids or [])
+        if job_data.target_board_id and job_data.target_board_id not in board_ids:
+            board_ids.append(job_data.target_board_id)
+        for b_id in board_ids:
+            board = await board_manager.get_board(b_id)
+            if not board:
+                errors.append({"type": "board", "board_id": b_id, "reason": "board does not exist"})
+        return errors
+
+    async def _resolve_pair_reference(self, session: AsyncSession, pair: dict) -> Dict:
+        """Resolve one pairs_data entry to an existing test_case_id or vcd file_id,
+        using the same lookup order _precreate_results_from_pairs uses. Returns
+        {"tc_id", "resolved_vcd_id", "error"} -- error is None when a usable
+        reference (an existing test case, or a vcd file that exists on disk) was found.
+        """
+        vcd_name = pair.get("vcdName")
+        explicit_vcd_id = pair.get("vcdId") or pair.get("vcd_file_id")
+        explicit_tc_id = pair.get("testCaseId") or pair.get("test_case_id")
+
+        tc_id = None
+        resolved_vcd_id = None
+
+        if explicit_tc_id:
+            tc_check = await session.execute(select(TestCaseORM.id).where(TestCaseORM.id == str(explicit_tc_id)))
+            if tc_check.scalar_one_or_none():
+                tc_id = str(explicit_tc_id)
+            else:
+                return {"tc_id": None, "resolved_vcd_id": None,
+                        "error": f"test_case_id '{explicit_tc_id}' does not exist"}
+
+        if not tc_id:
+            if explicit_vcd_id:
+                f_check = await session.execute(
+                    select(FileORM.id, FileORM.storage_path).where(FileORM.id == str(explicit_vcd_id))
+                )
+                f_row = f_check.first()
+                if f_row:
+                    resolved_vcd_id = str(f_row[0])
+                else:
+                    return {"tc_id": None, "resolved_vcd_id": None,
+                            "error": f"vcd_file_id '{explicit_vcd_id}' does not exist"}
+
+            if not resolved_vcd_id and vcd_name:
+                f_res = await session.execute(
+                    select(FileORM)
+                    .where(FileORM.filename == vcd_name)
+                    .order_by(FileORM.uploaded_at.desc())
+                )
+                candidates = f_res.scalars().all()
+                for cand in candidates:
+                    cand_path = file_store.resolve_path(cand.storage_path)
+                    if os.path.exists(cand_path):
+                        resolved_vcd_id = cand.id
+                        break
+                if not resolved_vcd_id and candidates:
+                    # Every candidate row with this filename is missing on disk --
+                    # this is exactly the case that used to fall through to
+                    # "fall back to newest candidate ID" and dispatch a job against
+                    # a file that does not exist. Reject instead.
+                    return {"tc_id": None, "resolved_vcd_id": None,
+                            "error": f"file '{vcd_name}' has a database row but is missing on disk"}
+                if not candidates:
+                    return {"tc_id": None, "resolved_vcd_id": None,
+                            "error": f"no file named '{vcd_name}' exists"}
+
+            if resolved_vcd_id:
+                tc_q = (
+                    select(TestCaseORM.id)
+                    .where(TestCaseORM.vcd_file_id == resolved_vcd_id)
+                    .order_by(TestCaseORM.created_at.desc())
+                )
+                tc_id = (await session.execute(tc_q)).scalars().first()
+
+        if not tc_id and not resolved_vcd_id:
+            return {"tc_id": None, "resolved_vcd_id": None,
+                    "error": "pair has neither a resolvable test_case_id nor a resolvable vcd file"}
+
+        return {"tc_id": tc_id, "resolved_vcd_id": resolved_vcd_id, "error": None}
+
+    async def _validate_pairs_data(self, session: AsyncSession, pairs_data) -> List[Dict]:
+        """Validate every pairs_data entry up front. Returns one error dict per
+        unresolvable pair; an empty list means every pair resolves cleanly."""
+        errors: List[Dict] = []
+        items = pairs_data if isinstance(pairs_data, list) else [pairs_data]
+        for idx, pair in enumerate(items):
+            if not isinstance(pair, dict):
+                errors.append({"type": "pair", "index": idx, "reason": "pair is not an object"})
+                continue
+            resolution = await self._resolve_pair_reference(session, pair)
+            if resolution["error"]:
+                errors.append({
+                    "type": "pair",
+                    "index": idx,
+                    "testCaseName": pair.get("testCaseName"),
+                    "vcdName": pair.get("vcdName"),
+                    "reason": resolution["error"],
+                })
+        return errors
+
     async def _precreate_results_from_pairs(self, session: AsyncSession, job_id: str, pairs_data: list):
         """Pre-populate ResultORM rows for each target board when job is created."""
         from db.orm_models import FileORM, TestCaseORM, JobTargetORM, ResultORM
@@ -211,62 +340,38 @@ class JobQueueService:
         for idx, pair in enumerate(pairs_data):
             tc_name = pair.get("testCaseName") or f"TC_{idx+1}"
             vcd_name = pair.get("vcdName")
-            explicit_vcd_id = pair.get("vcdId") or pair.get("vcd_file_id")
-            explicit_tc_id = pair.get("testCaseId") or pair.get("test_case_id")
 
-            tc_id = None
-            resolved_vcd_id = None
+            # add_job() already ran _validate_pairs_data() over the same pairs before
+            # any row was written, so this resolves cleanly under normal operation.
+            # It is re-run here (not cached) because it must see rows created by
+            # earlier iterations of this same loop (e.g. a TestCaseORM this loop
+            # itself just added for a repeated vcd_name).
+            resolution = await self._resolve_pair_reference(session, pair)
+            tc_id = resolution["tc_id"]
+            resolved_vcd_id = resolution["resolved_vcd_id"]
 
-            # 1. Check if explicit test_case_id is provided and valid
-            if explicit_tc_id:
-                tc_check = await session.execute(select(TestCaseORM.id).where(TestCaseORM.id == str(explicit_tc_id)))
-                if tc_check.scalar_one_or_none():
-                    tc_id = str(explicit_tc_id)
+            if resolution["error"]:
+                # Should not happen -- add_job validated this already. Surfacing it
+                # as an error instead of fabricating a TestCaseORM with a random UUID
+                # FK is the fix for PROJECT.md B1.1: a race (file deleted between
+                # validate and precreate) must fail loud, not create a dangling reference.
+                raise JobValidationError([{
+                    "type": "pair", "index": idx, "testCaseName": tc_name,
+                    "vcdName": vcd_name, "reason": resolution["error"],
+                }])
 
-            # 2. If no valid tc_id yet, resolve VCD File ID
-            if not tc_id:
-                if explicit_vcd_id:
-                    f_check = await session.execute(select(FileORM.id, FileORM.storage_path).where(FileORM.id == str(explicit_vcd_id)))
-                    f_row = f_check.first()
-                    if f_row:
-                        resolved_vcd_id = str(f_row[0])
-
-                # 3. If explicit VCD not provided or not found, search by vcd_name with physical disk verification
-                if not resolved_vcd_id and vcd_name:
-                    f_res = await session.execute(
-                        select(FileORM)
-                        .where(FileORM.filename == vcd_name)
-                        .order_by(FileORM.uploaded_at.desc())
-                    )
-                    candidates = f_res.scalars().all()
-                    for cand in candidates:
-                        # Prioritize candidates that actually exist on disk
-                        cand_path = file_store.resolve_path(cand.storage_path)
-                        if os.path.exists(cand_path):
-                            resolved_vcd_id = cand.id
-                            break
-                    # If none exist physically, fall back to newest candidate ID
-                    if not resolved_vcd_id and candidates:
-                        resolved_vcd_id = candidates[0].id
-
-                # 4. If we have a resolved_vcd_id, look for existing TestCaseORM
-                if resolved_vcd_id:
-                    tc_q = (
-                        select(TestCaseORM.id)
-                        .where(TestCaseORM.vcd_file_id == resolved_vcd_id)
-                        .order_by(TestCaseORM.created_at.desc())
-                    )
-                    tc_id = (await session.execute(tc_q)).scalars().first()
-
-            # 5. If still no TestCaseORM found, create one referencing resolved_vcd_id
+            # A resolved, real vcd_file_id with no TestCaseORM referencing it yet is a
+            # legitimate case (ad hoc job from a bare file, no pre-created test case) --
+            # create one bound to the verified vcd_file_id. Unlike before, there is no
+            # `or str(uuid.uuid4())` fallback: resolved_vcd_id is guaranteed non-None here.
             if not tc_id:
                 tc_id = str(uuid.uuid4())
-                mock_tc = TestCaseORM(
+                new_tc = TestCaseORM(
                     id=tc_id,
                     name=tc_name,
-                    vcd_file_id=resolved_vcd_id or str(uuid.uuid4())
+                    vcd_file_id=resolved_vcd_id,
                 )
-                session.add(mock_tc)
+                session.add(new_tc)
                 await session.flush()
 
             # Create a pending ResultORM row for each board target

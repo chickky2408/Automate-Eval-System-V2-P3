@@ -291,26 +291,36 @@ async def run_waveform_verification(result_id: str, vcd_abs_path: Optional[str] 
         if not run:
             return
 
+        # PROJECT.md B1.6: every SKIPPED early-return below also resolves the
+        # `passed = None` ("pending") that complete_upload() sets before scheduling
+        # this task. SKIPPED means "no golden reference to check against" --
+        # the hardware capture itself still succeeded, so passed=True here matches
+        # the pre-B1.6 behavior for jobs that were never expected to be verified.
+        # It must NOT be left at None: nothing else will ever resolve it.
         if not run.test_case_id:
             run.verification_status = "SKIPPED"
+            run.passed = True
             await db.commit()
             return
 
         test_case = (await db.execute(select(TestCaseORM).where(TestCaseORM.id == run.test_case_id))).scalar_one_or_none()
         if not test_case or not test_case.vcd_file_id:
             run.verification_status = "SKIPPED"
+            run.passed = True
             await db.commit()
             return
 
         golden_file = (await db.execute(select(FileORM).where(FileORM.id == test_case.vcd_file_id))).scalar_one_or_none()
         if not golden_file or not golden_file.storage_path:
             run.verification_status = "SKIPPED"
+            run.passed = True
             await db.commit()
             return
 
         golden_abs = file_store.resolve_path(golden_file.storage_path)
         if not os.path.exists(golden_abs) or not golden_file.filename.lower().endswith(".vcd"):
             run.verification_status = "SKIPPED"
+            run.passed = True
             await db.commit()
             return
 
@@ -327,6 +337,7 @@ async def run_waveform_verification(result_id: str, vcd_abs_path: Optional[str] 
 
         if not actual_abs or not os.path.exists(actual_abs):
             run.verification_status = "SKIPPED"
+            run.passed = True
             await db.commit()
             return
 
@@ -344,12 +355,18 @@ async def run_waveform_verification(result_id: str, vcd_abs_path: Optional[str] 
             run.f1_score = summary.get("avg_f1_score")
             run.sample_xor_score = summary.get("avg_sample_xor_score")
             run.majority_score = summary.get("avg_majority_score")
-            run.verification_status = "PASS" if summary.get("overall_pass") else "FAIL"
+            overall_pass = bool(summary.get("overall_pass"))
+            run.verification_status = "PASS" if overall_pass else "FAIL"
+            # This is the actual fix: passed now reflects whether the capture
+            # matched the golden reference, not just whether hardware upload succeeded.
+            run.passed = overall_pass
             await db.commit()
             print(f"[waveform_verification] Result {result_id} verified: status={run.verification_status}, F1={run.f1_score}")
         except Exception as exc:
             print(f"[waveform_verification] Verification error for {result_id}: {exc}")
             run.verification_status = "ERROR"
+            # Fail closed: an inconclusive verdict must not read as a pass.
+            run.passed = False
             await db.commit()
 
 
@@ -411,7 +428,22 @@ async def complete_upload(
             run = (await db.execute(select(ResultORM).where(ResultORM.id == result_id))).scalar_one_or_none()
             if run:
                 run.status = "completed"
-                run.passed = True
+                # PROJECT.md B1.6: was unconditionally `run.passed = True` here --
+                # written *before* run_waveform_verification() (scheduled below) has
+                # even run, so a job that fails digital verification against its
+                # golden VCD still reported passed=True to the UI and to
+                # job_queue._wait_for_result(). `status` must still flip to
+                # "completed" immediately (that's what unblocks _wait_for_result --
+                # it polls status, not passed -- and is why verification is a
+                # fire-and-forget background task instead of holding the agent's
+                # HTTP connection open). `passed` now waits for the verdict:
+                # None ("pending") when a verification task will actually run,
+                # which run_waveform_verification() below resolves to True (no
+                # golden reference to check -> SKIPPED, hardware success stands),
+                # True (PASS), or False (FAIL/ERROR). If no background task will be
+                # scheduled at all, there is nothing left to resolve it, so fall
+                # back to the previous behavior immediately.
+                run.passed = None if background_tasks is not None else True
                 if run.completed_at is None:
                     run.completed_at = now
             

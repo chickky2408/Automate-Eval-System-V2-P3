@@ -22,6 +22,24 @@ class TestCaseCreate(BaseModel):
         return value
 
 
+class TestCaseUpdate(BaseModel):
+    """Schema for PATCH /test-cases/{id} (PROJECT.md B1.3).
+
+    Previously this endpoint took bare scalar query params that didn't match
+    test_case_store.update_test_case()'s signature (it passed firmware_filename=
+    and tags=, neither of which the store accepts) -- every call raised
+    TypeError -> 500. This body matches the store exactly and exposes all four
+    file slots, which the old query-param signature never did.
+    All fields optional; only fields explicitly set are applied (partial update).
+    """
+    name: Optional[str] = None
+    vcd_file_id: Optional[str] = None
+    bin_file_id: Optional[str] = None
+    lin_file_id: Optional[str] = None
+    mdi_file_id: Optional[str] = None
+    config_options: Optional[Dict[str, Any]] = None
+
+
 class TestCase(BaseModel):
     """Test case information."""
     id: str

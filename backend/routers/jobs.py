@@ -13,7 +13,7 @@ import os
 import uuid
 
 from models.job import JobCreate, JobState
-from services.job_queue import job_queue_service
+from services.job_queue import job_queue_service, JobValidationError
 from services.fe_job_store import fe_job_store
 from services.board_manager import board_manager
 from services.file_store import file_store
@@ -542,7 +542,9 @@ async def create_job(payload: JobCreatePayload):
         firmware_file_id=firmware_file_id,
         target_board_id=None,
         priority=0,
-        timeout_seconds=60,
+        # PROJECT.md B1.5: was hardcoded 60, which capped every hardware run at
+        # 60s (job_queue.py's size-based dynamic timeout only engages when this
+        # is falsy). Omitted -> JobCreate.timeout_seconds defaults to None -> dynamic.
         pairs_data=payload.pairsData,  # Persist for restore after restart
         tag=payload.tag,
         tag_color=payload.tagColor,
@@ -553,7 +555,13 @@ async def create_job(payload: JobCreatePayload):
         # save_to_db=False signals add_job to create with state="draft"
         save_to_db=not payload.saveAsDraft,
     )
-    job = await job_queue_service.add_job(job_data)
+    try:
+        job = await job_queue_service.add_job(job_data)
+    except JobValidationError as e:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "INVALID_JOB_REFERENCES", "errors": e.errors},
+        )
 
     fe_job_store.create_from_payload(
         job.id,
@@ -920,7 +928,13 @@ async def upload_files(
         priority=priority,
         timeout_seconds=timeout_seconds,
     )
-    job = await job_queue_service.add_job(job_data)
+    try:
+        job = await job_queue_service.add_job(job_data)
+    except JobValidationError as e:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "INVALID_JOB_REFERENCES", "errors": e.errors},
+        )
     await _autostart_next_pending()
     return await _build_fe_job(job)
 
