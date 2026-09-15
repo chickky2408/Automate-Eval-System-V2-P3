@@ -1,6 +1,7 @@
 """
 Result Store Service with normalized results table and unified files storage for logs/waveforms.
 """
+import asyncio
 import hashlib
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -15,8 +16,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.result import TestResult, WaveformData, WaveformChannel
 from db.database import async_session
-from db.orm_models import ResultORM, FileORM, FileType, JobTargetORM, TestCaseORM
+from db.orm_models import ResultORM, FileORM, FileType, JobTargetORM, TestCaseORM, JobORM
 from services.file_store import file_store
+from services.waveform_file import read_waveform_full_or_downsampled
 
 class ResultStore:
     """Manages test result storage (Postgres/SQLite + files on disk for logs/waveforms)."""
@@ -91,41 +93,38 @@ class ResultStore:
         with h5py.File(resolved, "w") as f:
             f.attrs["time_unit"] = waveform.time_unit
             f.attrs["total_duration"] = waveform.total_duration
+            fs = getattr(waveform, "sample_rate_hz", 4000.0)
+            if fs:
+                f.attrs["sample_rate_hz"] = float(fs)
+                f.attrs["fs"] = float(fs)
             
             grp = f.create_group("channels")
             for ch in waveform.channels:
                 dset = grp.create_dataset(ch.name, data=ch.data, compression="gzip")
                 dset.attrs["color"] = ch.color
 
-    def _read_waveform_from_hdf5(self, path: str) -> Optional[WaveformData]:
-        """Read waveform data from HDF5 file."""
+    def _read_waveform_from_hdf5(self, path: str, max_samples: Optional[int] = 100000) -> Optional[WaveformData]:
+        """Read waveform data from HDF5 file with optional downsampling."""
         resolved = file_store.resolve_path(path)
         if not os.path.exists(resolved):
             return None
-            
+
         try:
-            with h5py.File(resolved, "r") as f:
-                time_unit = f.attrs.get("time_unit", "us")
-                total_duration = f.attrs.get("total_duration", 0.0)
-                
-                channels = []
-                if "channels" in f:
-                    grp = f["channels"]
-                    for name in grp:
-                        dset = grp[name]
-                        color = dset.attrs.get("color", "#000000")
-                        data = dset[:]
-                        channels.append(WaveformChannel(
-                            name=name,
-                            color=color,
-                            data=data.tolist()
-                        ))
-                
-                return WaveformData(
-                    channels=channels,
-                    time_unit=time_unit,
-                    total_duration=total_duration
+            raw_dict = read_waveform_full_or_downsampled(resolved, max_samples=max_samples)
+            channels = [
+                WaveformChannel(
+                    name=ch["name"],
+                    color=ch["color"],
+                    data=ch["data"]
                 )
+                for ch in raw_dict.get("channels", [])
+            ]
+            return WaveformData(
+                channels=channels,
+                time_unit=raw_dict.get("time_unit", "us"),
+                total_duration=raw_dict.get("total_duration", 0.0),
+                sample_rate_hz=raw_dict.get("sample_rate_hz", 4000.0)
+            )
         except Exception as e:
             print(f"Error reading HDF5 {resolved}: {e}")
             return None
@@ -159,11 +158,12 @@ class ResultStore:
                 w_q = select(FileORM.filename).where(
                     and_(
                         FileORM.result_id == r.id,
-                        FileORM.file_type == FileType.WAVEFORM
+                        FileORM.file_type == FileType.WAVEFORM,
+                        FileORM.storage_path.like("%.h5")
                     )
-                )
+                ).order_by(FileORM.uploaded_at.desc())
                 w_res = await session.execute(w_q)
-                waveform_filename = w_res.scalar_one_or_none()
+                waveform_filename = w_res.scalars().first()
                 out.append(self._orm_to_model(r, waveform_available=waveform_filename is not None, waveform_filename=waveform_filename))
             return out
 
@@ -183,41 +183,44 @@ class ResultStore:
                     FileORM.result_id == result_id,
                     FileORM.file_type == FileType.LOG
                 )
-            )
+            ).order_by(FileORM.uploaded_at.desc())
             log_res = await session.execute(log_q)
-            log_file = log_res.scalar_one_or_none()
+            log_file = log_res.scalars().first()
             log_content = None
             if log_file:
-                log_content_bytes = await file_store.get_file_content(log_file.id)
-                if log_content_bytes:
-                    log_content = log_content_bytes.decode("utf-8", errors="replace")
+                log_abs = file_store.resolve_path(log_file.storage_path)
+                if os.path.exists(log_abs):
+                    with open(log_abs, "r", encoding="utf-8", errors="replace") as f:
+                        log_content = f.read()
 
-            # Retrieve waveform file status
+            # Retrieve waveform filename from files table
             wf_q = select(FileORM.filename).where(
                 and_(
                     FileORM.result_id == result_id,
-                    FileORM.file_type == FileType.WAVEFORM
+                    FileORM.file_type == FileType.WAVEFORM,
+                    FileORM.storage_path.like("%.h5")
                 )
-            )
+            ).order_by(FileORM.uploaded_at.desc())
             wf_res = await session.execute(wf_q)
-            waveform_filename = wf_res.scalar_one_or_none()
+            waveform_filename = wf_res.scalars().first()
 
             return self._orm_to_model(orm, log_content=log_content, waveform_available=waveform_filename is not None, waveform_filename=waveform_filename)
 
-    async def get_waveform(self, result_id: str) -> Optional[WaveformData]:
-        """Get full waveform data for a result."""
+    async def get_waveform(self, result_id: str, max_samples: Optional[int] = 100000) -> Optional[WaveformData]:
+        """Get full or downsampled waveform data for a result without blocking the async event loop."""
         async with async_session() as session:
             wf_q = select(FileORM.storage_path).where(
                 and_(
                     FileORM.result_id == result_id,
-                    FileORM.file_type == FileType.WAVEFORM
+                    FileORM.file_type == FileType.WAVEFORM,
+                    FileORM.storage_path.like("%.h5")
                 )
-            )
+            ).order_by(FileORM.uploaded_at.desc())
             wf_res = await session.execute(wf_q)
-            path = wf_res.scalar_one_or_none()
+            path = wf_res.scalars().first()
             if not path:
                 return None
-            return self._read_waveform_from_hdf5(path)
+            return await asyncio.to_thread(self._read_waveform_from_hdf5, path, max_samples)
 
     async def get_waveform_path(self, result_id: str) -> Optional[str]:
         """Get the absolute path to the waveform HDF5 file."""
@@ -225,11 +228,25 @@ class ResultStore:
             wf_q = select(FileORM.storage_path).where(
                 and_(
                     FileORM.result_id == result_id,
-                    FileORM.file_type == FileType.WAVEFORM
+                    FileORM.file_type == FileType.WAVEFORM,
+                    FileORM.storage_path.like("%.h5")
                 )
-            )
+            ).order_by(FileORM.uploaded_at.desc())
             wf_res = await session.execute(wf_q)
-            path = wf_res.scalar_one_or_none()
+            path = wf_res.scalars().first()
+            if not path:
+                # Fallback: check if result_id is actually a job_id
+                job_wf_q = select(FileORM.storage_path).join(
+                    ResultORM, ResultORM.id == FileORM.result_id
+                ).where(
+                    and_(
+                        ResultORM.job_id == result_id,
+                        FileORM.file_type == FileType.WAVEFORM,
+                        FileORM.storage_path.like("%.h5")
+                    )
+                ).order_by(ResultORM.created_at.desc())
+                path = (await session.execute(job_wf_q)).scalars().first()
+
             if not path:
                 return None
             return file_store.resolve_path(path)
@@ -256,6 +273,19 @@ class ResultStore:
                 res_t = await session.execute(q_t)
                 job_target_id = res_t.scalar_one_or_none()
                 if not job_target_id:
+                    # Ensure parent Job exists
+                    q_job = select(JobORM).where(JobORM.id == result.job_id)
+                    job_exists = (await session.execute(q_job)).scalar_one_or_none()
+                    if not job_exists:
+                        mock_job = JobORM(
+                            id=result.job_id,
+                            name=result.job_name,
+                            state="completed",
+                            progress=100
+                        )
+                        session.add(mock_job)
+                        await session.flush()
+
                     # Create job target mock for backward compatibility
                     mock_target = JobTargetORM(
                         id=str(uuid.uuid4()),
@@ -282,11 +312,25 @@ class ResultStore:
                     test_case_id = (await session.execute(tc_q)).scalar_one_or_none()
 
                 if not test_case_id:
+                    # Ensure vcd file exists in FileORM
+                    if not vcd_id:
+                        mock_file = FileORM(
+                            id=str(uuid.uuid4()),
+                            filename=result.vcd_filename or "instructions.ist",
+                            file_type=FileType.VCD,
+                            storage_path="uploads/VCD/default.vcd",
+                            checksum_sha256="",
+                            size_bytes=0
+                        )
+                        session.add(mock_file)
+                        await session.flush()
+                        vcd_id = mock_file.id
+
                     # Create a test case mockup
                     mock_tc = TestCaseORM(
                         id=str(uuid.uuid4()),
                         name=result.job_name + "_tc",
-                        vcd_file_id=vcd_id or str(uuid.uuid4())
+                        vcd_file_id=vcd_id
                     )
                     session.add(mock_tc)
                     await session.flush()

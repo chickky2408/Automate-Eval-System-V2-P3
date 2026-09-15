@@ -8,7 +8,7 @@ class WaveformChannel(BaseModel):
     """Single waveform channel data."""
     name: str
     color: str
-    data: List[Dict[str, Any]]  # [{time: float, value: int}, ...]
+    data: List[Any]  # [float, ...] or [{time: float, value: int}, ...]
 
 
 class WaveformData(BaseModel):
@@ -16,6 +16,7 @@ class WaveformData(BaseModel):
     channels: List[WaveformChannel]
     time_unit: str = "us"
     total_duration: float
+    sample_rate_hz: Optional[float] = 4000.0
 
 
 class TestResult(BaseModel):
@@ -39,6 +40,10 @@ class TestResult(BaseModel):
     console_log: Optional[str] = None
     waveform_available: bool = False
     waveform_filename: Optional[str] = None
+    f1_score: Optional[float] = None
+    sample_xor_score: Optional[float] = None
+    majority_score: Optional[float] = None
+    verification_status: Optional[str] = None
 
     class Config:
         from_attributes = True

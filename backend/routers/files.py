@@ -117,7 +117,7 @@ async def upload_file(
     if ext not in ALLOWED_UPLOAD_EXTENSIONS:
         raise HTTPException(
             status_code=400,
-            detail="Unsupported file type. Allowed extensions: .ist, .erom, .ulp",
+            detail="Unsupported file type. Allowed extensions: .ist, .vcd, .erom, .app, .bin, .hex, .ulp, .txt",
         )
     # Stored in DB as enum: VCD, EROM, ULP, TXT, … (not raw extension / OTHER for .erom/.ulp/.txt)
     file_type = classify_file_type_from_filename(filename)

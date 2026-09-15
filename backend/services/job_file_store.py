@@ -57,10 +57,22 @@ class JobFileStore:
         async with async_session() as session:
             # Check or create a TestCaseORM matching this VCD
             tc_id = None
+            vcd_id = None
             if vcd:
                 from db.orm_models import FileORM
-                f_res = await session.execute(select(FileORM.id).where(FileORM.filename == vcd))
-                vcd_id = f_res.scalar_one_or_none()
+                from services.file_store import file_store
+                f_res = await session.execute(
+                    select(FileORM).where(FileORM.filename == vcd).order_by(FileORM.uploaded_at.desc())
+                )
+                candidates = f_res.scalars().all()
+                for cand in candidates:
+                    cand_path = file_store.resolve_path(cand.storage_path)
+                    if os.path.exists(cand_path):
+                        vcd_id = cand.id
+                        break
+                if not vcd_id and candidates:
+                    vcd_id = candidates[0].id
+
                 if vcd_id:
                     tc_q = select(TestCaseORM.id).where(TestCaseORM.vcd_file_id == vcd_id)
                     tc_id = (await session.execute(tc_q)).scalar_one_or_none()
@@ -70,7 +82,7 @@ class JobFileStore:
                 mock_tc = TestCaseORM(
                     id=tc_id,
                     name=test_case_name or name,
-                    vcd_file_id=str(uuid.uuid4()) # fallback dummy VCD ID
+                    vcd_file_id=vcd_id or str(uuid.uuid4())
                 )
                 session.add(mock_tc)
                 await session.flush()

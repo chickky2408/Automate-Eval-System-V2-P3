@@ -173,7 +173,7 @@ async def _start_job_internal(job_id: str):
     # Treat draft the same as "stopped" for the purposes of checksum validation
     # (skip verify so draft->start is fast; pending/running jobs are always verified).
 
-    meta = fe_job_store.ensure_meta(
+    fe_job_store.ensure_meta(
         job.id,
         default_file_name=getattr(job, "vcd_filename", None),
         pairs_data=getattr(job, "pairs_data", None),
@@ -211,64 +211,48 @@ async def _start_job_internal(job_id: str):
                 },
             )
 
-    # If the real queue processor is active, let it handle the queue!
-    if job_queue_service._running:
-        from db.database import async_session
-        from sqlalchemy import update
-        from db.orm_models import JobORM, JobTargetORM, ResultORM
-        async with async_session() as session:
-            # Set job status to pending
-            await session.execute(
-                update(JobORM).where(JobORM.id == job_id).values(
-                    state="pending",
-                    progress=0,
-                    current_step="Pending in queue",
-                    started_at=None,
-                    completed_at=None,
-                    error_message=None
-                )
+    # pending_job_dispatcher (started unconditionally in main.py's lifespan) picks up
+    # any target with JobORM.state=="pending" and dispatches it to real hardware via
+    # job_queue_service._execute_target(), independent of job_queue_service._running.
+    # So Run always enqueues to pending here; it never falls back to the in-memory
+    # _simulate_job() mock (kept below, unreachable from this endpoint, for future
+    # no-hardware dev use).
+    from db.database import async_session
+    from sqlalchemy import update
+    from db.orm_models import JobORM, JobTargetORM, ResultORM
+    async with async_session() as session:
+        # Set job status to pending
+        await session.execute(
+            update(JobORM).where(JobORM.id == job_id).values(
+                state="pending",
+                progress=0,
+                current_step="Pending in queue",
+                started_at=None,
+                completed_at=None,
+                error_message=None
             )
-            # Set job targets to pending
-            await session.execute(
-                update(JobTargetORM).where(JobTargetORM.job_id == job_id).values(
-                    status="pending",
-                    started_at=None,
-                    completed_at=None
-                )
+        )
+        # Set job targets to pending
+        await session.execute(
+            update(JobTargetORM).where(JobTargetORM.job_id == job_id).values(
+                status="pending",
+                started_at=None,
+                completed_at=None
             )
-            # Reset all results to pending so they run again
-            await session.execute(
-                update(ResultORM).where(ResultORM.job_id == job_id).values(
-                    status="pending",
-                    passed=None,
-                    error_message=None,
-                    started_at=None,
-                    completed_at=None
-                )
+        )
+        # Reset all results to pending so they run again
+        await session.execute(
+            update(ResultORM).where(ResultORM.job_id == job_id).values(
+                status="pending",
+                passed=None,
+                error_message=None,
+                started_at=None,
+                completed_at=None
             )
-            await session.commit()
-        fe_job_store.sync_files_for_status(job_id, "pending")
-        return {"success": True, "message": "Job queued in active processing queue"}
-
-    assigned_board_id = None
-    boards_for_meta: List[str] = list(meta.get("boards") or [])
-    if not boards_for_meta:
-        b = await board_manager.get_available_board(target_board_id=getattr(job, "target_board_id", None))
-        if b is not None:
-            assigned_board_id = b.id
-            meta["boards"] = [b.name or b.id]
-            await board_manager.set_board_busy(b.id, job.id)
-
-    await job_queue_service.update_job_status(
-        job_id,
-        JobState.RUNNING,
-        progress=0,
-        started_at=datetime.utcnow(),
-        assigned_board_id=assigned_board_id,
-    )
-    fe_job_store.sync_files_for_status(job_id, "running")
-    await _ensure_job_simulation(job_id)
-    return {"success": True, "message": "Job started"}
+        )
+        await session.commit()
+    fe_job_store.sync_files_for_status(job_id, "pending")
+    return {"success": True, "message": "Job queued in active processing queue"}
 
 
 async def _autostart_next_pending():

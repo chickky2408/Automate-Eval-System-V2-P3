@@ -11,19 +11,21 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from db.database import async_session
-from db.orm_models import FileORM, FileType, ResultORM
+from db.orm_models import FileORM, FileType, ResultORM, TestCaseORM
 from services.file_store import file_store
-from services.waveform_file import convert_bin_to_vcd
+from services.waveform_comparator import waveform_comparator_service
+from services.waveform_file import convert_bin_to_vcd, trim_bin_beats
 
 router = APIRouter()
 
@@ -117,60 +119,106 @@ def _decompress_lz4_to_bin(lz4_path: str, raw_bin_path: str) -> int:
     return os.path.getsize(raw_bin_path)
 
 
-def _convert_to_hdf5(bin_path: str, h5_path: str) -> int:
+CHANNEL_NAMES = ["CH0", "CH1", "CH2", "CH3", "CH4", "CH5", "CH6", "CH7"]
+CHANNEL_COLORS = ["#e74c3c", "#3498db", "#2ecc71", "#f1c40f", "#9b59b6", "#1abc9c", "#e67e22", "#34495e"]
+
+
+def _convert_to_hdf5(bin_path: str, h5_path: str, stride: int, offset: int, word_size: int = 1) -> int:
+    """Write both the flat 'raw' dataset (legacy/back-compat) and a 'channels'
+    group extracted with the same stride/byte-offset as the VCD writer, so the
+    waveform viewer shows the same bit-level channels as the logic trace
+    instead of the unfiltered raw AXI beat bytes.
+    """
     import h5py
     import numpy as np
 
     total = os.path.getsize(bin_path)
     sample_count = total // 2
     os.makedirs(os.path.dirname(h5_path), exist_ok=True)
+
+    num_channels = min(len(CHANNEL_NAMES), word_size * 8)
+
     with h5py.File(h5_path, "w") as h5f:
         data = np.memmap(bin_path, dtype="<i2", mode="r", shape=(sample_count,)) if sample_count else np.array([], dtype="<i2")
         ds = h5f.create_dataset("raw", data=np.asarray(data, dtype="<i2"))
         ds.attrs["source_bin"] = Path(bin_path).name
         ds.attrs["sample_count"] = sample_count
         ds.attrs["created_at_unix"] = datetime.utcnow().timestamp()
+
+        grp = h5f.create_group("channels")
+        extracted_count = total // stride if stride > 0 else 0
+        if extracted_count > 0:
+            raw_bytes = np.fromfile(bin_path, dtype=np.uint8, count=extracted_count * stride)
+            raw_bytes = raw_bytes[: extracted_count * stride].reshape(extracted_count, stride)
+            column = raw_bytes[:, offset:offset + word_size].copy().view(dtype=np.uint8).reshape(-1)
+            for i in range(num_channels):
+                bit_vals = ((column >> i) & 1).astype(np.uint8)
+                cds = grp.create_dataset(CHANNEL_NAMES[i], data=bit_vals, compression="gzip")
+                cds.attrs["color"] = CHANNEL_COLORS[i]
+
+        h5f.attrs["sample_rate_hz"] = 1.0e8  # 10 ns/sample, matches the VCD timescale
+        h5f.attrs["time_unit"] = "us"
+        h5f.attrs["total_duration"] = (extracted_count * 10e-9 / 1e-6) if extracted_count else 0.0
+
     return os.path.getsize(h5_path)
 
 
-def _process_waveform_artifacts(tmp_path: str, target_filename: str, abs_h5: str, abs_vcd: str) -> tuple[int, int]:
+def _process_waveform_artifacts(tmp_path: str, target_filename: str, abs_h5: str, abs_vcd: str, abs_lz4: str) -> tuple[int, int, int]:
     """
-    Decompresses LZ4 if needed, converts to HDF5 and VCD waveform formats.
-    Returns (h5_size, vcd_size).
+    Saves permanent compressed .bin.lz4, temporarily decompresses to generate HDF5 and VCD,
+    then immediately purges the temporary raw .bin file to save storage.
+    Returns (h5_size, vcd_size, lz4_size).
     """
     is_lz4 = _is_lz4_file(tmp_path) or target_filename.endswith(".lz4")
-    raw_bin_path = f"{tmp_path}.decompressed.bin" if is_lz4 else tmp_path
+    os.makedirs(os.path.dirname(abs_lz4), exist_ok=True)
+    os.makedirs(os.path.dirname(abs_h5), exist_ok=True)
+    os.makedirs(os.path.dirname(abs_vcd), exist_ok=True)
 
+    # 1. Store permanent compressed .bin.lz4 directly to abs_lz4
+    if is_lz4:
+        shutil.copy2(tmp_path, abs_lz4)
+    else:
+        import lz4.frame
+        with open(tmp_path, "rb") as fin, lz4.frame.open(abs_lz4, "wb") as fout:
+            shutil.copyfileobj(fin, fout, length=4 * 1024 * 1024)
+
+    lz4_size = os.path.getsize(abs_lz4) if os.path.exists(abs_lz4) else 0
+
+    # 2. Decompress temporarily to extract HDF5 and VCD
+    tmp_raw_bin = abs_lz4 + f".{uuid.uuid4().hex[:8]}.tmp.bin"
     try:
-        if is_lz4:
-            _decompress_lz4_to_bin(tmp_path, raw_bin_path)
+        _decompress_lz4_to_bin(abs_lz4, tmp_raw_bin)
+        bin_size = os.path.getsize(tmp_raw_bin) if os.path.exists(tmp_raw_bin) else 0
+        stride = 16 if (bin_size % 16 == 0 and bin_size >= 16) else 1
+        offset = 0x0C if stride == 16 else 0
 
-        # 1. Generate HDF5 Dataset
-        h5_size = _convert_to_hdf5(raw_bin_path, abs_h5)
+        # 3. Generate HDF5 Dataset (raw + extracted channels, same stride/offset as VCD below)
+        h5_size = _convert_to_hdf5(tmp_raw_bin, abs_h5, stride=stride, offset=offset)
 
-        # 2. Generate Logic Trace VCD
-        raw_size = os.path.getsize(raw_bin_path) if os.path.exists(raw_bin_path) else 0
+        # 4. Generate Logic Trace VCD (bus mode: monitor_data [15:0])
         vcd_size = 0
-        if raw_size > 0:
-            stride = 16 if (raw_size % 16 == 0 and raw_size >= 16) else 1
-            offset = 0x0C if stride == 16 else 0
+        if bin_size > 0:
             convert_bin_to_vcd(
-                bin_filepath=raw_bin_path,
+                bin_filepath=tmp_raw_bin,
                 vcd_filepath=abs_vcd,
-                channel_names=["CH0", "CH1", "CH2", "CH3", "CH4", "CH5", "CH6", "CH7"],
                 stride_bytes=stride,
                 byte_offset=offset,
-                timescale="10 ns"
+                timescale="1 ps",
+                bus_mode=True,
+                bus_width=16,
+                bus_name="monitor_data",
+                ts_scale=10000,  # 100 MHz @ 1ps: 10 ns/sample = 10 000 ps
             )
             vcd_size = os.path.getsize(abs_vcd) if os.path.exists(abs_vcd) else 0
-
-        return h5_size, vcd_size
     finally:
-        if is_lz4 and os.path.exists(raw_bin_path):
+        # 5. IMMEDIATELY PURGE TEMPORARY RAW .BIN (Zero uncompressed raw .bin kept on disk)
+        if os.path.exists(tmp_raw_bin):
             try:
-                os.remove(raw_bin_path)
+                os.remove(tmp_raw_bin)
             except OSError:
                 pass
+
+    return h5_size, vcd_size, lz4_size
 
 
 @router.post("/v1/upload/init")
@@ -232,8 +280,85 @@ async def upload_part(upload_id: str, part_index: int, request: Request) -> dict
     return {"status": "ok", "part_index": part_index, "bytes_received": session.bytes_received}
 
 
+async def run_waveform_verification(result_id: str, vcd_abs_path: Optional[str] = None) -> None:
+    """
+    Asynchronous digital waveform verification against Golden Expected VCD.
+    Computes Trigger Alignment, Strobe Majority Voting XOR, and Edge F1 score.
+    Saves compressed .diff.json.lz4 artifact and updates ResultORM.
+    """
+    async with async_session() as db:
+        run = (await db.execute(select(ResultORM).where(ResultORM.id == result_id))).scalar_one_or_none()
+        if not run:
+            return
+
+        if not run.test_case_id:
+            run.verification_status = "SKIPPED"
+            await db.commit()
+            return
+
+        test_case = (await db.execute(select(TestCaseORM).where(TestCaseORM.id == run.test_case_id))).scalar_one_or_none()
+        if not test_case or not test_case.vcd_file_id:
+            run.verification_status = "SKIPPED"
+            await db.commit()
+            return
+
+        golden_file = (await db.execute(select(FileORM).where(FileORM.id == test_case.vcd_file_id))).scalar_one_or_none()
+        if not golden_file or not golden_file.storage_path:
+            run.verification_status = "SKIPPED"
+            await db.commit()
+            return
+
+        golden_abs = file_store.resolve_path(golden_file.storage_path)
+        if not os.path.exists(golden_abs) or not golden_file.filename.lower().endswith(".vcd"):
+            run.verification_status = "SKIPPED"
+            await db.commit()
+            return
+
+        # Determine actual captured VCD path
+        actual_abs = vcd_abs_path
+        if not actual_abs or not os.path.exists(actual_abs):
+            vcd_rec = (await db.execute(
+                select(FileORM).where(FileORM.result_id == result_id, FileORM.filename.like("%.vcd"))
+            )).scalars().first()
+            if vcd_rec and vcd_rec.storage_path:
+                cand = file_store.resolve_path(vcd_rec.storage_path)
+                if os.path.exists(cand):
+                    actual_abs = cand
+
+        if not actual_abs or not os.path.exists(actual_abs):
+            run.verification_status = "SKIPPED"
+            await db.commit()
+            return
+
+        # Run comparison in background thread
+        try:
+            diff_payload = await asyncio.to_thread(
+                waveform_comparator_service.compare_and_build_diff,
+                result_id=result_id,
+                expected_vcd_path=golden_abs,
+                actual_vcd_path=actual_abs,
+            )
+            waveform_comparator_service.save_diff_artifact(result_id, diff_payload)
+
+            summary = diff_payload.get("summary", {})
+            run.f1_score = summary.get("avg_f1_score")
+            run.sample_xor_score = summary.get("avg_sample_xor_score")
+            run.majority_score = summary.get("avg_majority_score")
+            run.verification_status = "PASS" if summary.get("overall_pass") else "FAIL"
+            await db.commit()
+            print(f"[waveform_verification] Result {result_id} verified: status={run.verification_status}, F1={run.f1_score}")
+        except Exception as exc:
+            print(f"[waveform_verification] Verification error for {result_id}: {exc}")
+            run.verification_status = "ERROR"
+            await db.commit()
+
+
 @router.post("/v1/upload/complete/{upload_id}")
-async def complete_upload(upload_id: str, payload: CompleteUploadRequest) -> dict:
+async def complete_upload(
+    upload_id: str,
+    payload: CompleteUploadRequest,
+    background_tasks: BackgroundTasks,
+) -> dict:
     session = SESSIONS.get(upload_id)
     if session is None:
         raise HTTPException(status_code=404, detail=f"Upload not found: {upload_id}")
@@ -254,9 +379,12 @@ async def complete_upload(upload_id: str, payload: CompleteUploadRequest) -> dic
         rel_vcd = f"uploads/WAVEFORM/{now:%Y}/{now:%m}/{result_id}.vcd"
         abs_vcd = file_store.resolve_path(rel_vcd)
 
+        rel_lz4 = f"uploads/WAVEFORM/{now:%Y}/{now:%m}/{result_id}_capture.bin.lz4"
+        abs_lz4 = file_store.resolve_path(rel_lz4)
+
         try:
-            h5_size, vcd_size = await asyncio.to_thread(
-                _process_waveform_artifacts, session.tmp_path, session.target_filename, abs_h5, abs_vcd
+            h5_size, vcd_size, lz4_size = await asyncio.to_thread(
+                _process_waveform_artifacts, session.tmp_path, session.target_filename, abs_h5, abs_vcd, abs_lz4
             )
         finally:
             try:
@@ -273,6 +401,11 @@ async def complete_upload(upload_id: str, payload: CompleteUploadRequest) -> dic
         if os.path.exists(abs_vcd):
             with open(abs_vcd, "rb") as fh:
                 vcd_checksum = hashlib.sha256(fh.read()).hexdigest()
+
+        lz4_checksum = None
+        if os.path.exists(abs_lz4):
+            with open(abs_lz4, "rb") as fh:
+                lz4_checksum = hashlib.sha256(fh.read()).hexdigest()
 
         async with async_session() as db:
             run = (await db.execute(select(ResultORM).where(ResultORM.id == result_id))).scalar_one_or_none()
@@ -309,7 +442,28 @@ async def complete_upload(upload_id: str, payload: CompleteUploadRequest) -> dic
                 )
                 db.add(wf_vcd)
 
+            # 3. Register LZ4 Record (compressed capture binary, raw bin is discarded to save disk)
+            if lz4_size > 0 and lz4_checksum:
+                wf_lz4 = FileORM(
+                    id=str(uuid.uuid4()),
+                    filename=f"{result_id}_capture.bin.lz4",
+                    file_type=FileType.WAVEFORM,
+                    storage_path=rel_lz4,
+                    checksum_sha256=lz4_checksum,
+                    size_bytes=lz4_size,
+                    result_id=result_id if run else None,
+                    uploaded_at=now,
+                )
+                db.add(wf_lz4)
+
             await db.commit()
+
+        if run and background_tasks is not None:
+            background_tasks.add_task(
+                run_waveform_verification,
+                result_id=result_id,
+                vcd_abs_path=abs_vcd if vcd_size > 0 else None,
+            )
 
     return {
         "status": "completed",
@@ -319,4 +473,6 @@ async def complete_upload(upload_id: str, payload: CompleteUploadRequest) -> dic
         "sha256": session.hasher.hexdigest(),
         "hdf5_file_path": rel_h5,
         "vcd_file_path": rel_vcd if vcd_size > 0 else None,
+        "lz4_file_path": rel_lz4 if lz4_size > 0 else None,
+        "bin_file_path": None,
     }

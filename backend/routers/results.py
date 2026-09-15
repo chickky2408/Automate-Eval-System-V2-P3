@@ -6,6 +6,7 @@ from datetime import datetime
 
 from models.result import TestResult, WaveformData
 from services.result_store import result_store
+from services.waveform_comparator import waveform_comparator_service
 from services.waveform_file import WaveformFormatError, read_waveform_preview, waveform_csv_text
 
 router = APIRouter()
@@ -37,12 +38,27 @@ async def get_result(result_id: str):
 
 
 @router.get("/{result_id}/waveform", response_model=WaveformData)
-async def get_waveform(result_id: str):
-    """Get waveform data for a test result."""
-    waveform = await result_store.get_waveform(result_id)
+async def get_waveform(
+    result_id: str,
+    max_samples: Optional[int] = Query(100000, ge=0, le=1000000, description="Max samples to return. 0 returns all samples without decimation.")
+):
+    """Get waveform data for a test result with optional decimation/downsampling."""
+    waveform = await result_store.get_waveform(result_id, max_samples=max_samples)
     if not waveform:
         raise HTTPException(status_code=404, detail="Waveform data not available")
     return waveform
+
+
+@router.get("/{result_id}/waveform-diff")
+async def get_waveform_diff(result_id: str):
+    """Get waveform comparison diff artifact containing mismatch zones, alignment metrics, and expected traces."""
+    diff_data = waveform_comparator_service.load_diff_artifact(result_id)
+    if not diff_data:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Waveform diff artifact not found for result {result_id} (verification may have been skipped or not run)"
+        )
+    return diff_data
 
 
 @router.get("/{result_id}/preview")
@@ -61,9 +77,9 @@ async def preview_result_waveform(result_id: str, max_samples: int = Query(2000,
 
 @router.get("/{result_id}/export")
 async def export_result_file(result_id: str, format: str = Query("h5")):
-    """Export stored waveform result as canonical HDF5, VCD, or generated CSV."""
+    """Export stored waveform result as canonical HDF5, VCD, LZ4 compressed binary, or generated CSV."""
     export_format = (format or "h5").strip().lower()
-    if export_format not in {"h5", "csv", "vcd"}:
+    if export_format not in {"h5", "csv", "vcd", "lz4", "bin"}:
         raise HTTPException(status_code=400, detail=f"Unsupported export format: {format}")
 
     path = await result_store.get_waveform_path(result_id)
@@ -82,14 +98,50 @@ async def export_result_file(result_id: str, format: str = Query("h5")):
         )
 
     if export_format == "vcd":
-        vcd_path = os.path.splitext(path)[0] + ".vcd"
-        if os.path.exists(vcd_path):
-            return FileResponse(
-                path=vcd_path,
-                media_type="text/plain; charset=utf-8",
-                filename=f"result_{result_id}.vcd",
-            )
+        base_dir = os.path.dirname(path)
+        base_name = os.path.splitext(os.path.basename(path))[0]
+        candidate_vcd_paths = [
+            os.path.splitext(path)[0] + ".vcd",
+            os.path.join(base_dir, f"{result_id}_logic.vcd"),
+            os.path.join(base_dir, f"{base_name}_logic.vcd"),
+        ]
+        for vcd_path in candidate_vcd_paths:
+            if os.path.exists(vcd_path):
+                return FileResponse(
+                    path=vcd_path,
+                    media_type="text/plain; charset=utf-8",
+                    filename=f"result_{result_id}.vcd",
+                )
         raise HTTPException(status_code=404, detail="VCD waveform file not found on disk for this result")
+
+    if export_format in {"lz4", "bin"}:
+        base_dir = os.path.dirname(path)
+        base_name = os.path.splitext(os.path.basename(path))[0]
+        candidate_lz4_names = [
+            f"{result_id}_capture.bin.lz4",
+            f"{base_name}_capture.bin.lz4",
+            f"{base_name}.bin.lz4",
+            f"{base_name}.lz4",
+            f"{result_id}.bin.lz4",
+            f"{result_id}.lz4",
+        ]
+        for c_name in candidate_lz4_names:
+            c_path = os.path.join(base_dir, c_name)
+            if os.path.exists(c_path):
+                return FileResponse(
+                    path=c_path,
+                    media_type="application/x-lz4",
+                    filename=f"result_{result_id}_capture.bin.lz4",
+                )
+        if export_format == "bin":
+            bin_path = os.path.splitext(path)[0] + ".bin"
+            if os.path.exists(bin_path):
+                return FileResponse(
+                    path=bin_path,
+                    media_type="application/octet-stream",
+                    filename=f"result_{result_id}.bin",
+                )
+        raise HTTPException(status_code=404, detail="LZ4 capture binary file not found on disk for this result")
 
     try:
         csv_text = waveform_csv_text(path)

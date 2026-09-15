@@ -186,6 +186,10 @@ class ResultORM(Base):
     execution_order = Column(Integer, nullable=False, default=0)
     try_count = Column(Integer, default=0)
     passed = Column(Boolean, nullable=True) # Null until test runs
+    f1_score = Column(Float, nullable=True, index=True)
+    sample_xor_score = Column(Float, nullable=True)
+    majority_score = Column(Float, nullable=True)
+    verification_status = Column(String(32), default="SKIPPED", index=True)
     duration_seconds = Column(Float, nullable=True)
     error_message = Column(Text, nullable=True)
     metrics_json = Column(JSON, nullable=True) # CRC, packet_count, etc.

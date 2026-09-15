@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from sqlalchemy import select, and_
@@ -41,6 +41,7 @@ logger = logging.getLogger(__name__)
 POLL_INTERVAL: float = 3.0
 # ป้องกัน target เดิมถูก dispatch ซ้ำพร้อมกัน
 _dispatching: set[str] = set()
+_dispatching_boards: set[str] = set()
 
 
 class PendingJobDispatcher:
@@ -121,8 +122,15 @@ class PendingJobDispatcher:
             board_result = await session.execute(board_status_q)
             board_rows = board_result.scalars().all()
 
-        # index: board_id → state
-        board_state: dict[str, str] = {r.board_id: (r.state or "offline") for r in board_rows}
+        now = datetime.utcnow()
+        # Cutoff: พิจารณาว่า online ต่อเมื่อมี heartbeat ภายใน 35 วินาทีล่าสุด
+        heartbeat_cutoff = now - timedelta(seconds=35)
+
+        # index: board_id → (state, is_fresh)
+        board_info: dict[str, tuple[str, bool]] = {}
+        for r in board_rows:
+            is_fresh = bool(r.last_heartbeat and r.last_heartbeat >= heartbeat_cutoff)
+            board_info[r.board_id] = (r.state or "offline", is_fresh)
 
         # 3. จับคู่ target → board ที่ว่าง
         for target in pending_targets:
@@ -135,42 +143,42 @@ class PendingJobDispatcher:
             assigned_board_id: Optional[str] = None
 
             if target.target_type == "specific" and target.requested_board_id:
-                # ตรวจบอร์ดที่ระบุ
-                s = board_state.get(target.requested_board_id, "offline")
-                if s == "online":
-                    assigned_board_id = target.requested_board_id
+                # ตรวจบอร์ดที่ระบุ (ต้อง state=online และ heartbeat สดใหม่ และไม่ถูก dispatch อยู่)
+                bid = target.requested_board_id
+                s, is_fresh = board_info.get(bid, ("offline", False))
+                if s == "online" and is_fresh and bid not in _dispatching_boards:
+                    assigned_board_id = bid
             else:
-                # target_type = 'any' → หาบอร์ดว่างตัวแรก
-                for bid, s in board_state.items():
-                    if s == "online":
-                        # ตรวจว่าบอร์ดนั้นไม่ถูก lock โดย target อื่นที่กำลัง dispatch
-                        if bid not in _dispatching:
-                            assigned_board_id = bid
-                            break
+                # target_type = 'any' → หาบอร์ดว่างตัวแรกที่มี heartbeat สดใหม่
+                for bid, (s, is_fresh) in board_info.items():
+                    if s == "online" and is_fresh and bid not in _dispatching_boards:
+                        assigned_board_id = bid
+                        break
 
             if not assigned_board_id:
                 # บอร์ดยังไม่ว่าง รอรอบหน้า
                 continue
 
-            # 4. Lock ก่อน dispatch
+            # 4. Lock ก่อน dispatch (ทั้ง target และ board)
             _dispatching.add(target_id)
-            # mark board ชั่วคราวเป็น busy เพื่อป้องกัน race condition
+            _dispatching_boards.add(assigned_board_id)
+            # mark board ชั่วคราวเป็น busy ใน memory เพื่อป้องกัน race condition
             # กับ target อื่นใน loop เดียวกัน
-            board_state[assigned_board_id] = "busy"
+            board_info[assigned_board_id] = ("busy", False)
 
             print(
                 f"[PendingDispatcher] Dispatching target {target_id} "
                 f"(job={target.job_id}) → board {assigned_board_id}"
             )
             asyncio.create_task(
-                self._run_target(target_id),
+                self._run_target(target_id, assigned_board_id),
                 name=f"dispatch_{target_id}",
             )
 
-    async def _run_target(self, target_id: str) -> None:
+    async def _run_target(self, target_id: str, board_id: Optional[str] = None) -> None:
         """
         Wrapper รอบ job_queue_service._execute_target():
-        - Unlock _dispatching เมื่อเสร็จหรือ error
+        - Unlock _dispatching และ _dispatching_boards เมื่อเสร็จหรือ error
         - Log ผลลัพธ์
         """
         # import ที่นี่เพื่อหลีกเลี่ยง circular import ตอน module load
@@ -185,6 +193,8 @@ class PendingJobDispatcher:
             logger.exception(f"[PendingDispatcher] Error executing target {target_id}")
         finally:
             _dispatching.discard(target_id)
+            if board_id:
+                _dispatching_boards.discard(board_id)
 
     # ------------------------------------------------------------------
     # Manual trigger (เรียกได้จาก router เมื่อมี board กลับมา online)

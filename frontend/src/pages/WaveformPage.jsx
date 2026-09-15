@@ -602,15 +602,9 @@ const WaveformPage = () => {
         }
 
         if (showCursorRef.current && bufHasData && toDraw && n >= 2) {
-          const chMap = {
-            ch1: 'CH1', ch2: 'CH2', ch3: 'CH3', ch4: 'CH4',
-            ch5: 'CH5', ch6: 'CH6', ch7: 'CH7', ch8: 'CH8',
-          };
-          const arr = buffers[chMap[cursorChannelRef.current]];
-          const seg = arr && arr.length >= 2 ? arr.slice(startIndex, endIndex) : null;
-
-          const getTVAtFrac = (f) => {
-            if (!seg) return { tMs: 0, v: 0 };
+          const getTVAtFracFor = (arr, f) => {
+            const seg = arr && arr.length >= 2 ? arr.slice(startIndex, endIndex) : null;
+            if (!seg || seg.length < 2) return null;
             const idx = f * (n - 1);
             const i0 = Math.min(Math.floor(idx), n - 2);
             const i1 = i0 + 1;
@@ -622,7 +616,7 @@ const WaveformPage = () => {
             return { tMs, v };
           };
 
-          const drawOneCursor = (frac, isSecond) => {
+          const drawCursorLine = (frac, isSecond) => {
             const cursorX = plotLeft + frac * plotW;
             const lineColor = isSecond
               ? 'rgba(96, 165, 250, 0.95)'
@@ -637,44 +631,47 @@ const WaveformPage = () => {
             ctx.lineTo(cursorX, plotBottom);
             ctx.stroke();
             ctx.setLineDash([]);
-
-            if (seg) {
-              const { tMs, v } = getTVAtFrac(frac);
-              const y = midY - (v - midVal) * scaleY;
-              ctx.fillStyle = isSecond
-                ? 'rgba(59, 130, 246, 0.95)'
-                : isDark
-                  ? 'rgba(226, 232, 240, 0.95)'
-                  : 'rgba(15, 23, 42, 0.95)';
-              ctx.strokeStyle = isDark ? '#94a3b8' : '#0f172a';
-              ctx.lineWidth = 1.5;
-              const sq = 6;
-              ctx.fillRect(cursorX - sq / 2, y - sq / 2, sq, sq);
-              ctx.strokeRect(cursorX - sq / 2, y - sq / 2, sq, sq);
-              const label = `T: ${tMs.toFixed(2)} ms   V: ${v.toFixed(2)} V`;
-              ctx.font = '11px system-ui, sans-serif';
-              ctx.fillStyle = pal.cursorLabel;
-              ctx.textAlign = isSecond ? 'right' : 'left';
-              ctx.textBaseline = 'middle';
-              const tx = isSecond ? cursorX - 8 : cursorX + 8;
-              const ty = Math.max(plotTop + 10, Math.min(plotBottom - 10, y));
-              ctx.fillText(label, tx, ty);
-            }
-            return seg ? getTVAtFrac(frac) : null;
           };
 
-          const data1 = drawOneCursor(Math.max(0, Math.min(1, cursorFracRef.current)), false);
-          if (showCursor2Ref.current) {
-            const data2 = drawOneCursor(Math.max(0, Math.min(1, cursor2FracRef.current)), true);
-            if (data1 && data2) {
-              const deltaT = data2.tMs - data1.tMs;
-              const deltaV = data2.v - data1.v;
-              ctx.font = '12px system-ui, sans-serif';
-              ctx.fillStyle = pal.deltaLabel;
-              ctx.textAlign = 'center';
-              ctx.textBaseline = 'top';
-              ctx.fillText(`ΔT: ${deltaT.toFixed(2)} ms   ΔV: ${deltaV.toFixed(2)} V`, plotLeft + plotW / 2, plotTop + 4);
+          const drawChannelList = (frac, rowY) => {
+            let x = plotLeft + 4;
+            const y = rowY;
+            ctx.font = 'bold 10px system-ui, sans-serif';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'top';
+            let anyValue = false;
+            let firstTMs = null;
+            for (const cd of chDefs) {
+              const data = getTVAtFracFor(buffers[cd.id], frac);
+              if (!data) continue;
+              anyValue = true;
+              if (firstTMs === null) firstTMs = data.tMs;
+              const text = `${cd.short}:${data.v.toFixed(0)}`;
+              ctx.fillStyle = cd.color;
+              ctx.fillText(text, x, y);
+              x += ctx.measureText(text).width + 10;
             }
+            return anyValue ? { tMs: firstTMs } : null;
+          };
+
+          const frac1 = Math.max(0, Math.min(1, cursorFracRef.current));
+          drawCursorLine(frac1, false);
+          const row1 = drawChannelList(frac1, plotTop + 4);
+
+          let row2 = null;
+          if (showCursor2Ref.current) {
+            const frac2 = Math.max(0, Math.min(1, cursor2FracRef.current));
+            drawCursorLine(frac2, true);
+            row2 = drawChannelList(frac2, plotTop + 18);
+          }
+
+          if (row1 && row2) {
+            const deltaT = row2.tMs - row1.tMs;
+            ctx.font = '12px system-ui, sans-serif';
+            ctx.fillStyle = pal.deltaLabel;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillText(`ΔT: ${deltaT.toFixed(2)} ms`, plotLeft + plotW / 2, plotTop + 4);
           }
         }
       } else {
@@ -1099,35 +1096,6 @@ const WaveformPage = () => {
     });
   };
 
-  const handleExportCsv = () => {
-    const buffers = bufferRef.current;
-    const ch1 = buffers.CH1 || [];
-    const nCh1 = ch1.length;
-    if (nCh1 < 2) return;
-    const displayCount = Math.max(
-      2,
-      Math.min(sampleCount || 0, Math.round(DISPLAY_WAVEFORM_SAMPLES / (zoomLevel || 1)))
-    );
-    const endIndex = Math.max(0, Math.min(nCh1, nCh1 - (paused ? scrollOffset : 0)));
-    const startIndex = Math.max(0, endIndex - displayCount);
-    const n = endIndex - startIndex;
-    const fsVal = meta.fs || 4000;
-    const chKeys = ['CH1', 'CH2', 'CH3', 'CH4', 'CH5', 'CH6', 'CH7', 'CH8'];
-    const rows = [['sample_index', 'time_ms', ...chKeys]];
-    for (let i = 0; i < n; i++) {
-      const idx = startIndex + i;
-      const tMs = (idx / fsVal) * 1000;
-      const cell = (id) => {
-        const arr = buffers[id];
-        return arr && idx < arr.length && arr[idx] != null ? String(Number(arr[idx])) : '';
-      };
-      rows.push([String(i), String(tMs), ...chKeys.map((k) => cell(k))]);
-    }
-    const csv = rows.map((r) => r.join(',')).join('\n');
-    const bom = '\uFEFF';
-    triggerDownloadBlob(new Blob([bom + csv], { type: 'text/csv;charset=utf-8' }), `${exportFilenameBase()}.csv`);
-  };
-
   const loadSelectedResultPreview = async () => {
     if (!selectedResultId) return;
     setResultLoading(true);
@@ -1170,7 +1138,15 @@ const WaveformPage = () => {
     if (!selectedResultId) return;
     const a = document.createElement('a');
     a.href = resultWaveformExportUrl(selectedResultId, format);
-    a.download = `result_${selectedResultId}.${format === 'csv' ? 'csv' : 'h5'}`;
+    let filename = `result_${selectedResultId}.h5`;
+    if (format === 'lz4' || format === 'bin') {
+      filename = `result_${selectedResultId}_capture.bin.lz4`;
+    } else if (format === 'vcd') {
+      filename = `result_${selectedResultId}.vcd`;
+    } else if (format === 'csv') {
+      filename = `result_${selectedResultId}.csv`;
+    }
+    a.download = filename;
     a.rel = 'noopener';
     document.body.appendChild(a);
     a.click();
@@ -1548,12 +1524,12 @@ const WaveformPage = () => {
               </button>
               <button
                 type="button"
-                onClick={() => downloadSelectedResult('csv')}
+                onClick={() => downloadSelectedResult('lz4')}
                 disabled={!selectedResultId}
-                className="px-2.5 py-1.5 rounded-xl text-xs font-semibold border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-100 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 disabled:opacity-50 transition-colors shrink-0"
-                title="Export CSV of full run"
+                className="px-2.5 py-1.5 rounded-xl text-xs font-semibold border border-sky-300 dark:border-sky-700 bg-sky-50 dark:bg-sky-950/60 text-sky-800 dark:text-sky-100 hover:bg-sky-100 dark:hover:bg-sky-900/50 disabled:opacity-50 transition-colors shrink-0"
+                title="Download compressed binary capture (.bin.lz4)"
               >
-                CSV
+                LZ4
               </button>
             </div>
 
@@ -1728,16 +1704,6 @@ const WaveformPage = () => {
               >
                 <ImageDown size={16} />
                 <span className="hidden sm:inline">PNG</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleExportCsv}
-                disabled={sampleCount < 2}
-                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 text-sm font-semibold text-emerald-800 dark:text-emerald-200 hover:bg-emerald-200/70 dark:hover:bg-emerald-900/60 rounded-lg transition-all disabled:opacity-40 disabled:pointer-events-none"
-                title="Export visible time window as CSV (same range as the chart)"
-              >
-                <FileSpreadsheet size={16} />
-                <span className="hidden sm:inline">CSV</span>
               </button>
             </div>
 
@@ -2001,7 +1967,7 @@ const WaveformPage = () => {
             )}
           </div>
           <p className="text-[10px] text-slate-500 dark:text-slate-400 mb-2 leading-snug">
-            PNG saves the chart as it looks now (layout, zoom, pause/scroll). Kept here until you close or refresh this tab — use CSV for raw numbers in the same time window.
+            PNG saves the chart as it looks now (layout, zoom, pause/scroll). Kept here until you close or refresh this tab.
           </p>
           {snapshots.length === 0 ? (
             <p className="text-xs text-slate-500 dark:text-slate-400">No captures yet — press PNG above.</p>

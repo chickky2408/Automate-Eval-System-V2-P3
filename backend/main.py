@@ -65,7 +65,12 @@ async def _board_watchdog_loop() -> None:
             )
             if flipped:
                 print(f"[watchdog] Marked {flipped} board(s) offline")
-            
+
+            # Evict boards stuck in busy state > 15 minutes
+            evicted = await board_manager.evict_stale_busy_boards(max_busy_seconds=900)
+            if evicted:
+                print(f"[watchdog] Evicted {evicted} stuck busy board(s)")
+
             # Clean up stale upload sessions idle for >10 mins
             await agent_results.cleanup_stale_upload_sessions(max_idle_seconds=600)
         except Exception:

@@ -72,6 +72,7 @@ const Workspace = () => {
             title="KR260-01 Live Capture Stream (SPI / CML Signals)"
             sampleRateMhz={100}
             totalSamples={50000}
+            resultId="res-20260826-kr260-01"
           />
         </div>
       )}

@@ -6,17 +6,25 @@ import {
   resultWaveformPreviewUrl,
 } from './resultWaveformExport.js';
 
-test('builds result waveform CSV export URL', () => {
+test('builds result waveform export URLs', () => {
   assert.equal(
     resultWaveformExportUrl('result-1', 'csv'),
-    'http://localhost:8000/api/results/result-1/export?format=csv'
+    '/api/results/result-1/export?format=csv'
+  );
+  assert.equal(
+    resultWaveformExportUrl('result-1', 'bin'),
+    '/api/results/result-1/export?format=bin'
+  );
+  assert.equal(
+    resultWaveformExportUrl('result-1', 'lz4'),
+    '/api/results/result-1/export?format=lz4'
   );
 });
 
 test('builds result waveform preview URL with max samples', () => {
   assert.equal(
     resultWaveformPreviewUrl('result-1', 500),
-    'http://localhost:8000/api/results/result-1/preview?max_samples=500'
+    '/api/results/result-1/preview?max_samples=500'
   );
 });
 

@@ -259,71 +259,63 @@ async def init_db():
                         sync_conn.execute(text("ALTER TABLE results ADD COLUMN vcd_file_id VARCHAR(36)"))
                     if "firmware_file_id" not in cols:
                         sync_conn.execute(text("ALTER TABLE results ADD COLUMN firmware_file_id VARCHAR(36)"))
+                    if "f1_score" not in cols:
+                        sync_conn.execute(text("ALTER TABLE results ADD COLUMN f1_score FLOAT"))
+                    if "sample_xor_score" not in cols:
+                        sync_conn.execute(text("ALTER TABLE results ADD COLUMN sample_xor_score FLOAT"))
+                    if "majority_score" not in cols:
+                        sync_conn.execute(text("ALTER TABLE results ADD COLUMN majority_score FLOAT"))
+                    if "verification_status" not in cols:
+                        sync_conn.execute(text("ALTER TABLE results ADD COLUMN verification_status VARCHAR(32) DEFAULT 'SKIPPED'"))
                 else:
                     # Use IF NOT EXISTS to avoid aborting the whole transaction.
                     sync_conn.execute(text("ALTER TABLE results ADD COLUMN IF NOT EXISTS vcd_file_id VARCHAR(36)"))
                     sync_conn.execute(text("ALTER TABLE results ADD COLUMN IF NOT EXISTS firmware_file_id VARCHAR(36)"))
-                    # Best-effort backfill by filename match.
-                    try:
-                        sync_conn.execute(
-                            text(
-                                """
-                                UPDATE results r
-                                SET vcd_file_id = f.id
-                                FROM files f
-                                WHERE r.vcd_file_id IS NULL
-                                  AND r.vcd_filename IS NOT NULL
-                                  AND f.filename = r.vcd_filename
-                                """
+                    sync_conn.execute(text("ALTER TABLE results ADD COLUMN IF NOT EXISTS f1_score FLOAT"))
+                    sync_conn.execute(text("ALTER TABLE results ADD COLUMN IF NOT EXISTS sample_xor_score FLOAT"))
+                    sync_conn.execute(text("ALTER TABLE results ADD COLUMN IF NOT EXISTS majority_score FLOAT"))
+                    sync_conn.execute(text("ALTER TABLE results ADD COLUMN IF NOT EXISTS verification_status VARCHAR(32) DEFAULT 'SKIPPED'"))
+                    
+                    # Safe check before backfilling to avoid aborting Postgres transaction
+                    has_col = sync_conn.execute(
+                        text("SELECT 1 FROM information_schema.columns WHERE table_name='results' AND column_name='vcd_filename'")
+                    ).scalar()
+                    if has_col:
+                        try:
+                            sync_conn.execute(
+                                text(
+                                    """
+                                    UPDATE results r
+                                    SET vcd_file_id = f.id
+                                    FROM files f
+                                    WHERE r.vcd_file_id IS NULL
+                                      AND r.vcd_filename IS NOT NULL
+                                      AND f.filename = r.vcd_filename
+                                    """
+                                )
                             )
-                        )
-                    except Exception:
-                        pass
-                    try:
-                        sync_conn.execute(
-                            text(
-                                """
-                                UPDATE results r
-                                SET firmware_file_id = f.id
-                                FROM files f
-                                WHERE r.firmware_file_id IS NULL
-                                  AND r.firmware_filename IS NOT NULL
-                                  AND f.filename = r.firmware_filename
-                                """
+                        except Exception:
+                            pass
+
+                    has_fw_col = sync_conn.execute(
+                        text("SELECT 1 FROM information_schema.columns WHERE table_name='results' AND column_name='firmware_filename'")
+                    ).scalar()
+                    if has_fw_col:
+                        try:
+                            sync_conn.execute(
+                                text(
+                                    """
+                                    UPDATE results r
+                                    SET firmware_file_id = f.id
+                                    FROM files f
+                                    WHERE r.firmware_file_id IS NULL
+                                      AND r.firmware_filename IS NOT NULL
+                                      AND f.filename = r.firmware_filename
+                                    """
+                                )
                             )
-                        )
-                    except Exception:
-                        pass
-                    try:
-                        sync_conn.execute(
-                            text(
-                                """
-                                UPDATE jobs j
-                                SET vcd_file_id = f.id
-                                FROM files f
-                                WHERE j.vcd_file_id IS NULL
-                                  AND j.vcd_filename IS NOT NULL
-                                  AND f.filename = j.vcd_filename
-                                """
-                            )
-                        )
-                    except Exception:
-                        pass
-                    try:
-                        sync_conn.execute(
-                            text(
-                                """
-                                UPDATE jobs j
-                                SET firmware_file_id = f.id
-                                FROM files f
-                                WHERE j.firmware_file_id IS NULL
-                                  AND j.firmware_filename IS NOT NULL
-                                  AND f.filename = j.firmware_filename
-                                """
-                            )
-                        )
-                    except Exception:
-                        pass
+                        except Exception:
+                            pass
             await conn.run_sync(_add_result_file_id_columns)
 
         # Migration: create board_status table + backfill latest status from boards.

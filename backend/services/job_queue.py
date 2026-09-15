@@ -29,8 +29,50 @@ class JobQueueService:
         self._loop_mode: bool = False
 
     async def initialize(self):
-        """Initialize the service on startup."""
+        """Initialize the service on startup and reconcile interrupted jobs."""
         print("[JobQueue] Service initialized with Redesigned ORM tables")
+        now = datetime.utcnow()
+        try:
+            async with async_session() as session:
+                # 1. Reconcile interrupted jobs, targets, and results from previous crash/restart
+                running_jobs_q = select(JobORM).where(JobORM.state == "running")
+                running_jobs = (await session.execute(running_jobs_q)).scalars().all()
+                for j in running_jobs:
+                    j.state = "failed"
+                    j.completed_at = now
+                    j.current_step = "Interrupted by server restart"
+                    print(f"[JobQueue] Reconciled interrupted job {j.id} -> failed")
+
+                running_targets_q = select(JobTargetORM).where(JobTargetORM.status == "running")
+                running_targets = (await session.execute(running_targets_q)).scalars().all()
+                for t in running_targets:
+                    t.status = "failed"
+                    t.completed_at = now
+                    print(f"[JobQueue] Reconciled interrupted target {t.id} -> failed")
+
+                running_results_q = select(ResultORM).where(ResultORM.status == "running")
+                running_results = (await session.execute(running_results_q)).scalars().all()
+                for r in running_results:
+                    r.status = "error"
+                    r.passed = False
+                    r.completed_at = now
+                    r.error_message = "Interrupted by server restart"
+
+                # 2. Reset any lingering busy boards to online and clear current_job_id
+                from db.orm_models import BoardStatusORM, BoardORM
+                await session.execute(
+                    update(BoardStatusORM)
+                    .where(BoardStatusORM.state == "busy")
+                    .values(state="online")
+                )
+                await session.execute(
+                    update(BoardORM)
+                    .where(BoardORM.state == "busy")
+                    .values(state="online", current_job_id=None)
+                )
+                await session.commit()
+        except Exception as e:
+            print(f"[JobQueue] Startup reconciliation warning: {e}")
 
     async def shutdown(self):
         """Shutdown the service."""
@@ -159,47 +201,77 @@ class JobQueueService:
 
     async def _precreate_results_from_pairs(self, session: AsyncSession, job_id: str, pairs_data: list):
         """Pre-populate ResultORM rows for each target board when job is created."""
+        from db.orm_models import FileORM, TestCaseORM, JobTargetORM, ResultORM
+        from services.file_store import file_store
+
         # Load all target boards created for this job
         t_res = await session.execute(select(JobTargetORM).where(JobTargetORM.job_id == job_id))
         targets = t_res.scalars().all()
 
         for idx, pair in enumerate(pairs_data):
-            # Resolve test_case_id from name or use default/created
             tc_name = pair.get("testCaseName") or f"TC_{idx+1}"
             vcd_name = pair.get("vcdName")
-            
-            # Find TestCaseORM
+            explicit_vcd_id = pair.get("vcdId") or pair.get("vcd_file_id")
+            explicit_tc_id = pair.get("testCaseId") or pair.get("test_case_id")
+
             tc_id = None
-            if vcd_name:
-                from db.orm_models import FileORM
-                f_res = await session.execute(
-                    select(FileORM.id)
-                    .where(FileORM.filename == vcd_name)
-                    .order_by(FileORM.uploaded_at.desc())
-                )
-                vcd_id = f_res.scalars().first()
-                if vcd_id:
+            resolved_vcd_id = None
+
+            # 1. Check if explicit test_case_id is provided and valid
+            if explicit_tc_id:
+                tc_check = await session.execute(select(TestCaseORM.id).where(TestCaseORM.id == str(explicit_tc_id)))
+                if tc_check.scalar_one_or_none():
+                    tc_id = str(explicit_tc_id)
+
+            # 2. If no valid tc_id yet, resolve VCD File ID
+            if not tc_id:
+                if explicit_vcd_id:
+                    f_check = await session.execute(select(FileORM.id, FileORM.storage_path).where(FileORM.id == str(explicit_vcd_id)))
+                    f_row = f_check.first()
+                    if f_row:
+                        resolved_vcd_id = str(f_row[0])
+
+                # 3. If explicit VCD not provided or not found, search by vcd_name with physical disk verification
+                if not resolved_vcd_id and vcd_name:
+                    f_res = await session.execute(
+                        select(FileORM)
+                        .where(FileORM.filename == vcd_name)
+                        .order_by(FileORM.uploaded_at.desc())
+                    )
+                    candidates = f_res.scalars().all()
+                    for cand in candidates:
+                        # Prioritize candidates that actually exist on disk
+                        cand_path = file_store.resolve_path(cand.storage_path)
+                        if os.path.exists(cand_path):
+                            resolved_vcd_id = cand.id
+                            break
+                    # If none exist physically, fall back to newest candidate ID
+                    if not resolved_vcd_id and candidates:
+                        resolved_vcd_id = candidates[0].id
+
+                # 4. If we have a resolved_vcd_id, look for existing TestCaseORM
+                if resolved_vcd_id:
                     tc_q = (
                         select(TestCaseORM.id)
-                        .where(TestCaseORM.vcd_file_id == vcd_id)
+                        .where(TestCaseORM.vcd_file_id == resolved_vcd_id)
                         .order_by(TestCaseORM.created_at.desc())
                     )
                     tc_id = (await session.execute(tc_q)).scalars().first()
 
+            # 5. If still no TestCaseORM found, create one referencing resolved_vcd_id
             if not tc_id:
-                # Mock a test case
                 tc_id = str(uuid.uuid4())
                 mock_tc = TestCaseORM(
                     id=tc_id,
                     name=tc_name,
-                    vcd_file_id=str(uuid.uuid4())
+                    vcd_file_id=resolved_vcd_id or str(uuid.uuid4())
                 )
                 session.add(mock_tc)
                 await session.flush()
 
             # Create a pending ResultORM row for each board target
             for target in targets:
-                res_id = str(uuid.uuid4())[:8] # Keep ID short for compatibility
+                res_id = str(uuid.uuid4())[:8]  # Keep ID short for compatibility
                 orm_res = ResultORM(
                     id=res_id,
                     job_id=job_id,
@@ -212,6 +284,7 @@ class JobQueueService:
                     snapshot_data={
                         "test_case_name": tc_name,
                         "vcd_filename": vcd_name,
+                        "vcd_file_id": resolved_vcd_id,
                         "firmware_filename": pair.get("binName"),
                         "ulp_filename": pair.get("linName"),
                     },
@@ -385,6 +458,7 @@ class JobQueueService:
 
             print(f"[JobQueue] Executing {len(test_runs)} test cases on board {board.name}")
             total_tests = len(test_runs)
+            any_failed = False
 
             for idx, run in enumerate(test_runs):
                 async with async_session() as session:
@@ -502,6 +576,7 @@ class JobQueueService:
                     run_orm = (await session.execute(select(ResultORM).where(ResultORM.id == run.id))).scalar_one()
                     run_orm.try_count = actual_tries
                     if not success:
+                        any_failed = True
                         run_orm.status = "error"
                         run_orm.passed = False
                         run_orm.error_message = error_msg
@@ -511,20 +586,25 @@ class JobQueueService:
                             run_orm.duration_seconds = (datetime.utcnow() - run_orm.started_at).total_seconds()
                     await session.commit()
 
-            # Mark target as completed
+            # Mark target completed only if every run actually passed; otherwise
+            # reflect the real outcome so the UI doesn't show "Complete" for a
+            # run where every test case errored.
             async with async_session() as session:
                 target = (await session.execute(select(JobTargetORM).where(JobTargetORM.id == target_id))).scalar_one()
-                target.status = "completed"
+                target.status = "failed" if any_failed else "completed"
                 target.completed_at = datetime.utcnow()
-                
+
                 # Update Job progress and status
                 job_orm = (await session.execute(select(JobORM).where(JobORM.id == target.job_id))).scalar_one()
-                job_orm.state = "completed"
+                job_orm.state = "failed" if any_failed else "completed"
                 job_orm.progress = 100
-                job_orm.current_step = "Done"
+                job_orm.current_step = "Completed with errors" if any_failed else "Done"
                 job_orm.completed_at = datetime.utcnow()
                 await session.commit()
-                print(f"[JobQueue] Completed target {target_id} successfully")
+                if any_failed:
+                    print(f"[JobQueue] Target {target_id} finished with errors")
+                else:
+                    print(f"[JobQueue] Completed target {target_id} successfully")
 
         except Exception as e:
             async with async_session() as session:

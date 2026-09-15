@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { 
-  Menu, X, LayoutDashboard, Settings, PlayCircle, Cpu, 
-  History, Bell, Upload, FileCode, Box, Search, 
+import {
+  Menu, X, LayoutDashboard, Settings, PlayCircle, Cpu,
+  History, Bell, Upload, FileCode, Box, Search,
   CheckCircle2, AlertCircle, Clock, Zap, Database, ChevronRight,
   Grid3x3, List, Filter, Terminal, Wifi, WifiOff, HardDrive,
   RefreshCw, Download, Activity, XCircle, Eye, MoreVertical,
@@ -23,8 +23,8 @@ import {
 
 // 3. JOBS PAGE (Enhanced)
 const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNavigateToWaveform, onNavigateToFileLibrary, onNavigateToTestCases, onNavigateToLibrarySet }) => {
-  const { 
-    jobs, 
+  const {
+    jobs,
     startPendingJobs,
     startJobById,
     saveJobAsDraft,
@@ -36,8 +36,8 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
     stopFile,
     rerunFile,
     rerunFailedFiles,
-    moveFileUp, 
-    moveFileDown, 
+    moveFileUp,
+    moveFileDown,
     deleteJobFile,
     updateJobTag,
     updateJobTags,
@@ -140,7 +140,7 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
           <td class="result-${file.result === 'pass' ? 'pass' : file.result === 'fail' ? 'fail' : ''}">${file.result || 'N/A'}</td>
           <td>${file.errorMessage || file.error || '—'}</td>
         </tr>`).join('');
-  const htmlContent = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Test Report - Job #${jobId}</title>
+    const htmlContent = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Test Report - Job #${jobId}</title>
 <style>body{font-family:Arial,sans-serif;margin:20px;background:#f5f5f5}.container{max-width:900px;margin:0 auto;background:#fff;padding:24px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1)}h1{color:#1e293b;border-bottom:3px solid #3b82f6;padding-bottom:8px}.info{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin:16px 0}.info-item{padding:8px;background:#f8fafc;border-radius:4px}.info-label{font-weight:bold;color:#64748b;font-size:12px}.info-value{color:#1e293b;margin-top:4px}table{width:100%;border-collapse:collapse;margin-top:16px}th{background:#3b82f6;color:#fff;padding:10px;text-align:left}td{padding:8px;border-bottom:1px solid #e2e8f0}.status-completed{color:#10b981}.status-running{color:#3b82f6}.result-pass{color:#10b981}.result-fail{color:#ef4444}.footer{margin-top:24px;padding-top:16px;border-top:1px solid #e2e8f0;color:#64748b;font-size:12px}</style></head><body><div class="container">
 <h1>Test Report - Job #${jobId}</h1><div class="info"><div class="info-item"><div class="info-label">Job name</div><div class="info-value">${job.name || 'N/A'}</div></div><div class="info-item"><div class="info-label">Tag</div><div class="info-value">${job.tag || '—'}</div></div><div class="info-item"><div class="info-label">Firmware</div><div class="info-value">${job.firmware || '—'}</div></div><div class="info-item"><div class="info-label">Test cases</div><div class="info-value">${toInclude.length}</div></div></div>
 <table><thead><tr><th>Order</th><th>Test Case</th><th>Status</th><th>Result</th><th>Error</th></tr></thead><tbody>${rows}</tbody></table>
@@ -410,11 +410,11 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
       setIsRunningBatch(false);
     }
   };
-  
+
   const handleEditTag = (job) => {
     assignSession({ editingTag: job.id, tagInput: job.tag || '' });
   };
-  
+
   const handleSaveTag = (jobId) => {
     updateJobTag(jobId, tagInput);
     assignSession({ editingTag: null, tagInput: '' });
@@ -436,7 +436,7 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
   const openTagManager = (job) => {
     if (onManageTags) onManageTags(job.id);
   };
-  
+
   const handleCancelTag = () => {
     assignSession({ editingTag: null, tagInput: '' });
   };
@@ -487,7 +487,7 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
       addToast({ type: 'error', message: 'Failed to delete the selected jobs' });
     }
   };
-  
+
   // Sort files by order
   const getSortedFiles = (job) => {
     if (!job.files || job.files.length === 0) return [];
@@ -730,7 +730,7 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
     const sortedFiles = getSortedFiles(job);
     const showDetails = expandedDetailsJobs.includes(job.id);
     const runningFiles = sortedFiles.filter(f => f.status === 'running');
-    
+
     const jobStatus = (job.status || '').toLowerCase();
     const isPendingJob = jobStatus === 'pending';
     const isDraftJob = jobStatus === 'draft';
@@ -740,15 +740,13 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
     const tagsArr = getJobTagsArray(job);
     const primaryTag = tagsArr[0] || null;
     return (
-      <div 
-      key={job.id} 
-      id={`job-${job.id}`} 
-      data-job-card
-      className={`bg-white text-slate-900 rounded-lg border shadow-sm overflow-hidden transition-all ${getCardStatusStyle(job)} ${
-          selectedJobIds.includes(job.id) ? 'border-blue-500 ring-2 ring-blue-200' : 'border-slate-200 dark:border-slate-700'
-        } ${highlightJobId === String(job.id) ? 'ring-4 ring-amber-300/70 border-amber-400' : ''} ${
-          draggingJobId === job.id ? 'opacity-50' : ''
-        } dark:bg-slate-900 dark:text-slate-100`}
+      <div
+        key={job.id}
+        id={`job-${job.id}`}
+        data-job-card
+        className={`bg-white text-slate-900 rounded-lg border shadow-sm overflow-hidden transition-all ${getCardStatusStyle(job)} ${selectedJobIds.includes(job.id) ? 'border-blue-500 ring-2 ring-blue-200' : 'border-slate-200 dark:border-slate-700'
+          } ${highlightJobId === String(job.id) ? 'ring-4 ring-amber-300/70 border-amber-400' : ''} ${draggingJobId === job.id ? 'opacity-50' : ''
+          } dark:bg-slate-900 dark:text-slate-100`}
         draggable={isDraggable}
         onDragStart={isDraggable ? (e) => {
           e.stopPropagation();
@@ -809,32 +807,31 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
                 <div className="flex items-center gap-2 mb-0.5 flex-wrap" data-no-select>
                   {/* div+role แทน <input type="checkbox"> — native checkbox ทำให้ HTML5 drag บนการ์ดแม่ไม่เริ่ม (เฉพาะ pending) */}
                   {!isDemoJob && (
-                  <div
-                    data-batch-select
-                    role="checkbox"
-                    aria-checked={selectedJobIds.includes(job.id)}
-                    aria-disabled={false}
-                    tabIndex={0}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleJobSelection(job.id);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === ' ' || e.key === 'Enter') {
-                        e.preventDefault();
+                    <div
+                      data-batch-select
+                      role="checkbox"
+                      aria-checked={selectedJobIds.includes(job.id)}
+                      aria-disabled={false}
+                      tabIndex={0}
+                      onClick={(e) => {
                         e.stopPropagation();
                         toggleJobSelection(job.id);
-                      }
-                    }}
-                    className={`w-5 h-5 shrink-0 rounded border flex items-center justify-center transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 dark:focus:ring-offset-slate-900 ${
-                      selectedJobIds.includes(job.id)
-                        ? 'bg-blue-600 border-blue-600 text-white'
-                        : 'border-slate-300 bg-white dark:bg-slate-800 dark:border-slate-600'
-                    } cursor-pointer`}
-                    title="Select this job"
-                  >
-                    {selectedJobIds.includes(job.id) && <Check size={12} strokeWidth={3} aria-hidden />}
-                  </div>
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === ' ' || e.key === 'Enter') {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          toggleJobSelection(job.id);
+                        }
+                      }}
+                      className={`w-5 h-5 shrink-0 rounded border flex items-center justify-center transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 dark:focus:ring-offset-slate-900 ${selectedJobIds.includes(job.id)
+                          ? 'bg-blue-600 border-blue-600 text-white'
+                          : 'border-slate-300 bg-white dark:bg-slate-800 dark:border-slate-600'
+                        } cursor-pointer`}
+                      title="Select this job"
+                    >
+                      {selectedJobIds.includes(job.id) && <Check size={12} strokeWidth={3} aria-hidden />}
+                    </div>
                   )}
                   {isDemoJob && (
                     <span className="px-2 py-0.5 bg-slate-200 text-slate-500 rounded text-xs font-semibold">Demo</span>
@@ -857,60 +854,59 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
                         {(job.name || job.configName || '').trim() || `Job #${job.id}`}
                       </h3>
                     </button>
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-bold uppercase shrink-0 inline-flex items-center gap-1 ${
-                    job.status === 'draft' ? 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300' :
-                    job.status === 'running' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' :
-                    job.status === 'pending' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' :
-                    job.status === 'stopped' ? 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200' :
-                    job.status === 'completed'
-                      ? (jobHasExecutionFailure(job)
-                        ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
-                        : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300')
-                      : 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200'
-                  }`}>
-                    {job.status === 'stopped' && <StopCircle size={11} />}
-                    {job.status === 'stopped'
-                      ? 'Stopped'
-                      : (job.status === 'completed' && jobHasExecutionFailure(job))
-                        ? 'Failed'
-                        : job.status
-                    }
-                  </span>
-                  {/* Tag pill should be after status (PENDING/RUNNING/...) */}
-                  {primaryTag && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openTagManager(job);
-                      }}
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border ${jobTagPillClasses(primaryTag.tagColor || job.tagColor)}`}
-                      title={tagsArr.length > 1 ? `${primaryTag.tag} (+${tagsArr.length - 1})` : primaryTag.tag}
-                    >
-                      <span className="truncate max-w-[140px]">{primaryTag.tag}</span>
-                      {tagsArr.length > 1 && <span className="opacity-70">+{tagsArr.length - 1}</span>}
-                    </button>
-                  )}
-                  {!primaryTag && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        openTagManager(job);
-                      }}
-                      onMouseDown={(e) => e.stopPropagation()}
-                      className={`px-2 py-0.5 rounded-full text-xs font-bold border flex items-center gap-1 shrink-0 cursor-pointer hover:brightness-95 transition-colors ${jobTagPillClasses(job.tagColor)}`}
-                      title="Add tags"
-                    >
-                      <Tag size={12} />
-                      Add tag
-                    </button>
-                  )}
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-bold uppercase shrink-0 inline-flex items-center gap-1 ${job.status === 'draft' ? 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300' :
+                        job.status === 'running' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' :
+                          job.status === 'pending' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' :
+                            job.status === 'stopped' ? 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200' :
+                              job.status === 'completed'
+                                ? (jobHasExecutionFailure(job)
+                                  ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+                                  : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300')
+                                : 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200'
+                      }`}>
+                      {job.status === 'stopped' && <StopCircle size={11} />}
+                      {job.status === 'stopped'
+                        ? 'Stopped'
+                        : (job.status === 'completed' && jobHasExecutionFailure(job))
+                          ? 'Failed'
+                          : job.status
+                      }
+                    </span>
+                    {/* Tag pill should be after status (PENDING/RUNNING/...) */}
+                    {primaryTag && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openTagManager(job);
+                        }}
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border ${jobTagPillClasses(primaryTag.tagColor || job.tagColor)}`}
+                        title={tagsArr.length > 1 ? `${primaryTag.tag} (+${tagsArr.length - 1})` : primaryTag.tag}
+                      >
+                        <span className="truncate max-w-[140px]">{primaryTag.tag}</span>
+                        {tagsArr.length > 1 && <span className="opacity-70">+{tagsArr.length - 1}</span>}
+                      </button>
+                    )}
+                    {!primaryTag && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          openTagManager(job);
+                        }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        className={`px-2 py-0.5 rounded-full text-xs font-bold border flex items-center gap-1 shrink-0 cursor-pointer hover:brightness-95 transition-colors ${jobTagPillClasses(job.tagColor)}`}
+                        title="Add tags"
+                      >
+                        <Tag size={12} />
+                        Add tag
+                      </button>
+                    )}
                   </span>
                 </div>
               </div>
-              
+
               {/* Drag & drop reordering: ไม่มีปุ่ม/ไอคอน แต่อีกการ์ดยังรับ drag จากส่วนหัวการ์ดหลัก */}
             </div>
             {/* Action Row: Details, Delete */}
@@ -1031,21 +1027,21 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
                 </button>
               )}
               {/* ลบได้เฉพาะ Pending / Error / Completed — ไม่แสดงระหว่าง Running (กันลบขณะกำลังรัน) */}
-                  {!isDemoJob && column !== 'running' && column !== 'running-active' && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        handleDeleteJob(job.id, job.name);
-                      }}
-                      onMouseDown={(e) => e.stopPropagation()}
-                      className="inline-flex items-center justify-center h-7 w-7 rounded-full bg-red-600 text-white hover:bg-red-700 transition-all shadow-sm shrink-0"
-                      title="Delete this job"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  )}
+              {!isDemoJob && column !== 'running' && column !== 'running-active' && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    handleDeleteJob(job.id, job.name);
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  className="inline-flex items-center justify-center h-7 w-7 rounded-full bg-red-600 text-white hover:bg-red-700 transition-all shadow-sm shrink-0"
+                  title="Delete this job"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
             </div>
             {showDetails && (
               <div className="mt-1 pt-2 border-t border-slate-100 dark:border-slate-800">
@@ -1065,25 +1061,25 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
                   onReorderFile={
                     (job.status || '').toLowerCase() === 'pending' || (job.status || '').toLowerCase() === 'running'
                       ? (fromFileId, toFileId) => {
-                          if (!fromFileId || !toFileId || fromFileId === toFileId) return;
-                          const filesForJob = getSortedFiles(job);
-                          const fromIndex = filesForJob.findIndex((f) => f.id === fromFileId);
-                          const toIndex = filesForJob.findIndex((f) => f.id === toFileId);
-                          if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return;
-                          const fromFile = filesForJob[fromIndex];
-                          const toFile = filesForJob[toIndex];
-                          const pend = (s) => String(s || '').toLowerCase() === 'pending';
-                          if (!pend(fromFile.status) || !pend(toFile.status)) return;
-                          const steps = Math.abs(toIndex - fromIndex);
-                          const direction = toIndex < fromIndex ? 'up' : 'down';
-                          for (let i = 0; i < steps; i += 1) {
-                            if (direction === 'up') {
-                              moveFileUp(job.id, fromFileId);
-                            } else {
-                              moveFileDown(job.id, fromFileId);
-                            }
+                        if (!fromFileId || !toFileId || fromFileId === toFileId) return;
+                        const filesForJob = getSortedFiles(job);
+                        const fromIndex = filesForJob.findIndex((f) => f.id === fromFileId);
+                        const toIndex = filesForJob.findIndex((f) => f.id === toFileId);
+                        if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return;
+                        const fromFile = filesForJob[fromIndex];
+                        const toFile = filesForJob[toIndex];
+                        const pend = (s) => String(s || '').toLowerCase() === 'pending';
+                        if (!pend(fromFile.status) || !pend(toFile.status)) return;
+                        const steps = Math.abs(toIndex - fromIndex);
+                        const direction = toIndex < fromIndex ? 'up' : 'down';
+                        for (let i = 0; i < steps; i += 1) {
+                          if (direction === 'up') {
+                            moveFileUp(job.id, fromFileId);
+                          } else {
+                            moveFileDown(job.id, fromFileId);
                           }
                         }
+                      }
                       : undefined
                   }
                   onOpenInLibrary={onNavigateToFileLibrary}
@@ -1095,36 +1091,36 @@ const JobsPage = ({ expandJobId, onManageTags, onExpandComplete, onEditJob, onNa
               </div>
             )}
           </div>
-          
+
           {/* Progress Bar (แสดงเฉพาะเมื่อมี progress > 0 เพื่อไม่ให้ดูเป็นพื้นที่ว่างใน PENDING) */}
           {(job.progress || 0) > 0 && (
             <div className="mt-2">
               <div className="h-1 w-full bg-slate-200 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-blue-600 transition-all duration-1000" 
+                <div
+                  className="h-full bg-blue-600 transition-all duration-1000"
                   style={{ width: `${job.progress}%` }}
                 ></div>
               </div>
             </div>
           )}
         </div>
-        
+
       </div>
     );
   };
-  
+
   const getTestCaseDisplayNameForModal = (f) => formatTestCaseDisplayNameRaw(f?.testCaseName || (f?.order != null ? `Test case ${f.order}` : '—'));
 
   return (
-  <div className="space-y-3 min-w-0">
-    {/* Modal: error notification per test case */}
-    {testCaseErrorModal && (() => {
-      const { file, job, index } = testCaseErrorModal;
-      const displayName = getTestCaseDisplayNameForModal(file);
-      const errorBody = file.errorMessage || file.error || 'No detailed error message available.';
-      const exportErrorLogFromModal = (e) => {
-        e.stopPropagation();
-        const errorLogContent = `Error Log - Test Case Failure Report
+    <div className="space-y-3 min-w-0">
+      {/* Modal: error notification per test case */}
+      {testCaseErrorModal && (() => {
+        const { file, job, index } = testCaseErrorModal;
+        const displayName = getTestCaseDisplayNameForModal(file);
+        const errorBody = file.errorMessage || file.error || 'No detailed error message available.';
+        const exportErrorLogFromModal = (e) => {
+          e.stopPropagation();
+          const errorLogContent = `Error Log - Test Case Failure Report
 Generated: ${new Date().toISOString()}
 ========================================
 
@@ -1142,247 +1138,247 @@ Started: ${file.startedAt || 'N/A'}
 Completed: ${file.completedAt || 'N/A'}
 Duration: ${file.duration || 'N/A'}
 `;
-        const blob = new Blob([errorLogContent], { type: 'text/plain;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        const safeName = (file.name || `test_case_${index + 1}`).replace(/[^a-z0-9]/gi, '_').toLowerCase();
-        link.download = `error_log_${job?.id || 'job'}_${safeName}_${new Date().toISOString().split('T')[0]}.txt`;
-        link.click();
-        URL.revokeObjectURL(url);
-      };
-      return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50" onClick={() => setTestCaseErrorModal(null)}>
-          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-600 shadow-xl max-w-lg w-full max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-600 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-red-700 dark:text-red-300 flex items-center gap-2">
-                <AlertCircle size={20} />
-                Test case error
-              </h3>
-              <button type="button" onClick={() => setTestCaseErrorModal(null)} className="p-1.5 rounded text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-600 dark:hover:text-slate-200">
-                <X size={20} />
-              </button>
-            </div>
-            <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700 space-y-1">
-              <div className="font-semibold text-slate-800 dark:text-white truncate" title={displayName}>{displayName}</div>
-              <div className="text-xs text-slate-500 dark:text-slate-400">
-                Order: {file.order ?? index + 1}
-                {job?.name && ` · Job: ${job.name}`}
-                {job?.id && ` · #${job.id}`}
+          const blob = new Blob([errorLogContent], { type: 'text/plain;charset=utf-8;' });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          const safeName = (file.name || `test_case_${index + 1}`).replace(/[^a-z0-9]/gi, '_').toLowerCase();
+          link.download = `error_log_${job?.id || 'job'}_${safeName}_${new Date().toISOString().split('T')[0]}.txt`;
+          link.click();
+          URL.revokeObjectURL(url);
+        };
+        return (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50" onClick={() => setTestCaseErrorModal(null)}>
+            <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-600 shadow-xl max-w-lg w-full max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+              <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-600 flex items-center justify-between">
+                <h3 className="text-lg font-bold text-red-700 dark:text-red-300 flex items-center gap-2">
+                  <AlertCircle size={20} />
+                  Test case error
+                </h3>
+                <button type="button" onClick={() => setTestCaseErrorModal(null)} className="p-1.5 rounded text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-600 dark:hover:text-slate-200">
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700 space-y-1">
+                <div className="font-semibold text-slate-800 dark:text-white truncate" title={displayName}>{displayName}</div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  Order: {file.order ?? index + 1}
+                  {job?.name && ` · Job: ${job.name}`}
+                  {job?.id && ` · #${job.id}`}
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4">
+                <div className="text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Error message</div>
+                <pre className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-200 text-sm whitespace-pre-wrap break-words font-sans">
+                  {errorBody}
+                </pre>
+                {(file.startedAt || file.completedAt) && (
+                  <div className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+                    {file.startedAt && <div>Started: {file.startedAt}</div>}
+                    {file.completedAt && <div>Completed: {file.completedAt}</div>}
+                    {file.duration != null && <div>Duration: {file.duration}</div>}
+                  </div>
+                )}
+              </div>
+              <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-600 flex flex-wrap gap-2 justify-end">
+                <button type="button" onClick={exportErrorLogFromModal} className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700 flex items-center gap-2">
+                  <Download size={16} />
+                  Download error log
+                </button>
+                <button type="button" onClick={() => setTestCaseErrorModal(null)} className="px-4 py-2 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 bg-slate-200 dark:bg-slate-600 hover:bg-slate-300 dark:hover:bg-slate-500">
+                  Close
+                </button>
               </div>
             </div>
-            <div className="flex-1 overflow-y-auto p-4">
-              <div className="text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Error message</div>
-              <pre className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-200 text-sm whitespace-pre-wrap break-words font-sans">
-                {errorBody}
-              </pre>
-              {(file.startedAt || file.completedAt) && (
-                <div className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-                  {file.startedAt && <div>Started: {file.startedAt}</div>}
-                  {file.completedAt && <div>Completed: {file.completedAt}</div>}
-                  {file.duration != null && <div>Duration: {file.duration}</div>}
-                </div>
-              )}
-            </div>
-            <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-600 flex flex-wrap gap-2 justify-end">
-              <button type="button" onClick={exportErrorLogFromModal} className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700 flex items-center gap-2">
-                <Download size={16} />
-                Download error log
-              </button>
-              <button type="button" onClick={() => setTestCaseErrorModal(null)} className="px-4 py-2 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 bg-slate-200 dark:bg-slate-600 hover:bg-slate-300 dark:hover:bg-slate-500">
-                Close
-              </button>
-            </div>
           </div>
-        </div>
-      );
-    })()}
-    {/* Modal: Re-run failed — select VCD/ERoM/ULP per test case */}
-    {rerunFailedModal && rerunFailedModal.failedFiles?.length > 0 && (() => {
-      const { job, failedFiles } = rerunFailedModal;
-      const ext = (name) => (String(name || '').split('.').pop() || '').toLowerCase();
-      const vcdOptions = uploadedFiles.filter((f) => ext(f.name) === 'vcd');
-      const eromOptions = uploadedFiles.filter((f) => ['bin', 'hex', 'elf', 'erom'].includes(ext(f.name)));
-      const ulpOptions = uploadedFiles.filter((f) => ['ulp', 'lin', 'txt'].includes(ext(f.name)));
-      const setRerunSelection = (fileIndex, field, value) => {
-        setRerunSelections((prev) => {
-          const next = [...prev];
-          if (!next[fileIndex]) next[fileIndex] = { vcd: '', erom: '', ulp: '' };
-          next[fileIndex] = { ...next[fileIndex], [field]: value };
-          return next;
-        });
-      };
-      const handleRerunConfirm = async () => {
-        const fileIds = failedFiles.map((f) => f.id);
-        const ok = await rerunFailedFiles(job.id, fileIds, rerunSelections);
-        if (ok) setRerunFailedModal(null);
-      };
-      const allVcdSelected = failedFiles.length === rerunSelections.length && rerunSelections.every((s) => (s?.vcd ?? '').toString().trim() !== '');
-      return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50" onClick={() => setRerunFailedModal(null)}>
-          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-600 shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-600 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-slate-800 dark:text-white">Re-run failed test cases</h3>
-              <button type="button" onClick={() => setRerunFailedModal(null)} className="p-1.5 rounded text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700">
-                <X size={20} />
-              </button>
-            </div>
-            <p className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
-              Select VCD, ERoM (BIN), and ULP for each test case. Then Re-run will create a new job and start it.
-            </p>
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {failedFiles.map((f, i) => {
-                const displayName = f.testCaseName || (f.order != null ? `Test case ${f.order}` : `Test case ${i + 1}`);
-                const sel = rerunSelections[i] || { vcd: '', erom: '', ulp: '' };
-                const vcdNames = new Set(vcdOptions.map((o) => o.name));
-                const eromNames = new Set(eromOptions.map((o) => o.name));
-                const ulpNames = new Set(ulpOptions.map((o) => o.name));
-                const vcdList = [...vcdOptions];
-                if ((f.vcd || f.name) && !vcdNames.has((f.vcd || f.name).toString().trim())) {
-                  vcdList.unshift({ id: '__orig__', name: (f.vcd || f.name).toString().trim() });
-                }
-                const eromList = [...eromOptions];
-                if (f.erom && !eromNames.has(f.erom.toString().trim())) {
-                  eromList.unshift({ id: '__orig_erom__', name: f.erom.toString().trim() });
-                }
-                const ulpList = [...ulpOptions];
-                if (f.ulp && !ulpNames.has(f.ulp.toString().trim())) {
-                  ulpList.unshift({ id: '__orig_ulp__', name: f.ulp.toString().trim() });
-                }
-                return (
-                  <div key={f.id || i} className="p-3 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800/50 space-y-2">
-                    <div className="font-semibold text-slate-800 dark:text-white text-sm">
-                      {i + 1}. {displayName}
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-0.5">VCD</label>
-                        <select
-                          value={sel.vcd}
-                          onChange={(e) => setRerunSelection(i, 'vcd', e.target.value)}
-                          className="w-full px-2 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-800 dark:text-white"
-                        >
-                          <option value="">— Select —</option>
-                          {vcdList.map((o) => (
-                            <option key={o.id} value={o.name}>{o.name}</option>
-                          ))}
-                        </select>
+        );
+      })()}
+      {/* Modal: Re-run failed — select VCD/ERoM/ULP per test case */}
+      {rerunFailedModal && rerunFailedModal.failedFiles?.length > 0 && (() => {
+        const { job, failedFiles } = rerunFailedModal;
+        const ext = (name) => (String(name || '').split('.').pop() || '').toLowerCase();
+        const vcdOptions = uploadedFiles.filter((f) => ext(f.name) === 'vcd');
+        const eromOptions = uploadedFiles.filter((f) => ['bin', 'hex', 'elf', 'erom'].includes(ext(f.name)));
+        const ulpOptions = uploadedFiles.filter((f) => ['ulp', 'lin', 'txt'].includes(ext(f.name)));
+        const setRerunSelection = (fileIndex, field, value) => {
+          setRerunSelections((prev) => {
+            const next = [...prev];
+            if (!next[fileIndex]) next[fileIndex] = { vcd: '', erom: '', ulp: '' };
+            next[fileIndex] = { ...next[fileIndex], [field]: value };
+            return next;
+          });
+        };
+        const handleRerunConfirm = async () => {
+          const fileIds = failedFiles.map((f) => f.id);
+          const ok = await rerunFailedFiles(job.id, fileIds, rerunSelections);
+          if (ok) setRerunFailedModal(null);
+        };
+        const allVcdSelected = failedFiles.length === rerunSelections.length && rerunSelections.every((s) => (s?.vcd ?? '').toString().trim() !== '');
+        return (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50" onClick={() => setRerunFailedModal(null)}>
+            <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-600 shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+              <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-600 flex items-center justify-between">
+                <h3 className="text-lg font-bold text-slate-800 dark:text-white">Re-run failed test cases</h3>
+                <button type="button" onClick={() => setRerunFailedModal(null)} className="p-1.5 rounded text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700">
+                  <X size={20} />
+                </button>
+              </div>
+              <p className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
+                Select VCD, ERoM (BIN), and ULP for each test case. Then Re-run will create a new job and start it.
+              </p>
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {failedFiles.map((f, i) => {
+                  const displayName = f.testCaseName || (f.order != null ? `Test case ${f.order}` : `Test case ${i + 1}`);
+                  const sel = rerunSelections[i] || { vcd: '', erom: '', ulp: '' };
+                  const vcdNames = new Set(vcdOptions.map((o) => o.name));
+                  const eromNames = new Set(eromOptions.map((o) => o.name));
+                  const ulpNames = new Set(ulpOptions.map((o) => o.name));
+                  const vcdList = [...vcdOptions];
+                  if ((f.vcd || f.name) && !vcdNames.has((f.vcd || f.name).toString().trim())) {
+                    vcdList.unshift({ id: '__orig__', name: (f.vcd || f.name).toString().trim() });
+                  }
+                  const eromList = [...eromOptions];
+                  if (f.erom && !eromNames.has(f.erom.toString().trim())) {
+                    eromList.unshift({ id: '__orig_erom__', name: f.erom.toString().trim() });
+                  }
+                  const ulpList = [...ulpOptions];
+                  if (f.ulp && !ulpNames.has(f.ulp.toString().trim())) {
+                    ulpList.unshift({ id: '__orig_ulp__', name: f.ulp.toString().trim() });
+                  }
+                  return (
+                    <div key={f.id || i} className="p-3 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800/50 space-y-2">
+                      <div className="font-semibold text-slate-800 dark:text-white text-sm">
+                        {i + 1}. {displayName}
                       </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-0.5">ERoM / BIN</label>
-                        <select
-                          value={sel.erom}
-                          onChange={(e) => setRerunSelection(i, 'erom', e.target.value)}
-                          className="w-full px-2 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-800 dark:text-white"
-                        >
-                          <option value="">— Optional —</option>
-                          {eromList.map((o) => (
-                            <option key={o.id} value={o.name}>{o.name}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-0.5">ULP / LIN</label>
-                        <select
-                          value={sel.ulp}
-                          onChange={(e) => setRerunSelection(i, 'ulp', e.target.value)}
-                          className="w-full px-2 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-800 dark:text-white"
-                        >
-                          <option value="">— Optional —</option>
-                          {ulpList.map((o) => (
-                            <option key={o.id} value={o.name}>{o.name}</option>
-                          ))}
-                        </select>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div>
+                          <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-0.5">VCD</label>
+                          <select
+                            value={sel.vcd}
+                            onChange={(e) => setRerunSelection(i, 'vcd', e.target.value)}
+                            className="w-full px-2 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-800 dark:text-white"
+                          >
+                            <option value="">— Select —</option>
+                            {vcdList.map((o) => (
+                              <option key={o.id} value={o.name}>{o.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-0.5">ERoM / BIN</label>
+                          <select
+                            value={sel.erom}
+                            onChange={(e) => setRerunSelection(i, 'erom', e.target.value)}
+                            className="w-full px-2 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-800 dark:text-white"
+                          >
+                            <option value="">— Optional —</option>
+                            {eromList.map((o) => (
+                              <option key={o.id} value={o.name}>{o.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-0.5">ULP / LIN</label>
+                          <select
+                            value={sel.ulp}
+                            onChange={(e) => setRerunSelection(i, 'ulp', e.target.value)}
+                            className="w-full px-2 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-800 dark:text-white"
+                          >
+                            <option value="">— Optional —</option>
+                            {ulpList.map((o) => (
+                              <option key={o.id} value={o.name}>{o.name}</option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-600 flex justify-end gap-2">
-              <button type="button" onClick={() => setRerunFailedModal(null)} className="px-4 py-2 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 bg-slate-200 dark:bg-slate-600 hover:bg-slate-300 dark:hover:bg-slate-500">
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleRerunConfirm}
-                disabled={!allVcdSelected}
-                className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                <Play size={16} />
-                Re-run ({failedFiles.length} test case{failedFiles.length !== 1 ? 's' : ''})
-              </button>
+                  );
+                })}
+              </div>
+              <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-600 flex justify-end gap-2">
+                <button type="button" onClick={() => setRerunFailedModal(null)} className="px-4 py-2 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 bg-slate-200 dark:bg-slate-600 hover:bg-slate-300 dark:hover:bg-slate-500">
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRerunConfirm}
+                  disabled={!allVcdSelected}
+                  className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  <Play size={16} />
+                  Re-run ({failedFiles.length} test case{failedFiles.length !== 1 ? 's' : ''})
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      );
-    })()}
-    <div className="flex flex-col sm:flex-row sm:flex-wrap sm:justify-between sm:items-center gap-2">
+        );
+      })()}
+      <div className="flex flex-col sm:flex-row sm:flex-wrap sm:justify-between sm:items-center gap-2">
         <div className="min-w-0">
-      <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100 leading-tight">Job Management</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100 leading-tight">Job Management</h1>
           <p className="text-slate-500 dark:text-slate-400 mt-0.5 text-xs sm:text-sm">Manage and monitor all test jobs</p>
         </div>
-      <div className="flex flex-wrap gap-2 sm:gap-3 items-center">
-        {/* Run Selected: เฉพาะ batch สถานะ Pending ที่ติ๊กเลือก (ไม่ใช่ทุก pending) */}
-        {selectedStartableCount > 0 && (
+        <div className="flex flex-wrap gap-2 sm:gap-3 items-center">
+          {/* Run Selected: เฉพาะ batch สถานะ Pending ที่ติ๊กเลือก (ไม่ใช่ทุก pending) */}
+          {selectedStartableCount > 0 && (
+            <button
+              type="button"
+              onClick={handleRunSelectedJobs}
+              disabled={isRunningBatch}
+              title="Start only selected draft/pending jobs"
+              className={`bg-blue-500 text-white px-6 py-2 rounded-xl font-bold shadow-lg transition-all flex items-center gap-2 ${isRunningBatch ? 'opacity-60 cursor-not-allowed' : 'hover:bg-blue-600'}`}
+            >
+              <Play size={18} />
+              {isRunningBatch ? 'Starting...' : `Run Selected (${selectedStartableCount})`}
+            </button>
+          )}
+
+          {/* Run All Pending Button */}
           <button
-            type="button"
-            onClick={handleRunSelectedJobs}
+            onClick={handleRunBatch}
             disabled={isRunningBatch}
-            title="Start only selected draft/pending jobs"
-            className={`bg-blue-500 text-white px-6 py-2 rounded-xl font-bold shadow-lg transition-all flex items-center gap-2 ${isRunningBatch ? 'opacity-60 cursor-not-allowed' : 'hover:bg-blue-600'}`}
+            className={`bg-emerald-500 text-white px-6 py-2 rounded-xl font-bold shadow-lg transition-all flex items-center gap-2 ${isRunningBatch ? 'opacity-60 cursor-not-allowed' : 'hover:bg-emerald-600'}`}
           >
-            <Play size={18} />
-            {isRunningBatch ? 'Starting...' : `Run Selected (${selectedStartableCount})`}
+            <PlayCircle size={18} />
+            {isRunningBatch ? 'Starting...' : 'Run All Pending'}
           </button>
-        )}
-        
-        {/* Run All Pending Button */}
-        <button
-          onClick={handleRunBatch}
-          disabled={isRunningBatch}
-          className={`bg-emerald-500 text-white px-6 py-2 rounded-xl font-bold shadow-lg transition-all flex items-center gap-2 ${isRunningBatch ? 'opacity-60 cursor-not-allowed' : 'hover:bg-emerald-600'}`}
-        >
-          <PlayCircle size={18} />
-          {isRunningBatch ? 'Starting...' : 'Run All Pending'}
-        </button>
-        
-        {/* Stop Selected Button (running only) */}
-        {selectedJobIds.some((id) => jobs.find((j) => j.id === id)?.status === 'running') && (
-          <button
-            onClick={handleStopSelected}
-            disabled={isStoppingSelected}
-            className={`bg-red-600 text-white px-6 py-2 rounded-xl font-bold shadow-lg transition-all flex items-center gap-2 ${isStoppingSelected ? 'opacity-60 cursor-not-allowed' : 'hover:bg-red-700'}`}
-            title="Stop selected running job(s)"
-          >
-            <Square size={18} />
-            {isStoppingSelected ? 'Stopping...' : `Stop Selected (${selectedJobIds.filter((id) => jobs.find((j) => j.id === id)?.status === 'running').length})`}
-          </button>
-        )}
-        {/* Delete Selected Button */}
-        {selectedJobIds.length > 0 && (
-          <button
-            onClick={handleDeleteSelectedJobs}
-            className="bg-red-600 text-white px-6 py-2 rounded-xl font-bold shadow-lg transition-all flex items-center gap-2 hover:bg-red-700"
-            title={`Delete ${selectedJobIds.length} selected job(s)`}
-          >
-            <XCircle size={18} />
-            Delete Selected ({selectedJobIds.length})
-          </button>
-        )}
+
+          {/* Stop Selected Button (running only) */}
+          {selectedJobIds.some((id) => jobs.find((j) => j.id === id)?.status === 'running') && (
+            <button
+              onClick={handleStopSelected}
+              disabled={isStoppingSelected}
+              className={`bg-red-600 text-white px-6 py-2 rounded-xl font-bold shadow-lg transition-all flex items-center gap-2 ${isStoppingSelected ? 'opacity-60 cursor-not-allowed' : 'hover:bg-red-700'}`}
+              title="Stop selected running job(s)"
+            >
+              <Square size={18} />
+              {isStoppingSelected ? 'Stopping...' : `Stop Selected (${selectedJobIds.filter((id) => jobs.find((j) => j.id === id)?.status === 'running').length})`}
+            </button>
+          )}
+          {/* Delete Selected Button */}
+          {selectedJobIds.length > 0 && (
+            <button
+              onClick={handleDeleteSelectedJobs}
+              className="bg-red-600 text-white px-6 py-2 rounded-xl font-bold shadow-lg transition-all flex items-center gap-2 hover:bg-red-700"
+              title={`Delete ${selectedJobIds.length} selected job(s)`}
+            >
+              <XCircle size={18} />
+              Delete Selected ({selectedJobIds.length})
+            </button>
+          )}
+        </div>
       </div>
-    </div>
 
       {/* Single search + filter bar */}
       <div className="rounded-lg border border-slate-200 bg-white dark:bg-slate-900 dark:border-slate-700 p-2 mb-3 flex flex-wrap items-center gap-1.5">
         <div className="relative flex-1 min-w-[180px]">
           <Search size={16} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
-          type="text"
-          value={jobsSearch}
-          onChange={(e) => upd('jobsSearch', e.target.value)}
-          placeholder="Search by name, ID, firmware, boards..."
-          className="w-full pl-8 pr-2 py-1 border border-slate-300 dark:border-slate-700 rounded-md text-xs bg-white text-slate-700 dark:bg-slate-900 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            type="text"
+            value={jobsSearch}
+            onChange={(e) => upd('jobsSearch', e.target.value)}
+            placeholder="Search by name, ID, firmware, boards..."
+            className="w-full pl-8 pr-2 py-1 border border-slate-300 dark:border-slate-700 rounded-md text-xs bg-white text-slate-700 dark:bg-slate-900 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
         <select
@@ -1509,13 +1505,12 @@ Duration: ${file.duration || 'N/A'}
           </button>
         )}
       </div>
-      
+
       {(loading?.jobs || errors?.jobs) && (
-        <div className={`rounded-xl border px-4 py-3 text-sm ${
-          errors?.jobs
+        <div className={`rounded-xl border px-4 py-3 text-sm ${errors?.jobs
             ? 'bg-red-50 border-red-200 text-red-700 dark:bg-red-900/40 dark:border-red-700 dark:text-red-300'
             : 'bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/40 dark:border-blue-700 dark:text-blue-300'
-        }`}>
+          }`}>
           {errors?.jobs ? `Failed to load jobs: ${errors.jobs}` : 'Loading jobs...'}
         </div>
       )}
@@ -1528,189 +1523,185 @@ Duration: ${file.duration || 'N/A'}
 
       {/* Columns: 4 columns when "All", or 1 column when a single status is selected */}
       <div
-        className={`grid gap-2 md:gap-3 ${
-          jobsStatusFilter === 'all' ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-4' : 'grid-cols-1'
-        }`}
+        className={`grid gap-2 md:gap-3 ${jobsStatusFilter === 'all' ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-4' : 'grid-cols-1'
+          }`}
       >
         {/* Column: Draft (saved but not queued) */}
         {(jobsStatusFilter === 'all' || jobsStatusFilter === 'draft') && (
-        <div className="space-y-2 rounded-xl border border-slate-200 bg-white/80 p-2 shadow-sm dark:bg-slate-900/70 dark:border-slate-800 min-w-0">
-          <div className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 dark:bg-slate-800 dark:border-slate-700">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <div className="w-2 h-2 bg-slate-500 rounded-full shrink-0" />
-              <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Draft</h2>
-              <span className="px-1.5 py-0.5 bg-slate-100 text-slate-700 rounded-full text-[10px] font-bold dark:bg-slate-700 dark:text-slate-200 tabular-nums">
-                {filteredDraftJobs.length}
-              </span>
+          <div className="space-y-2 rounded-xl border border-slate-200 bg-white/80 p-2 shadow-sm dark:bg-slate-900/70 dark:border-slate-800 min-w-0">
+            <div className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 dark:bg-slate-800 dark:border-slate-700">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <div className="w-2 h-2 bg-slate-500 rounded-full shrink-0" />
+                <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Draft</h2>
+                <span className="px-1.5 py-0.5 bg-slate-100 text-slate-700 rounded-full text-[10px] font-bold dark:bg-slate-700 dark:text-slate-200 tabular-nums">
+                  {filteredDraftJobs.length}
+                </span>
+              </div>
+            </div>
+            <div className="space-y-1.5 pt-0.5 pr-0.5 md:pr-1 min-h-[4rem]">
+              {filteredDraftJobs.length === 0 ? (
+                <div className="rounded-lg border border-slate-200 bg-white px-2 py-4 text-center text-slate-400 text-xs dark:bg-slate-900 dark:border-slate-700 dark:text-slate-400">
+                  <p>{hasActiveFilters ? 'No matching draft jobs' : 'No draft jobs'}</p>
+                </div>
+              ) : (
+                filteredDraftJobs.map((job, queueIndex) =>
+                  renderJobCard(job, queueIndex, filteredDraftJobs, 'draft')
+                )
+              )}
             </div>
           </div>
-          <div className="space-y-1.5 pt-0.5 pr-0.5 md:pr-1 min-h-[4rem]">
-            {filteredDraftJobs.length === 0 ? (
-              <div className="rounded-lg border border-slate-200 bg-white px-2 py-4 text-center text-slate-400 text-xs dark:bg-slate-900 dark:border-slate-700 dark:text-slate-400">
-                <p>{hasActiveFilters ? 'No matching draft jobs' : 'No draft jobs'}</p>
-              </div>
-            ) : (
-              filteredDraftJobs.map((job, queueIndex) =>
-                renderJobCard(job, queueIndex, filteredDraftJobs, 'draft')
-              )
-            )}
-          </div>
-        </div>
         )}
 
         {/* Column 2: Running + Queue (Pending under running) */}
         {(jobsStatusFilter === 'all' || jobsStatusFilter === 'running' || jobsStatusFilter === 'pending') && (
-        <div className="space-y-2 rounded-xl border border-slate-200 bg-white/80 p-2 shadow-sm dark:bg-slate-900/70 dark:border-slate-800 min-w-0">
-          <div className="bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5 dark:bg-blue-900/30 dark:border-blue-700">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse shrink-0" />
-              <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Running</h2>
-              <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-full text-[10px] font-bold dark:bg-blue-900/60 dark:text-blue-200 tabular-nums">
-                {filteredRunningJobs.length}
-              </span>
-              <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full text-[10px] font-bold dark:bg-amber-900/60 dark:text-amber-200 tabular-nums">
-                Queue {filteredPendingJobs.length}
-              </span>
-            </div>
-            
-          </div>
-          <div
-            ref={runningDropZoneRef}
-            onDragEnter={handleRunningColumnDragEnter}
-            onDragOver={handleRunningColumnDragOver}
-            onDragLeave={handleRunningColumnDragLeave}
-            onDrop={handleRunningColumnDrop}
-            className={`space-y-1.5 pt-0.5 pr-0.5 md:pr-1 min-h-[4rem] rounded-lg transition-colors ${
-              runningColumnDropActive && draggedJobIsStartable
-                ? 'bg-blue-50/90 ring-2 ring-blue-400/60 ring-offset-1 dark:bg-blue-950/40 dark:ring-blue-500/50'
-                : ''
-            }`}
-          >
-            {filteredRunningJobs.length === 0 ? (
-              <div
-                className={`rounded-lg border border-dashed px-2 py-6 text-center text-xs dark:border-slate-600 ${
-                  runningColumnDropActive && draggedJobIsStartable
-                    ? 'border-blue-400 bg-blue-50/50 text-blue-800 dark:bg-blue-950/50 dark:text-blue-200'
-                    : 'border-slate-200 bg-white text-slate-400 dark:bg-slate-900 dark:text-slate-400'
-                }`}
-              >
-                <p className="font-medium text-slate-500 dark:text-slate-400">
-                  {hasActiveFilters ? 'No matching running jobs' : 'No running jobs'}
-                </p>
-                {!hasActiveFilters && (
-                  <p className="mt-2 text-[10px] text-slate-400 dark:text-slate-500">
-                    Drag Jobs from Pending to here to start running immediately (or drag on the running card)
-                  </p>
-                )}
-              </div>
-            ) : (
-              filteredRunningJobs.map((job, queueIndex) =>
-                renderJobCard(job, queueIndex, filteredRunningJobs, 'running-active')
-              )
-            )}
-            <div className="mt-2 pt-2 border-t border-dashed border-slate-200 dark:border-slate-700">
-              <div className="flex items-center gap-1.5 mb-2">
-                <div className="w-2 h-2 bg-amber-500 rounded-full shrink-0" />
-                <h3 className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide">Queue (Pending)</h3>
+          <div className="space-y-2 rounded-xl border border-slate-200 bg-white/80 p-2 shadow-sm dark:bg-slate-900/70 dark:border-slate-800 min-w-0">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5 dark:bg-blue-900/30 dark:border-blue-700">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse shrink-0" />
+                <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Running</h2>
+                <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-full text-[10px] font-bold dark:bg-blue-900/60 dark:text-blue-200 tabular-nums">
+                  {filteredRunningJobs.length}
+                </span>
                 <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full text-[10px] font-bold dark:bg-amber-900/60 dark:text-amber-200 tabular-nums">
-                  {filteredPendingJobs.length}
+                  Queue {filteredPendingJobs.length}
                 </span>
               </div>
-              <div
-                className={`space-y-1.5 min-h-[2.75rem] rounded-lg transition-colors ${
-                  draggedJobIsStartable ? 'ring-1 ring-amber-300/60 dark:ring-amber-500/40' : ''
+
+            </div>
+            <div
+              ref={runningDropZoneRef}
+              onDragEnter={handleRunningColumnDragEnter}
+              onDragOver={handleRunningColumnDragOver}
+              onDragLeave={handleRunningColumnDragLeave}
+              onDrop={handleRunningColumnDrop}
+              className={`space-y-1.5 pt-0.5 pr-0.5 md:pr-1 min-h-[4rem] rounded-lg transition-colors ${runningColumnDropActive && draggedJobIsStartable
+                  ? 'bg-blue-50/90 ring-2 ring-blue-400/60 ring-offset-1 dark:bg-blue-950/40 dark:ring-blue-500/50'
+                  : ''
                 }`}
-                onDragOver={(e) => {
-                  if (!draggedJobIsStartable) return;
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = 'move';
-                }}
-                onDrop={async (e) => {
-                  if (!draggedJobIsStartable) return;
-                  e.preventDefault();
-                  e.stopPropagation();
-                  const draggedJobId = e.dataTransfer.getData('application/x-job-id') || e.dataTransfer.getData('text/plain');
-                  if (!draggedJobId) return;
-                  const draggedJob = jobs.find((j) => j.id === draggedJobId);
-                  const draggedStatus = draggedJob ? (draggedJob.status || '').toLowerCase() : '';
-                  // draft → promote to pending (enter the queue); pending → move to bottom of queue
-                  if (draggedStatus === 'draft') {
-                    await startJobById(draggedJobId);
+            >
+              {filteredRunningJobs.length === 0 ? (
+                <div
+                  className={`rounded-lg border border-dashed px-2 py-6 text-center text-xs dark:border-slate-600 ${runningColumnDropActive && draggedJobIsStartable
+                      ? 'border-blue-400 bg-blue-50/50 text-blue-800 dark:bg-blue-950/50 dark:text-blue-200'
+                      : 'border-slate-200 bg-white text-slate-400 dark:bg-slate-900 dark:text-slate-400'
+                    }`}
+                >
+                  <p className="font-medium text-slate-500 dark:text-slate-400">
+                    {hasActiveFilters ? 'No matching running jobs' : 'No running jobs'}
+                  </p>
+                  {!hasActiveFilters && (
+                    <p className="mt-2 text-[10px] text-slate-400 dark:text-slate-500">
+                      Drag Jobs from Pending to here to start running immediately (or drag on the running card)
+                    </p>
+                  )}
+                </div>
+              ) : (
+                filteredRunningJobs.map((job, queueIndex) =>
+                  renderJobCard(job, queueIndex, filteredRunningJobs, 'running-active')
+                )
+              )}
+              <div className="mt-2 pt-2 border-t border-dashed border-slate-200 dark:border-slate-700">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <div className="w-2 h-2 bg-amber-500 rounded-full shrink-0" />
+                  <h3 className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide">Queue (Pending)</h3>
+                  <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full text-[10px] font-bold dark:bg-amber-900/60 dark:text-amber-200 tabular-nums">
+                    {filteredPendingJobs.length}
+                  </span>
+                </div>
+                <div
+                  className={`space-y-1.5 min-h-[2.75rem] rounded-lg transition-colors ${draggedJobIsStartable ? 'ring-1 ring-amber-300/60 dark:ring-amber-500/40' : ''
+                    }`}
+                  onDragOver={(e) => {
+                    if (!draggedJobIsStartable) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                  }}
+                  onDrop={async (e) => {
+                    if (!draggedJobIsStartable) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const draggedJobId = e.dataTransfer.getData('application/x-job-id') || e.dataTransfer.getData('text/plain');
+                    if (!draggedJobId) return;
+                    const draggedJob = jobs.find((j) => j.id === draggedJobId);
+                    const draggedStatus = draggedJob ? (draggedJob.status || '').toLowerCase() : '';
+                    // draft → promote to pending (enter the queue); pending → move to bottom of queue
+                    if (draggedStatus === 'draft') {
+                      await startJobById(draggedJobId);
+                      setDraggingJobId(null);
+                      return;
+                    }
+                    const fromIndex = filteredPendingJobs.findIndex((j) => j.id === draggedJobId);
+                    if (fromIndex < 0) return;
+                    const toIndex = Math.max(0, filteredPendingJobs.length - 1);
+                    if (toIndex !== fromIndex) moveJobToIndex(draggedJobId, toIndex, filteredPendingJobs);
                     setDraggingJobId(null);
-                    return;
-                  }
-                  const fromIndex = filteredPendingJobs.findIndex((j) => j.id === draggedJobId);
-                  if (fromIndex < 0) return;
-                  const toIndex = Math.max(0, filteredPendingJobs.length - 1);
-                  if (toIndex !== fromIndex) moveJobToIndex(draggedJobId, toIndex, filteredPendingJobs);
-                  setDraggingJobId(null);
-                }}
-              >
-                {filteredPendingJobs.length === 0 ? (
-                  <div className="rounded-lg border border-slate-200 bg-white px-2 py-3 text-center text-slate-400 text-xs dark:bg-slate-900 dark:border-slate-700 dark:text-slate-400">
-                    <p>{hasActiveFilters ? 'No matching queue jobs' : 'No queued jobs'}</p>
-                  </div>
-                ) : (
-                  filteredPendingJobs.map((job, queueIndex) =>
-                    renderJobCard(job, queueIndex, filteredPendingJobs, 'running-queue', filteredPendingJobs)
-                  )
-                )}
+                  }}
+                >
+                  {filteredPendingJobs.length === 0 ? (
+                    <div className="rounded-lg border border-slate-200 bg-white px-2 py-3 text-center text-slate-400 text-xs dark:bg-slate-900 dark:border-slate-700 dark:text-slate-400">
+                      <p>{hasActiveFilters ? 'No matching queue jobs' : 'No queued jobs'}</p>
+                    </div>
+                  ) : (
+                    filteredPendingJobs.map((job, queueIndex) =>
+                      renderJobCard(job, queueIndex, filteredPendingJobs, 'running-queue', filteredPendingJobs)
+                    )
+                  )}
+                </div>
               </div>
             </div>
           </div>
-        </div>
         )}
 
         {/* Column: Error (completed/stopped sets with any failed TC) — after Running */}
         {(jobsStatusFilter === 'all' || jobsStatusFilter === 'error' || jobsStatusFilter === 'stopped') && (
-        <div className="space-y-2 rounded-xl border border-slate-200 bg-white/80 p-2 shadow-sm dark:bg-slate-900/70 dark:border-slate-800 min-w-0">
-          <div className="bg-red-50 border border-red-200 rounded-lg px-2 py-1.5 dark:bg-red-900/25 dark:border-red-800">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <div className="w-2 h-2 bg-red-500 rounded-full shrink-0" />
-              <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Error</h2>
-              <span className="px-1.5 py-0.5 bg-red-100 text-red-800 rounded-full text-[10px] font-bold dark:bg-red-900/50 dark:text-red-200 tabular-nums">
-                {displayErrorJobs.length}
-              </span>
+          <div className="space-y-2 rounded-xl border border-slate-200 bg-white/80 p-2 shadow-sm dark:bg-slate-900/70 dark:border-slate-800 min-w-0">
+            <div className="bg-red-50 border border-red-200 rounded-lg px-2 py-1.5 dark:bg-red-900/25 dark:border-red-800">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <div className="w-2 h-2 bg-red-500 rounded-full shrink-0" />
+                <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Error</h2>
+                <span className="px-1.5 py-0.5 bg-red-100 text-red-800 rounded-full text-[10px] font-bold dark:bg-red-900/50 dark:text-red-200 tabular-nums">
+                  {displayErrorJobs.length}
+                </span>
+              </div>
+            </div>
+            <div className="space-y-1.5 pt-0.5 pr-0.5 md:pr-1 min-h-[4rem]">
+              {displayErrorJobs.length === 0 ? (
+                <div className="rounded-lg border border-slate-200 bg-white px-2 py-4 text-center text-slate-400 text-xs dark:bg-slate-900 dark:border-slate-700 dark:text-slate-400">
+                  <p>{hasActiveFilters ? 'No matching error jobs' : 'No error jobs'}</p>
+                </div>
+              ) : (
+                displayErrorJobs.map((job, queueIndex) =>
+                  renderJobCard(job, queueIndex, displayErrorJobs, 'error')
+                )
+              )}
             </div>
           </div>
-          <div className="space-y-1.5 pt-0.5 pr-0.5 md:pr-1 min-h-[4rem]">
-            {displayErrorJobs.length === 0 ? (
-              <div className="rounded-lg border border-slate-200 bg-white px-2 py-4 text-center text-slate-400 text-xs dark:bg-slate-900 dark:border-slate-700 dark:text-slate-400">
-                <p>{hasActiveFilters ? 'No matching error jobs' : 'No error jobs'}</p>
-              </div>
-            ) : (
-              displayErrorJobs.map((job, queueIndex) =>
-                renderJobCard(job, queueIndex, displayErrorJobs, 'error')
-              )
-            )}
-          </div>
-        </div>
         )}
 
         {/* Column: Completed (passed / no failed TC) */}
         {(jobsStatusFilter === 'all' || jobsStatusFilter === 'completed' || jobsStatusFilter === 'stopped') && (
-        <div className="space-y-2 rounded-xl border border-slate-200 bg-white/80 p-2 shadow-sm dark:bg-slate-900/70 dark:border-slate-800 min-w-0">
-          <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1.5 dark:bg-emerald-900/30 dark:border-emerald-700">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <div className="w-2 h-2 bg-emerald-500 rounded-full shrink-0" />
-              <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Completed</h2>
-              <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded-full text-[10px] font-bold dark:bg-emerald-900/60 dark:text-emerald-200 tabular-nums">
-                {displayCompletedJobs.length}
-              </span>
+          <div className="space-y-2 rounded-xl border border-slate-200 bg-white/80 p-2 shadow-sm dark:bg-slate-900/70 dark:border-slate-800 min-w-0">
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1.5 dark:bg-emerald-900/30 dark:border-emerald-700">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <div className="w-2 h-2 bg-emerald-500 rounded-full shrink-0" />
+                <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Completed</h2>
+                <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded-full text-[10px] font-bold dark:bg-emerald-900/60 dark:text-emerald-200 tabular-nums">
+                  {displayCompletedJobs.length}
+                </span>
+              </div>
+            </div>
+            <div className="space-y-1.5 pt-0.5 pr-0.5 md:pr-1 min-h-[4rem]">
+              {displayCompletedJobs.length === 0 ? (
+                <div className="rounded-lg border border-slate-200 bg-white px-2 py-4 text-center text-slate-400 text-xs dark:bg-slate-900 dark:border-slate-700 dark:text-slate-400">
+                  <p>{hasActiveFilters ? 'No matching completed jobs' : 'No completed jobs'}</p>
+                </div>
+              ) : (
+                displayCompletedJobs.map((job, queueIndex) =>
+                  renderJobCard(job, queueIndex, displayCompletedJobs, 'completed')
+                )
+              )}
             </div>
           </div>
-          <div className="space-y-1.5 pt-0.5 pr-0.5 md:pr-1 min-h-[4rem]">
-            {displayCompletedJobs.length === 0 ? (
-              <div className="rounded-lg border border-slate-200 bg-white px-2 py-4 text-center text-slate-400 text-xs dark:bg-slate-900 dark:border-slate-700 dark:text-slate-400">
-                <p>{hasActiveFilters ? 'No matching completed jobs' : 'No completed jobs'}</p>
-              </div>
-            ) : (
-              displayCompletedJobs.map((job, queueIndex) =>
-                renderJobCard(job, queueIndex, displayCompletedJobs, 'completed')
-              )
-            )}
-          </div>
-        </div>
         )}
       </div>
     </div>

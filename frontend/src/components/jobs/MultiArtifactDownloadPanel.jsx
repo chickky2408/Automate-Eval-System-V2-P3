@@ -31,8 +31,19 @@ export default function MultiArtifactDownloadPanel({
 }) {
   const [copiedSha, setCopiedSha] = useState(false);
 
-  // Default Artifacts List
+  // Default Artifacts List (Strictly BIN, VCD, H5 from hardware)
   const defaultArtifacts = [
+    {
+      id: 'bin',
+      name: 'capture.bin',
+      type: 'WAVEFORM',
+      icon: Database,
+      sizeFormatted: '16.0 MB',
+      description: 'Raw Binary DMA Beat Stream from FPGA PL',
+      color: 'sky',
+      canPreview: false,
+      sha256: '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08'
+    },
     {
       id: 'vcd',
       name: 'waveform.vcd',
@@ -40,7 +51,7 @@ export default function MultiArtifactDownloadPanel({
       icon: FileCode,
       sizeFormatted: '12.6 MB',
       description: 'Digital Logic & Timing Waveform (GTKWave / Scope)',
-      color: 'sky',
+      color: 'purple',
       canPreview: true,
       sha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
     },
@@ -52,30 +63,19 @@ export default function MultiArtifactDownloadPanel({
       sizeFormatted: '4.28 MB',
       description: 'High-Density HDF5 Dataset for Python NumPy/Pandas',
       color: 'indigo',
-      canPreview: false,
+      canPreview: true,
       sha256: '4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a'
     },
     {
-      id: 'csv',
-      name: 'summary_metrics.csv',
+      id: 'diff',
+      name: 'waveform.diff.json.lz4',
       type: 'REPORT',
       icon: FileSpreadsheet,
-      sizeFormatted: '2.82 MB',
-      description: 'Tabular Summary & Pass/Fail Metrics for Excel',
+      sizeFormatted: '180 KB',
+      description: 'Digital Verification Diff & Mismatch Clusters (SPEC-0002)',
       color: 'emerald',
-      canPreview: false,
-      sha256: 'ef2d127de37b942baad06145e54b0c619a1f22327b2ebbcfbec78f5564afe39d'
-    },
-    {
-      id: 'bundle',
-      name: `run_${resultId}_bundle.tar.gz`,
-      type: 'BUNDLE',
-      icon: Archive,
-      sizeFormatted: '1.45 MB',
-      description: 'Atomic Complete Bundle (.vcd + .h5 + .csv + manifest)',
-      color: 'amber',
-      canPreview: false,
-      sha256: '7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069'
+      canPreview: true,
+      sha256: 'c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2'
     }
   ];
 
@@ -83,7 +83,9 @@ export default function MultiArtifactDownloadPanel({
 
   // Default Metrics Table
   const defaultMetrics = [
-    { name: 'V_Peak_to_Peak', measured: '1.18 V', min: '1.10 V', max: '1.30 V', status: 'PASS' },
+    { name: 'Edge_F1_Score', measured: '99.85 %', min: '99.00 %', max: '100.00 %', status: 'PASS' },
+    { name: 'Majority_Voting_Score', measured: '100.00 %', min: '95.00 %', max: '100.00 %', status: 'PASS' },
+    { name: 'Sample_XOR_Score', measured: '91.67 %', min: '85.00 %', max: '100.00 %', status: 'PASS' },
     { name: 'Clock_Frequency', measured: '100.02 MHz', min: '99.50 MHz', max: '100.50 MHz', status: 'PASS' },
     { name: 'Rise_Time_Tr', measured: '1.42 ns', min: '0.80 ns', max: '2.00 ns', status: 'PASS' },
     { name: 'Clock_Jitter_Rms', measured: '12.4 ps', min: '0.0 ps', max: '25.0 ps', status: 'PASS' },

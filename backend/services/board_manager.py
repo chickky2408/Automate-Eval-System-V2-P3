@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.board import BoardInfo, BoardStatus, BoardState
 from db.database import async_session
-from db.orm_models import BoardORM, BoardStatusORM, BoardTelemetryLogORM
+from db.orm_models import BoardORM, BoardStatusORM, BoardTelemetryLogORM, JobTargetORM, ResultORM, JobORM
 
 class BoardManager:
     """Manages the fleet of Zybo boards."""
@@ -432,17 +432,106 @@ class BoardManager:
                     arm_status=None,
                 )
             )
-            # Keep boards table in sync
+            # Keep boards table in sync and clear current_job_id
             await session.execute(
                 update(BoardORM)
                 .where(BoardORM.id.in_(stale_ids))
-                .values(state=BoardState.OFFLINE.value)
+                .values(state=BoardState.OFFLINE.value, current_job_id=None)
             )
+
+            # If any stale boards were running targets, fail those targets
+            running_targets_q = select(JobTargetORM).where(
+                JobTargetORM.status == "running",
+                JobTargetORM.actual_board_id.in_(stale_ids)
+            )
+            running_targets = (await session.execute(running_targets_q)).scalars().all()
+            for tgt in running_targets:
+                tgt.status = "failed"
+                tgt.completed_at = now
+                print(f"[watchdog] Target {tgt.id} failed: board {tgt.actual_board_id} dropped offline")
+
+                res_q = select(ResultORM).where(
+                    ResultORM.job_target_id == tgt.id,
+                    ResultORM.status == "running"
+                )
+                running_results = (await session.execute(res_q)).scalars().all()
+                for r in running_results:
+                    r.status = "error"
+                    r.passed = False
+                    r.completed_at = now
+                    r.error_message = f"Execution failed: board {tgt.actual_board_id} dropped offline"
+
+                job_orm = (await session.execute(select(JobORM).where(JobORM.id == tgt.job_id))).scalar_one_or_none()
+                if job_orm and job_orm.state == "running":
+                    job_orm.state = "failed"
+                    job_orm.completed_at = now
+                    job_orm.current_step = f"Board {tgt.actual_board_id} dropped offline"
+
             await session.commit()
 
             for board_id in stale_ids:
                 print(f"[watchdog] Board {board_id} marked offline (no heartbeat for >{timeout_seconds}s)")
 
             return len(stale_ids)
+
+    async def evict_stale_busy_boards(self, max_busy_seconds: int = 900) -> int:
+        """
+        Safety watchdog: detect boards stuck in 'busy' state longer than max_busy_seconds
+        (e.g. if an agent crashed silently or didn't report measurements).
+        Releases the board lock and marks affected target as failed.
+        """
+        now = datetime.utcnow()
+        cutoff = now - timedelta(seconds=max_busy_seconds)
+        async with async_session() as session:
+            # Find targets running on busy boards where board_assigned_at is older than cutoff
+            stuck_targets_q = select(JobTargetORM).where(
+                JobTargetORM.status == "running",
+                JobTargetORM.board_assigned_at != None,
+                JobTargetORM.board_assigned_at < cutoff
+            )
+            stuck_targets = (await session.execute(stuck_targets_q)).scalars().all()
+            evicted_count = 0
+            for tgt in stuck_targets:
+                board_id = tgt.actual_board_id
+                tgt.status = "failed"
+                tgt.completed_at = now
+                print(f"[watchdog] Auto-evicting stuck target {tgt.id} on board {board_id} (exceeded {max_busy_seconds}s)")
+
+                res_q = select(ResultORM).where(
+                    ResultORM.job_target_id == tgt.id,
+                    ResultORM.status == "running"
+                )
+                running_results = (await session.execute(res_q)).scalars().all()
+                for r in running_results:
+                    r.status = "error"
+                    r.passed = False
+                    r.completed_at = now
+                    r.error_message = f"Execution timed out on board {board_id} (exceeded {max_busy_seconds}s)"
+
+                job_orm = (await session.execute(select(JobORM).where(JobORM.id == tgt.job_id))).scalar_one_or_none()
+                if job_orm and job_orm.state == "running":
+                    job_orm.state = "failed"
+                    job_orm.completed_at = now
+                    job_orm.current_step = f"Timed out after {max_busy_seconds}s on board {board_id}"
+
+                if board_id:
+                    st_row = (await session.execute(select(BoardStatusORM).where(BoardStatusORM.board_id == board_id))).scalar_one_or_none()
+                    is_online = bool(st_row and st_row.last_heartbeat and (now - st_row.last_heartbeat).total_seconds() < 45)
+                    target_state = BoardState.ONLINE.value if is_online else BoardState.OFFLINE.value
+
+                    await session.execute(
+                        update(BoardStatusORM)
+                        .where(BoardStatusORM.board_id == board_id)
+                        .values(state=target_state)
+                    )
+                    await session.execute(
+                        update(BoardORM)
+                        .where(BoardORM.id == board_id)
+                        .values(state=target_state, current_job_id=None)
+                    )
+                    evicted_count += 1
+
+            await session.commit()
+            return evicted_count
 
 board_manager = BoardManager()

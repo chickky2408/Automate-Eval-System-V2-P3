@@ -28,7 +28,8 @@ async def seed_waveform():
     wf = WaveformData(
         channels=channels,
         time_unit="s",
-        total_duration=0.001
+        total_duration=0.001,
+        sample_rate_hz=3000000.0
     )
     
     result_id = str(uuid.uuid4())[:8]

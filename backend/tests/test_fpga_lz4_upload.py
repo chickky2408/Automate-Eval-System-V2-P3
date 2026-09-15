@@ -77,20 +77,34 @@ async def test_lz4_chunked_upload_and_vcd_generation():
         assert data["result_id"] == result_id
         assert data["hdf5_file_path"] is not None
         assert data["vcd_file_path"] is not None
+        assert data["lz4_file_path"] is not None
+        assert data["bin_file_path"] is None
 
         # Verify files exist on disk
         from services.file_store import file_store
         abs_h5 = file_store.resolve_path(data["hdf5_file_path"])
         abs_vcd = file_store.resolve_path(data["vcd_file_path"])
+        abs_lz4 = file_store.resolve_path(data["lz4_file_path"])
 
         assert os.path.exists(abs_h5), f"HDF5 file should exist at {abs_h5}"
         assert os.path.exists(abs_vcd), f"VCD file should exist at {abs_vcd}"
+        assert os.path.exists(abs_lz4), f"LZ4 file should exist at {abs_lz4}"
         assert os.path.getsize(abs_h5) > 0
         assert os.path.getsize(abs_vcd) > 0
+        assert os.path.getsize(abs_lz4) > 0
+
+        # Verify decompressed content matches original capture
+        with lz4.frame.open(abs_lz4, "rb") as zf:
+            decompressed = zf.read()
+            expected_bin_size = sample_count * stride_bytes
+            assert len(decompressed) == expected_bin_size
+            assert decompressed[12] == 1  # Byte 12 has CH0 = 1 for beat 0
+            assert decompressed[13:16] == b"\x00\x00\x00"
 
         # Cleanup generated test files
         try:
             os.remove(abs_h5)
             os.remove(abs_vcd)
+            os.remove(abs_lz4)
         except OSError:
             pass
