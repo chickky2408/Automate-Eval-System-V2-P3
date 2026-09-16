@@ -4,6 +4,7 @@ Job File Store Service (Redesigned to map to ResultORM).
 from __future__ import annotations
 from typing import List, Optional
 from datetime import datetime
+import os
 import uuid
 
 from sqlalchemy import select, update, delete
@@ -77,12 +78,20 @@ class JobFileStore:
                     tc_q = select(TestCaseORM.id).where(TestCaseORM.vcd_file_id == vcd_id)
                     tc_id = (await session.execute(tc_q)).scalar_one_or_none()
 
+            if vcd and not vcd_id:
+                # PROJECT.md B1.1 fixed this exact fabrication in job_queue.py --
+                # this sibling store had the same "unresolved reference gets a
+                # random UUID FK" bug. Fail loud instead of writing a dangling FK.
+                raise ValueError(f"vcd file '{vcd}' does not exist")
+            if not tc_id and not vcd_id:
+                raise ValueError("job file has neither a resolvable test case nor a vcd file")
+
             if not tc_id:
                 tc_id = str(uuid.uuid4())
                 mock_tc = TestCaseORM(
                     id=tc_id,
                     name=test_case_name or name,
-                    vcd_file_id=vcd_id or str(uuid.uuid4())
+                    vcd_file_id=vcd_id,
                 )
                 session.add(mock_tc)
                 await session.flush()

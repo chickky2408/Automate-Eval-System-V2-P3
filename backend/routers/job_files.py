@@ -35,16 +35,19 @@ async def list_job_files(job_id: str):
 @router.post("/jobs/{job_id}/files")
 async def create_job_file(job_id: str, data: JobFileCreate):
     """Create a new job file."""
-    return await job_file_store.create_job_file(
-        job_id=job_id,
-        name=data.name,
-        order=data.order,
-        vcd=data.vcd,
-        erom=data.erom,
-        ulp=data.ulp,
-        try_count=data.try_count,
-        test_case_name=data.test_case_name,
-    )
+    try:
+        return await job_file_store.create_job_file(
+            job_id=job_id,
+            name=data.name,
+            order=data.order,
+            vcd=data.vcd,
+            erom=data.erom,
+            ulp=data.ulp,
+            try_count=data.try_count,
+            test_case_name=data.test_case_name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.get("/jobs/{job_id}/files/{file_id}")
