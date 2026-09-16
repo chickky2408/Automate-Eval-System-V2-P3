@@ -13,7 +13,7 @@ from sqlalchemy import select, update, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.database import async_session
-from db.orm_models import FileORM, ProfileORM, TestCaseORM, RunSetORM
+from db.orm_models import FileORM, ProfileORM, TestCaseORM, RunSetORM, ResultORM
 from utils.tag_text import normalize_comma_separated_tags
 
 router = APIRouter()
@@ -404,11 +404,47 @@ async def _sync_normalized_test_tables(session: AsyncSession, all_profiles: List
                 )
             )
 
+    # PROJECT.md security-audit follow-up (2026-09-16): this used to be an
+    # unconditional `DELETE FROM test_cases` with no WHERE, on every save.
+    # Once B1.2 made results.test_case_id ondelete="RESTRICT" (previously
+    # CASCADE), that DELETE started failing on Postgres -- which checks a
+    # non-deferrable RESTRICT immediately per-statement, not at commit -- the
+    # moment any result existed. Every subsequent profile save then 500'd
+    # forever. SQLite's demo defer_foreign_keys masked this in dev.
+    # Fix: only delete test_cases that are neither still desired nor
+    # referenced by any result; upsert everything still desired instead of
+    # blindly re-inserting, since a referenced row can never be dropped and
+    # re-created even within the same flush.
+    existing_tc_ids = set((await session.execute(select(TestCaseORM.id))).scalars().all())
+    referenced_tc_ids = set(
+        (await session.execute(select(ResultORM.test_case_id).distinct())).scalars().all()
+    )
+    desired_ids = set(tc_by_key.keys())
+
+    ids_to_delete = existing_tc_ids - desired_ids - referenced_tc_ids
+    if ids_to_delete:
+        await session.execute(delete(TestCaseORM).where(TestCaseORM.id.in_(ids_to_delete)))
+
     await session.execute(delete(RunSetORM))
-    await session.execute(delete(TestCaseORM))
     await session.flush()
+
     if tc_by_key:
-        session.add_all(list(tc_by_key.values()))
+        ids_to_update = existing_tc_ids & desired_ids
+        for tc_id, orm in tc_by_key.items():
+            if tc_id in ids_to_update:
+                await session.execute(
+                    update(TestCaseORM).where(TestCaseORM.id == tc_id).values(
+                        name=orm.name,
+                        vcd_file_id=orm.vcd_file_id,
+                        bin_file_id=orm.bin_file_id,
+                        lin_file_id=orm.lin_file_id,
+                        mdi_file_id=orm.mdi_file_id,
+                        owner_id=orm.owner_id,
+                        config_options=orm.config_options,
+                    )
+                )
+            else:
+                session.add(orm)
     if set_rows:
         session.add_all(set_rows)
     await session.flush()

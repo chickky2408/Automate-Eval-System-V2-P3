@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import re
 import shutil
 import uuid
 from datetime import datetime
@@ -230,6 +231,13 @@ def _process_waveform_artifacts(tmp_path: str, target_filename: str, abs_h5: str
 @router.post("/v1/upload/init")
 async def init_upload(payload: InitUploadRequest) -> dict:
     upload_id = payload.upload_id or str(uuid.uuid4())
+    # Security-audit finding (2026-09-16): upload_id came straight from the
+    # client and was interpolated into filesystem paths (tmp_path/part_dir)
+    # below with no sanitization, unlike target_filename just after it --
+    # a value like "../../../etc/x" was a path-traversal / arbitrary-write
+    # primitive, not just a spoofable id. Restrict to a safe token shape.
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", upload_id):
+        raise HTTPException(status_code=400, detail="upload_id must match [A-Za-z0-9_-]{1,128}")
     if upload_id in SESSIONS:
         raise HTTPException(status_code=409, detail=f"Upload ID already exists: {upload_id}")
     target = (payload.target_filename or f"{upload_id}.bin").strip()

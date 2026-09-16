@@ -18,6 +18,7 @@ from models.board import BoardInfo, BoardStatus, BoardState
 from services.board_manager import board_manager
 from db.database import async_session
 from db.orm_models import ResultORM, BoardTelemetryLogORM
+from routers.files import _read_upload_with_size_cap, MAX_UPLOAD_SIZE_BYTES
 
 router = APIRouter()
 
@@ -121,7 +122,7 @@ async def list_boards(
 async def create_board(payload: BoardCreateRequest):
     board_id = f"board-{uuid.uuid4().hex[:8]}"
     state = _parse_board_state(payload.status)
-    board = await board_manager.create_board(
+    board, _is_new = await board_manager.create_board(
         board_id=board_id,
         name=payload.name or board_id,
         ip_address=payload.ip or "",
@@ -247,7 +248,10 @@ async def update_firmware(
         raise HTTPException(status_code=404, detail=f"Board {board_id} not found")
     await board_manager.update_board(board_id, {"firmware_version": firmwareVersion})
     if firmwareFile:
-        await firmwareFile.read()
+        # Security-audit finding (2026-09-16): this did `await firmwareFile.read()`
+        # with no bound at all, unlike routers/files.py's upload path (B1.10),
+        # buffering an attacker-controlled body of any size before discarding it.
+        await _read_upload_with_size_cap(firmwareFile, MAX_UPLOAD_SIZE_BYTES)
     return {"success": True, "message": "Firmware update initiated"}
 
 
