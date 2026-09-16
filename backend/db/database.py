@@ -379,6 +379,41 @@ async def init_db():
 
             await conn.run_sync(_add_results_skip_reason)
 
+        # Migration: fix results.test_case_id's ON DELETE rule on Postgres
+        # (2026-09-16, follow-up to security audit / B1.2). B1.2 changed the
+        # ORM declaration from CASCADE to RESTRICT so deleting a test case
+        # can no longer silently destroy result history. But `create_all()`
+        # only creates tables that don't already exist yet -- it never alters
+        # an existing table's constraints. Verified directly: the project's
+        # own docker-compose dev Postgres, whose `results` table predates
+        # this ORM change, still had `results_test_case_id_fkey` as CASCADE
+        # despite the model saying RESTRICT. Any already-running Postgres
+        # deployment that predates B1.2 has the identical gap -- B1.2's fix
+        # never took effect there. This ALTERs the live constraint to match
+        # the ORM. (SQLite has no ALTER TABLE for constraint changes; the
+        # demo DB is disposable, so this is scoped to Postgres only.)
+        if "sqlite" not in DATABASE_URL:
+            async with engine.begin() as conn:
+                def _fix_results_test_case_fk_ondelete(sync_conn):
+                    try:
+                        row = sync_conn.execute(text(
+                            "SELECT rc.delete_rule FROM information_schema.referential_constraints rc "
+                            "WHERE rc.constraint_name = 'results_test_case_id_fkey'"
+                        )).first()
+                        if row and row[0] != "RESTRICT":
+                            sync_conn.execute(text(
+                                "ALTER TABLE results DROP CONSTRAINT results_test_case_id_fkey"
+                            ))
+                            sync_conn.execute(text(
+                                "ALTER TABLE results ADD CONSTRAINT results_test_case_id_fkey "
+                                "FOREIGN KEY (test_case_id) REFERENCES test_cases(id) ON DELETE RESTRICT"
+                            ))
+                            print(f"[DB] Migrated results_test_case_id_fkey from {row[0]} to RESTRICT")
+                    except Exception as e:
+                        print(f"[DB] WARNING: could not verify/fix results_test_case_id_fkey delete rule: {e}")
+
+                await conn.run_sync(_fix_results_test_case_fk_ondelete)
+
         # Migration: ensure all BoardORM columns exist
         async with engine.begin() as conn:
             def _add_board_status_columns(sync_conn):
