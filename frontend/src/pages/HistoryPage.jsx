@@ -16,6 +16,22 @@ import { useTestStore } from '../store/useTestStore';
 // 5. HISTORY PAGE
 const isDemoHistoryJob = (job) => typeof job?.id === 'string' && String(job.id).startsWith('demo-');
 
+// Security-audit finding (2026-09-16): exportBatchReport/exportToPDF build HTML
+// reports by interpolating job/test-case fields (name, tag, firmware, boards,
+// test-case display name) straight into a template string with no escaping,
+// unlike every other render path in this app which goes through React's
+// default escaping. A job or test case named e.g. `<img src=x onerror=...>`
+// executed in the exported report / print window. Escape every such field.
+const escapeHtml = (value) => {
+  const str = value === null || value === undefined ? '' : String(value);
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+};
+
 const HistoryPage = ({ onViewJob, onNavigateToWaveform }) => {
   const { jobs, exportJobToJSON, exportAllFailedLogs, loading, errors, deleteJob, addToast } = useTestStore();
   const [downloadMenuOpenJobId, setDownloadMenuOpenJobId] = useState(null);
@@ -297,7 +313,7 @@ const HistoryPage = ({ onViewJob, onNavigateToWaveform }) => {
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Test Report - Batch ${jobId}</title>
+  <title>Test Report - Batch ${escapeHtml(jobId)}</title>
   <style>
     body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
     .container { max-width: 1200px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
@@ -321,23 +337,23 @@ const HistoryPage = ({ onViewJob, onNavigateToWaveform }) => {
 </head>
 <body>
   <div class="container">
-    <h1>Test Report - Job #${jobId}</h1>
+    <h1>Test Report - Job #${escapeHtml(jobId)}</h1>
     <div class="info">
       <div class="info-item">
         <div class="info-label">Test Name</div>
-        <div class="info-value">${job.name || 'N/A'}</div>
+        <div class="info-value">${escapeHtml(job.name) || 'N/A'}</div>
           </div>
       <div class="info-item">
         <div class="info-label">Tag</div>
-        <div class="info-value">${job.tag || 'Untagged'}</div>
+        <div class="info-value">${escapeHtml(job.tag) || 'Untagged'}</div>
           </div>
       <div class="info-item">
         <div class="info-label">Firmware</div>
-        <div class="info-value">${job.firmware || 'N/A'}</div>
+        <div class="info-value">${escapeHtml(job.firmware) || 'N/A'}</div>
         </div>
       <div class="info-item">
         <div class="info-label">Boards</div>
-        <div class="info-value">${job.boards?.join(', ') || 'N/A'}</div>
+        <div class="info-value">${escapeHtml(job.boards?.join(', ')) || 'N/A'}</div>
     </div>
       <div class="info-item">
         <div class="info-label">Progress</div>
@@ -345,7 +361,7 @@ const HistoryPage = ({ onViewJob, onNavigateToWaveform }) => {
   </div>
       <div class="info-item">
         <div class="info-label">Status</div>
-        <div class="info-value">${job.status || 'unknown'}</div>
+        <div class="info-value">${escapeHtml(job.status) || 'unknown'}</div>
       </div>
     </div>
     <table>
@@ -361,9 +377,9 @@ const HistoryPage = ({ onViewJob, onNavigateToWaveform }) => {
         ${(job.files || []).sort((a, b) => (a.order || 0) - (b.order || 0)).map(file => `
         <tr>
           <td>${file.order || 0}</td>
-          <td>${getTestCaseDisplayName(file)}</td>
-          <td class="status-${file.status || 'pending'}">${file.status || 'pending'}</td>
-          <td class="result-${file.result === 'pass' ? 'pass' : file.result === 'fail' ? 'fail' : ''}">${file.result || 'N/A'}</td>
+          <td>${escapeHtml(getTestCaseDisplayName(file))}</td>
+          <td class="status-${escapeHtml(file.status || 'pending')}">${escapeHtml(file.status || 'pending')}</td>
+          <td class="result-${file.result === 'pass' ? 'pass' : file.result === 'fail' ? 'fail' : ''}">${escapeHtml(file.result) || 'N/A'}</td>
         </tr>
         `).join('')}
       </tbody>
@@ -374,7 +390,7 @@ const HistoryPage = ({ onViewJob, onNavigateToWaveform }) => {
   </div>
 </body>
 </html>`;
-    
+
     const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -393,7 +409,7 @@ const HistoryPage = ({ onViewJob, onNavigateToWaveform }) => {
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Test Report - Batch ${jobId}</title>
+  <title>Test Report - Batch ${escapeHtml(jobId)}</title>
   <style>
     @media print {
       body { margin: 0; padding: 20px; }
@@ -420,23 +436,23 @@ const HistoryPage = ({ onViewJob, onNavigateToWaveform }) => {
 </head>
 <body>
   <div class="container">
-    <h1>Test Report - Job #${jobId}</h1>
+    <h1>Test Report - Job #${escapeHtml(jobId)}</h1>
     <div class="info">
       <div class="info-item">
         <div class="info-label">Test Name</div>
-        <div class="info-value">${job.name || 'N/A'}</div>
+        <div class="info-value">${escapeHtml(job.name) || 'N/A'}</div>
       </div>
       <div class="info-item">
         <div class="info-label">Tag</div>
-        <div class="info-value">${job.tag || 'Untagged'}</div>
+        <div class="info-value">${escapeHtml(job.tag) || 'Untagged'}</div>
       </div>
       <div class="info-item">
         <div class="info-label">Firmware</div>
-        <div class="info-value">${job.firmware || 'N/A'}</div>
+        <div class="info-value">${escapeHtml(job.firmware) || 'N/A'}</div>
       </div>
       <div class="info-item">
         <div class="info-label">Boards</div>
-        <div class="info-value">${job.boards?.join(', ') || 'N/A'}</div>
+        <div class="info-value">${escapeHtml(job.boards?.join(', ')) || 'N/A'}</div>
       </div>
       <div class="info-item">
         <div class="info-label">Progress</div>
@@ -444,7 +460,7 @@ const HistoryPage = ({ onViewJob, onNavigateToWaveform }) => {
       </div>
       <div class="info-item">
         <div class="info-label">Status</div>
-        <div class="info-value">${job.status || 'unknown'}</div>
+        <div class="info-value">${escapeHtml(job.status) || 'unknown'}</div>
       </div>
     </div>
     <table>
@@ -460,9 +476,9 @@ const HistoryPage = ({ onViewJob, onNavigateToWaveform }) => {
         ${(job.files || []).sort((a, b) => (a.order || 0) - (b.order || 0)).map(file => `
         <tr>
           <td>${file.order || 0}</td>
-          <td>${getTestCaseDisplayName(file)}</td>
-          <td class="status-${file.status || 'pending'}">${file.status || 'pending'}</td>
-          <td class="result-${file.result === 'pass' ? 'pass' : file.result === 'fail' ? 'fail' : ''}">${file.result || 'N/A'}</td>
+          <td>${escapeHtml(getTestCaseDisplayName(file))}</td>
+          <td class="status-${escapeHtml(file.status || 'pending')}">${escapeHtml(file.status || 'pending')}</td>
+          <td class="result-${file.result === 'pass' ? 'pass' : file.result === 'fail' ? 'fail' : ''}">${escapeHtml(file.result) || 'N/A'}</td>
         </tr>
         `).join('')}
       </tbody>
