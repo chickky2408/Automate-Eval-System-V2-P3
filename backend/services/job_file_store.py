@@ -60,10 +60,16 @@ class JobFileStore:
             tc_id = None
             vcd_id = None
             if vcd:
+                from sqlalchemy import or_
                 from db.orm_models import FileORM
                 from services.file_store import file_store
                 f_res = await session.execute(
-                    select(FileORM).where(FileORM.filename == vcd).order_by(FileORM.uploaded_at.desc())
+                    select(FileORM)
+                    .where(
+                        FileORM.filename == vcd,
+                        or_(FileORM.status.is_(None), FileORM.status != "archived"),
+                    )
+                    .order_by(FileORM.uploaded_at.desc())
                 )
                 candidates = f_res.scalars().all()
                 for cand in candidates:
@@ -72,17 +78,16 @@ class JobFileStore:
                         vcd_id = cand.id
                         break
                 if not vcd_id and candidates:
-                    vcd_id = candidates[0].id
+                    # Every candidate row with this filename is missing on disk --
+                    # same case job_queue._resolve_pair_reference rejects (B1.1)
+                    # rather than falling back to a row with no real bytes behind it.
+                    raise ValueError(f"file '{vcd}' has a database row but is missing on disk")
+                if not candidates:
+                    raise ValueError(f"vcd file '{vcd}' does not exist")
 
-                if vcd_id:
-                    tc_q = select(TestCaseORM.id).where(TestCaseORM.vcd_file_id == vcd_id)
-                    tc_id = (await session.execute(tc_q)).scalar_one_or_none()
+                tc_q = select(TestCaseORM.id).where(TestCaseORM.vcd_file_id == vcd_id)
+                tc_id = (await session.execute(tc_q)).scalar_one_or_none()
 
-            if vcd and not vcd_id:
-                # PROJECT.md B1.1 fixed this exact fabrication in job_queue.py --
-                # this sibling store had the same "unresolved reference gets a
-                # random UUID FK" bug. Fail loud instead of writing a dangling FK.
-                raise ValueError(f"vcd file '{vcd}' does not exist")
             if not tc_id and not vcd_id:
                 raise ValueError("job file has neither a resolvable test case nor a vcd file")
 

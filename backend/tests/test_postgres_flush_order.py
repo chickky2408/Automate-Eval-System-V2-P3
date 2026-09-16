@@ -7,33 +7,71 @@ metadata, SQLAlchemy's flush-order dependency sort could not reliably compute
 a correct INSERT order for a multi-branch object graph (Job+JobTarget branch,
 File+TestCase branch, converging on Result) added to one session in one flush.
 
-**This was run against the project's docker-compose Postgres and the finding
-is more precise than originally feared:**
+**Root cause, confirmed precisely (the original theory above was imprecise):**
+SQLAlchemy computes flush/INSERT order from raw FK metadata just fine without
+relationship() -- that part of the original theory was wrong. The real cause
+is a genuine 3-table FK cycle in the schema: `files.result_id -> results.id`
+(orm_models.py:43), `results.test_case_id -> test_cases.id` (:209),
+`test_cases.vcd_file_id -> files.id` (:131). Confirmed directly:
+
+    from sqlalchemy.schema import sort_tables
+    sort_tables(Base.metadata.tables.values())
+    # UserWarning: Cannot correctly sort tables; there are unresolvable
+    # cycles between tables "files, results, test_cases" ...
+
+A cycle has no valid topological order, so SQLAlchemy's flush-order sort
+resolves it by dropping one of the three FK constraints from consideration
+(unspecified which, and not guaranteed stable across SQLAlchemy versions) and
+inserts in whatever order remains. On this version that happens to insert
+`results` before `test_cases` exists, which is what fails.
+
+**This was run against the project's docker-compose Postgres:**
 
 1. `test_naive_multi_branch_insert_fails_without_explicit_flush` below
-   reproduces the original worry exactly, and it DOES fail on real Postgres
-   with `ForeignKeyViolationError: results_test_case_id_fkey` -- confirming
-   SQLAlchemy cannot auto-order this graph from FK metadata alone. This is a
-   genuine SQLAlchemy/asyncpg behavior, not a fluke.
+   reproduces the cycle exactly, and it DOES fail on real Postgres with an
+   IntegrityError -- confirming the cycle really does break auto-ordering,
+   not a fluke. The specific FK name in the error is NOT asserted (see above:
+   which constraint loses is unspecified and could change), only that some
+   IntegrityError occurs.
 
 2. `test_real_add_job_flow_succeeds_on_postgres` below calls the ACTUAL
    production code path -- job_queue_service.add_job() with pairs_data that
    forces a brand-new TestCaseORM -- and it SUCCEEDS. Auditing every
    production call site that builds these ORM objects together
-   (job_queue.py's add_job()/_precreate_results_from_pairs(), job_file_store.py's
-   create_job_file()) found each one already avoids the failure mode from (1):
+   (job_queue.py's add_job()/_precreate_results_from_pairs(),
+   job_file_store.py's create_job_file(), result_store.py's add_result() --
+   confirmed dead code, only called by tests/seed_waveform_result.py, but
+   checked anyway) found each one already avoids the cycle by construction:
    Job+JobTarget are committed in a separate transaction before results are
-   ever created, and any newly-created TestCaseORM is `session.add()`-ed then
-   immediately `await session.flush()`-ed before a ResultORM is added that
-   references it. That flush forces the INSERT to Postgres before the
-   dependent row is even constructed, sidestepping the ordering question
-   entirely.
+   ever created, and any newly-created TestCaseORM or FileORM is
+   `session.add()`-ed then immediately `await session.flush()`-ed before the
+   row that references it is even constructed. That flush sends the INSERT
+   to Postgres before the dependent object exists, so the cycle is never
+   presented to the flush-order sort as a single unresolved batch.
 
-**Conclusion: the SQLite defer_foreign_keys fix (db/database.py) has no
-production-relevant Postgres counterpart bug to fix.** Test (1) stays as a
-guardrail: if future code adds several new FK-dependent rows to one session
-without this explicit flush-before-reference discipline, it WILL fail on
-Postgres exactly like test (1) does, so don't write code that way.
+**Conclusion: verified safe on every production path audited, by explicit
+flush-before-reference convention -- not fixed at the schema level (the FK
+cycle is real and still exists) and not guaranteed for any future code that
+doesn't follow the same convention.** Test (1) stays as a guardrail against
+exactly that: code that adds several new cycle-adjacent rows to one session
+without this flush discipline will fail on Postgres.
+
+**Run this file on its own, not as part of the whole suite.** Every test file
+in this directory sets `os.environ["USE_SQLITE_DEMO"]` at module import time,
+and db/database.py builds its engine once, from whatever that variable says
+at the moment db.database is *first* imported in the process -- whichever
+test file's module-level line last ran before that first import wins,
+regardless of which test is actually executing. Running `pytest` over the
+whole tests/ directory does not reliably exercise Postgres here even when
+this file's skip check says "reachable": confirmed by running the full suite
+in this environment, where this file's tests failed instead of skipping,
+because an unrelated file's `USE_SQLITE_DEMO=1` had already locked in a
+SQLite engine before this file's tests ran, while the plain TCP reachability
+check below (which runs before any dotenv-driven port resolution) happened
+to succeed anyway against an unrelated service occupying the same fallback
+port. Fixing this needs the module-level env writes moved into a conftest
+fixture across the whole suite -- real work, not done here. Until then:
+`python -m pytest tests/test_postgres_flush_order.py -q` (this file alone).
 """
 import os
 import socket
@@ -97,7 +135,7 @@ async def test_naive_multi_branch_insert_fails_without_explicit_flush():
     file_id = str(uuid.uuid4())
     res_id = str(uuid.uuid4())[:8]
 
-    with pytest.raises(IntegrityError, match="results_test_case_id_fkey"):
+    with pytest.raises(IntegrityError):
         async with async_session() as session:
             session.add(JobORM(id=job_id, name="pg flush order check", state="running"))
             session.add(JobTargetORM(id=target_id, job_id=job_id, target_type="any", status="running"))
