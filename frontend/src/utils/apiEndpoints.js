@@ -187,6 +187,11 @@ export const API_ENDPOINTS = {
   RESULT_LOG: (id) => `${API_BASE_URL}/results/${id}/log`,
   RESULT_DELETE: (id) => `${API_BASE_URL}/results/${id}`,
   
+  // Waveform Sessions (Broadway GTKWave Web)
+  WAVEFORM_SESSIONS: `${API_BASE_URL}/v1/waveform/sessions`,
+  WAVEFORM_SESSION_STATUS: (id) => `${API_BASE_URL}/v1/waveform/sessions/${id}/status`,
+  WAVEFORM_SESSION_DELETE: (id) => `${API_BASE_URL}/v1/waveform/sessions/${id}`,
+
   // WebSocket (for real-time updates)
   WS_BASE_URL,
   WS_SYSTEM: `${WS_BASE_URL}/ws/system`,

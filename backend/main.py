@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
-from routers import boards, jobs, results, system, files, notifications, ws, agent, profiles, test_cases, test_commands, job_files, agent_results
+from routers import boards, jobs, results, system, files, notifications, ws, agent, profiles, test_cases, test_commands, job_files, agent_results, waveform_sessions
 from services.job_queue import job_queue_service
 from services.board_manager import board_manager
 from services.pending_job_dispatcher import pending_job_dispatcher
@@ -198,6 +198,7 @@ app.include_router(job_files.router, prefix="/api/jobs", tags=["Job Files"])
 app.include_router(agent.router, prefix="/api/agent", tags=["Agent"])
 app.include_router(agent_results.router, tags=["Agent Results"])
 app.include_router(ws.router, tags=["WebSocket"])
+app.include_router(waveform_sessions.router)
 
 
 @app.get("/api/health")

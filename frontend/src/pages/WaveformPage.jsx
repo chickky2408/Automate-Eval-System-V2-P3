@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
+import SurferWaveformViewer from '../components/waveform/SurferWaveformViewer';
 import {
   Activity,
+  Waves,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
@@ -30,6 +32,8 @@ import {
 import { useTestStore } from '../store/useTestStore';
 import API_ENDPOINTS from '../utils/apiEndpoints';
 import { filterH5WaveformResults, resultWaveformExportUrl, resultWaveformPreviewUrl } from '../utils/resultWaveformExport';
+import BroadwayWaveformModal from '../components/BroadwayWaveformModal';
+import SplitActionLaunchDropdown from '../components/SplitActionLaunchDropdown';
 
 const MAX_WAVEFORM_SAMPLES = 3000;
 const DISPLAY_WAVEFORM_SAMPLES = 800;
@@ -60,6 +64,7 @@ const WaveformPage = () => {
   });
   const [meta, setMeta] = useState({ freq_hz: 125000, fs: 4000 });
   const [sampleCount, setSampleCount] = useState(0);
+  const [activeEngine, setActiveEngine] = useState('surfer'); // 'surfer' | 'canvas'
   const [showWaveform, setShowWaveform] = useState(true);
   const [showGrid, setShowGrid] = useState(true);
   const [showMinimap, setShowMinimap] = useState(true);
@@ -126,6 +131,9 @@ const WaveformPage = () => {
   const [finderFilter, setFinderFilter] = useState('ALL'); // 'ALL' | 'PASS' | 'FAIL' | 'KR260'
   const finderRef = useRef(null);
   const finderSearchInputRef = useRef(null);
+
+  const [broadwayModalOpen, setBroadwayModalOpen] = useState(false);
+  const [broadwayMode, setBroadwayMode] = useState('actual_only');
 
   useEffect(() => {
     if (!isFinderOpen) return;
@@ -250,6 +258,11 @@ const WaveformPage = () => {
   useEffect(() => {
     loadWaveformResults();
   }, []);
+
+  const activeResult = useMemo(
+    () => waveformResults.find((r) => String(r.id) === String(selectedResultId)),
+    [waveformResults, selectedResultId]
+  );
 
   useEffect(
     () => () => {
@@ -1143,6 +1156,8 @@ const WaveformPage = () => {
       filename = `result_${selectedResultId}_capture.bin.lz4`;
     } else if (format === 'vcd') {
       filename = `result_${selectedResultId}.vcd`;
+    } else if (format === 'fst') {
+      filename = `result_${selectedResultId}.fst`;
     } else if (format === 'csv') {
       filename = `result_${selectedResultId}.csv`;
     }
@@ -1268,6 +1283,34 @@ const WaveformPage = () => {
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
+              {/* Waveform Engine Switcher */}
+              <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold shadow-inner">
+                <button
+                  type="button"
+                  onClick={() => setActiveEngine('surfer')}
+                  className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                    activeEngine === 'surfer'
+                      ? 'bg-cyan-600 text-white shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <Waves size={15} />
+                  <span>Surfer (WASM / FST)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveEngine('canvas')}
+                  className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                    activeEngine === 'canvas'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <Activity size={15} />
+                  <span>Oscilloscope (Canvas)</span>
+                </button>
+              </div>
+
               <button
                 type="button"
                 onClick={loadWaveformResults}
@@ -1524,6 +1567,15 @@ const WaveformPage = () => {
               </button>
               <button
                 type="button"
+                onClick={() => downloadSelectedResult('fst')}
+                disabled={!selectedResultId}
+                className="px-2.5 py-1.5 rounded-xl text-xs font-semibold border border-cyan-300 dark:border-cyan-700 bg-cyan-50 dark:bg-cyan-950/60 text-cyan-800 dark:text-cyan-100 hover:bg-cyan-100 dark:hover:bg-cyan-900/50 disabled:opacity-50 transition-colors shrink-0"
+                title="Download compressed FST waveform for Surfer / GTKWave"
+              >
+                FST
+              </button>
+              <button
+                type="button"
                 onClick={() => downloadSelectedResult('lz4')}
                 disabled={!selectedResultId}
                 className="px-2.5 py-1.5 rounded-xl text-xs font-semibold border border-sky-300 dark:border-sky-700 bg-sky-50 dark:bg-sky-950/60 text-sky-800 dark:text-sky-100 hover:bg-sky-100 dark:hover:bg-sky-900/50 disabled:opacity-50 transition-colors shrink-0"
@@ -1707,6 +1759,19 @@ const WaveformPage = () => {
               </button>
             </div>
 
+            {selectedResultId && (
+              <div className="shrink-0 flex items-center">
+                <SplitActionLaunchDropdown
+                  resultId={selectedResultId}
+                  goldenAvailable={Boolean(activeResult?.vcd_name || activeResult?.has_golden || activeResult?.golden_vcd_id)}
+                  onLaunch={(mode) => {
+                    setBroadwayMode(mode);
+                    setBroadwayModalOpen(true);
+                  }}
+                />
+              </div>
+            )}
+
             {paused && maxScrollOffset > 0 && (
               <div className="flex items-center gap-2 shrink-0 px-2 py-1 sm:py-1.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white/70 dark:bg-slate-800/90">
                 <span className="text-xs font-bold text-slate-600 dark:text-slate-200">Scroll</span>
@@ -1763,8 +1828,22 @@ const WaveformPage = () => {
         </div>
       </div>
 
-      <div
-        ref={containerRef}
+      {activeEngine === 'surfer' ? (
+        <div className="mt-4">
+          <SurferWaveformViewer
+            resultId={selectedResultId}
+            boardIp="192.168.1.111"
+            defaultWaveformUrl={
+              selectedResultId
+                ? `/api/results/${selectedResultId}/export?format=fst`
+                : "http://192.168.1.111:8000/api/download-latest"
+            }
+          />
+        </div>
+      ) : (
+        <>
+          <div
+            ref={containerRef}
         className={plotContainerClass}
         style={plotContainerStyle}
         onWheel={(e) => {
@@ -2003,6 +2082,15 @@ const WaveformPage = () => {
           )}
         </div>
       </div>
+      </>
+      )}
+      <BroadwayWaveformModal
+        isOpen={broadwayModalOpen}
+        onClose={() => setBroadwayModalOpen(false)}
+        resultId={selectedResultId}
+        mode={broadwayMode}
+        goldenAvailable={Boolean(activeResult?.vcd_name || activeResult?.has_golden || activeResult?.golden_vcd_id)}
+      />
       </div>
     </div>
   );
