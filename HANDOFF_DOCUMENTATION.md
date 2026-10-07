@@ -194,13 +194,18 @@ python backend/tests/run_fresh_hardware_test.py
 
 #### Central Platform Backend:
 * [routers/agent_results.py](file:///d:/siliconcraft/eval_system/V2/Automate-Eval-System-V2-P3/backend/routers/agent_results.py) — Chunked upload receiver, LZ4 decompressor, HDF5/VCD converter.
+* [routers/waveform_sessions.py](file:///d:/siliconcraft/eval_system/V2/Automate-Eval-System-V2-P3/backend/routers/waveform_sessions.py) — REST API for Broadway GTKWave inspection sessions (`/api/v1/waveform/sessions`).
+* [services/broadway_layout_generator.py](file:///d:/siliconcraft/eval_system/V2/Automate-Eval-System-V2-P3/backend/services/broadway_layout_generator.py) — Layout `.gtkw` synthesizer with Analog Step (`@20020`) and Dual Golden scopes.
+* [services/broadway_session_manager.py](file:///d:/siliconcraft/eval_system/V2/Automate-Eval-System-V2-P3/backend/services/broadway_session_manager.py) — Display port pool and 15-minute inactivity watchdog supervisor.
 * [routers/boards.py](file:///d:/siliconcraft/eval_system/V2/Automate-Eval-System-V2-P3/backend/routers/boards.py) — Board telemetry, measurements receiver, reboot/delete endpoints.
 * [services/result_store.py](file:///d:/siliconcraft/eval_system/V2/Automate-Eval-System-V2-P3/backend/services/result_store.py) — Database result querying, `nulls_last` sorting, and snapshot mapping.
 * [services/job_queue.py](file:///d:/siliconcraft/eval_system/V2/Automate-Eval-System-V2-P3/backend/services/job_queue.py) — Hardware job allocation, board locking, and run sequencing.
 * [services/board_manager.py](file:///d:/siliconcraft/eval_system/V2/Automate-Eval-System-V2-P3/backend/services/board_manager.py) — Fleet inventory, heartbeat handler, and dispatch client.
 
 #### Frontend Application:
-* [WaveformPage.jsx](file:///d:/siliconcraft/eval_system/V2/Automate-Eval-System-V2-P3/frontend/src/pages/WaveformPage.jsx) — Waveform Viewer, Quick Finder search combobox, dual cursor measurements.
+* [WaveformPage.jsx](file:///d:/siliconcraft/eval_system/V2/Automate-Eval-System-V2-P3/frontend/src/pages/WaveformPage.jsx) — Waveform Viewer, Quick Finder search combobox, dual cursor measurements, and Broadway GTKWave integration.
+* [BroadwayWaveformModal.jsx](file:///d:/siliconcraft/eval_system/V2/Automate-Eval-System-V2-P3/frontend/src/components/BroadwayWaveformModal.jsx) — Fullscreen in-page overlay streaming GTKWave via GDK Broadway WebSocket.
+* [SplitActionLaunchDropdown.jsx](file:///d:/siliconcraft/eval_system/V2/Automate-Eval-System-V2-P3/frontend/src/components/SplitActionLaunchDropdown.jsx) — Split-action launch button for "Inspect Actual Only" vs "Inspect Actual + Golden".
 * [FileLibraryPage.jsx](file:///d:/siliconcraft/eval_system/V2/Automate-Eval-System-V2-P3/frontend/src/pages/FileLibraryPage.jsx) — File manager with updated whitelist (`.ist`, `.erom`, `.ulp`, `.bin`, `.txt`).
 * [BoardsPage.jsx](file:///d:/siliconcraft/eval_system/V2/Automate-Eval-System-V2-P3/frontend/src/pages/BoardsPage.jsx) — Fleet inventory management, live telemetry charts, board rename/delete.
 * [TestCasesPage.jsx](file:///d:/siliconcraft/eval_system/V2/Automate-Eval-System-V2-P3/frontend/src/pages/TestCasesPage.jsx) — Test Case grouping and `.ist` stimulus mapping.
