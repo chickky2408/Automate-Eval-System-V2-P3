@@ -6,11 +6,13 @@ import os
 
 def classify_file_type_from_filename(filename: str) -> str:
     """
-    Return a FileType enum name: VCD, EROM, ULP, TXT, SCRIPT, or OTHER.
-    Stimulus / Instructions: .ist, .vcd
-    EROM / Firmware / Bitstream: .erom, .bin, .hex, .elf
-    ULP: .ulp, .lin
-    TXT: .txt
+    Return a FileType enum name matching Core File Taxonomy:
+    - Input:
+      * Test Stimulus: .ist (mapped to VCD for test case execution)
+      * Golden Waveform: .vcd
+      * Main Firmware: .erom, .bin (mapped to EROM)
+      * ULP Firmware: .ulp, .lin (mapped to ULP)
+      * Config / Commands: .txt
     """
     ext = (os.path.splitext(filename or "")[1] or "").lstrip(".").lower()
     if ext in ("ist", "vcd"):

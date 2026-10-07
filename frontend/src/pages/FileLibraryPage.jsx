@@ -797,7 +797,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
   }, [importDrafts.length]);
 
   const ALLOWED_LIBRARY_IMPORT_EXTENSIONS = useMemo(
-    () => new Set(['ist', 'erom', 'ulp', 'bin', 'txt']),
+    () => new Set(['ist', 'erom', 'ulp', 'vcd', 'bin', 'txt']),
     []
   );
   const getFileExtension = (filename) => {
@@ -861,7 +861,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
     if (blockedCount > 0) {
       addToast({
         type: 'warning',
-        message: `Skipped ${blockedCount} file(s): only .ist, .erom, .ulp, .bin, .txt are allowed.`,
+        message: `Skipped ${blockedCount} file(s): only .ist, .erom, .ulp, .vcd, .bin, .txt are allowed.`,
       });
     }
     if (arr.length === 0) return;
@@ -3680,7 +3680,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                     ref={fileImportInputRef}
                     type="file"
                     multiple
-                    accept=".ist,.erom,.ulp,.bin,.txt"
+                    accept=".ist,.erom,.ulp,.vcd,.bin,.txt"
                     className="hidden"
                     onChange={(e) => {
                       const files = e.target.files;
@@ -8837,7 +8837,7 @@ const FileLibraryPage = ({ onNavigateToTestCases, onNavigateToRunSet, onNavigate
                       ref={inlineFileImportInputRef}
                       type="file"
                       multiple
-                      accept=".ist,.erom,.ulp,.bin,.txt"
+                      accept=".ist,.erom,.ulp,.vcd,.bin,.txt"
                       className="hidden"
                       onChange={(e) => {
                         const files = e.target.files;

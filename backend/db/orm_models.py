@@ -128,10 +128,10 @@ class TestCaseORM(Base):
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name = Column(String(255), nullable=False)
-    vcd_file_id = Column(String(36), ForeignKey("files.id"), nullable=False)
-    bin_file_id = Column(String(36), ForeignKey("files.id", ondelete="SET NULL"), nullable=True) # EROM firmware binary
-    lin_file_id = Column(String(36), ForeignKey("files.id", ondelete="SET NULL"), nullable=True) # ULP logic file (Nullable)
-    mdi_file_id = Column(String(36), ForeignKey("files.id", ondelete="SET NULL"), nullable=True) # TXT command file
+    vcd_file_id = Column(String(36), ForeignKey("files.id"), nullable=False) # Golden reference waveform (.vcd)
+    bin_file_id = Column(String(36), ForeignKey("files.id", ondelete="SET NULL"), nullable=True) # Main firmware binary (.erom / .bin)
+    lin_file_id = Column(String(36), ForeignKey("files.id", ondelete="SET NULL"), nullable=True) # ULP firmware file (.ulp)
+    mdi_file_id = Column(String(36), ForeignKey("files.id", ondelete="SET NULL"), nullable=True) # Test stimulus / command script (.ist)
     owner_id = Column(String(36), ForeignKey("profiles.id", ondelete="SET NULL"), nullable=True)
     config_options = Column(JSON, nullable=True) # sampling_rate, voltage_limit, channels, etc.
     created_at = Column(DateTime, default=datetime.utcnow)

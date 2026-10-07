@@ -115,10 +115,18 @@ erDiagram
     JOBS ||--o{ JOB_TARGETS : contains
     JOB_TARGETS ||--o{ RESULTS : produces
     TEST_CASES ||--o{ RESULTS : specifies
-    RESULTS ||--o{ FILES : attaches
+    RESULTS ||--o{ FILES : "produces capture (.fst) & export (.vcd)"
     BOARDS ||--|| BOARD_STATUS : tracks
     BOARDS ||--o{ BOARD_TELEMETRY_LOG : logs
 
+    TEST_CASES {
+        string id PK
+        string name
+        string mdi_file_id FK "Input: Test Stimulus (.ist)"
+        string bin_file_id FK "Input: Main Firmware (.erom)"
+        string lin_file_id FK "Input: ULP Firmware (.ulp)"
+        string vcd_file_id FK "Input: Golden Waveform (.vcd)"
+    }
     JOBS {
         string id PK
         string name
@@ -150,10 +158,10 @@ erDiagram
     FILES {
         string id PK
         string filename
-        string file_type
+        string file_type "ist | erom | ulp | vcd (Input) / fst (Storage)"
         string storage_path
         string checksum_sha256
-        string result_id FK
+        string result_id FK "Output .fst / export .vcd"
         string status "active or archived"
         datetime deleted_at "Soft-delete"
     }

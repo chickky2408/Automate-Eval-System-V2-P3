@@ -19,8 +19,8 @@ from models.job import JobState
 router = APIRouter()
 
 ACTIVE_JOB_STATES = {JobState.PENDING, JobState.CONFIGURING, JobState.FLASHING, JobState.RUNNING}
-ALLOWED_UPLOAD_EXTENSIONS = {"ist", "erom", "ulp"}
-LIBRARY_VISIBLE_FILE_TYPES = {"VCD", "EROM", "ULP"}
+ALLOWED_UPLOAD_EXTENSIONS = {"ist", "erom", "ulp", "vcd", "bin", "txt"}
+LIBRARY_VISIBLE_FILE_TYPES = {"VCD", "EROM", "ULP", "TXT"}
 
 # PROJECT.md B1.10: there was no server-side upload size cap at all -- the 50 MB
 # limit the frontend enforces (SetupPage.jsx) is a client-side courtesy check
