@@ -20,8 +20,8 @@ flowchart TB
         API_Gateway["FastAPI Gateway & REST Routes"]
         Job_Queue["Job Queue Engine & Allocator"]
         Result_Store["Result Store & Normalizer"]
-        Waveform_Proc["Waveform Ingestion (LZ4 Storage -> In-Memory Convert -> HDF5 & VCD)"]
-        DB[(PostgreSQL Database)]
+        Waveform_Proc["Waveform Ingestion (Edge FST Ingestion -> HDF5 & FST Storage)"]
+        DB[(SQLite / PostgreSQL Database)]
         Storage[(NVMe Storage: uploads/)]
     end
 
@@ -38,8 +38,8 @@ flowchart TB
     Job_Queue -->|POST /execute| Agent_Daemon
     Agent_Daemon -->|POST /api/agent/heartbeat| API_Gateway
     Agent_Daemon -->|DMA Stream| DDR_RAM
-    DDR_RAM -->|RAM-to-LZ4| Agent_Daemon
-    Agent_Daemon -->|POST /v1/upload (Chunked)| Waveform_Proc
+    DDR_RAM -->|bin2fst on KR260| Agent_Daemon
+    Agent_Daemon -->|POST /v1/upload (Chunked FST)| Waveform_Proc
     Waveform_Proc --> Storage
     Waveform_Proc --> Result_Store
     Result_Store --> DB
@@ -67,8 +67,15 @@ flowchart TB
 
 ### 3. 🛠️ Key Implemented Modules & Features
 
-#### 📁 A. File Library & Whitelist Customization
-* **Allowed File Whitelist**: Strictly restricted to `['ist', 'erom', 'ulp', 'bin', 'txt']`. Obsolete `.vcd`, `.hex`, `.elf`, `.lin`, `.sh` extensions have been removed from the UI import dialog.
+#### 📁 A. File Library & Whitelist Roles
+* **Allowed Input Whitelist**: Strictly restricted to the 4 essential engineering inputs:
+  * `.ist`: คำสั่งทดสอบ (Test Stimulus)
+  * `.erom` (หรือ `.bin`): Firmware หลักสำหรับชิป
+  * `.ulp`: Firmware สำหรับ Core ULP
+  * `.vcd`: Golden Waveform สำหรับการตรวจเทียบ
+* **Storage & Output**:
+  * Storage: `.fst` (Waveform บีบอัดสูงจาก KR260)
+  * Output: `.vcd` (On-demand transcode เมื่อ User กด Export ไปยัง GTKWave)
 * **Standalone Stimulus Support**: Single `.ist` files can be uploaded and dispatched as independent test cases without requiring `.erom` or `.ulp` firmware binaries.
 
 #### 🎛️ B. Board Fleet Manager & Live Telemetry
@@ -77,26 +84,27 @@ flowchart TB
 
 #### ⚡ C. End-to-End Automated Hardware Execution Pipeline
 1. **Dispatch**: User clicks *Run* $\rightarrow$ Backend assigns `JobORM` and `ResultORM` records $\rightarrow$ Dispatches `POST /execute` to KR260 Agent.
-2. **Hardware Capture**:
+2. **Hardware Capture & Edge Conversion**:
    * KR260 Agent arms the **AXI DMA S2MM Scatter-Gather Engine**.
    * Clears DDR RAM buffer and executes `.ist` stimulus via mmap register triggers.
-   * Streams captured binary bytes directly into compressed `scope_capture.bin.lz4` in zero-wear RAM disk (`/tmp/board_data`).
-3. **Upload, Storage & Conversion (Ephemeral Raw Binary Architecture)**:
-   * Agent uploads `.bin.lz4` chunks to `/v1/upload/init`, `/v1/upload/part`, `/v1/upload/complete`.
-   * **Storage Policy**: Central Server stores **`result_{id}_capture.bin.lz4`** (~6 MB) as permanent lossless ground truth.
-   * **In-Memory/Tmp Conversion**: Server decompresses LZ4 temporarily $\rightarrow$ Generates canonical **HDF5 (`.h5` ~18 MB)** for Web UI & Python, and **VCD (`.vcd` ~0.7 MB)** for GTKWave.
-   * **Immediate Purge**: The temporary 1.46 GB raw `.bin` is deleted immediately (`os.remove`), saving >98.5% server disk space.
+   * Streams captured binary bytes into RAM disk buffer (`/tmp/board_data`).
+   * **Edge FST Conversion (`bin2fst` / `zync_trace_converter_bin_to_fst`)**: KR260 converts binary trace directly into compact FST (`.fst`) on the edge device, bypassing massive network transfer overhead.
+3. **Upload, Storage & Conversion**:
+   * Agent uploads `.fst` chunks to `/v1/upload/init`, `/v1/upload/part`, `/v1/upload/complete`.
+   * **Storage Policy**: Central Server stores **`result_{id}_capture.fst`** as standard compact waveform ground truth.
+   * **Canvas Generation**: Server generates canonical **HDF5 (`.h5`)** optimized for Web UI Canvas 60fps rendering.
+   * **Immediate Purge**: Ephemeral raw binary chunks are purged immediately, saving server disk space.
    * Automatically marks `ResultORM.status = "completed"`, `passed = True`, and registers `FileORM` records.
 
-#### 📈 D. Interactive Waveform Viewer & Quick Finder
+#### 📈 D. Interactive Waveform Viewer & Embedded GTKWave
 * **Searchable Combobox (Quick Finder)**: Floating searchable selector with instant filter chips:
   * `All (N)`
   * `Passed (N)`
   * `Failed (N)`
   * `KR260 (N)`
 * **High-Performance Canvas**: 60 FPS multi-channel hardware trace rendering with dynamic downsampling from HDF5.
-* **Measurement Tools**: Dual interactive measurement cursors for $\Delta T$, $\Delta V$, $V_{pp}$, Frequency, and Duty Cycle calculation.
-* **Hardware Artifact Export**: One-click download for **HDF5 (`.h5`)**, **VCD (`.vcd`)**, and **LZ4 (`.bin.lz4`)**. Downloading compressed LZ4 eliminates network bandwidth bottlenecks.
+* **Embedded GTKWave Inspection (GDK Broadway)**: Split-action launch modal streaming real GTKWave UI directly inside the browser over WebSocket, with automated analog step reconstruction (`@20020`) and dual golden comparison overlays.
+* **Hardware Artifact Export**: One-click download for **FST (`.fst`)** and **HDF5 (`.h5`)**.
 
 ---
 
@@ -116,6 +124,7 @@ erDiagram
         string name
         string state
         int progress
+        int timeout_seconds "Nullable"
         datetime created_at
         datetime completed_at
     }
@@ -129,10 +138,11 @@ erDiagram
         string id PK
         string job_id FK
         string job_target_id FK
-        string test_case_id FK
+        string test_case_id FK "ondelete RESTRICT"
         string status
         boolean passed
         float duration_seconds
+        string verification_skip_reason "Nullable"
         json snapshot_data
         json metrics_json
         datetime completed_at
@@ -144,6 +154,8 @@ erDiagram
         string storage_path
         string checksum_sha256
         string result_id FK
+        string status "active or archived"
+        datetime deleted_at "Soft-delete"
     }
 ```
 
@@ -193,7 +205,7 @@ python backend/tests/run_fresh_hardware_test.py
 ### 6. 📂 Key File Sitemap & Code References
 
 #### Central Platform Backend:
-* [routers/agent_results.py](file:///d:/siliconcraft/eval_system/V2/Automate-Eval-System-V2-P3/backend/routers/agent_results.py) — Chunked upload receiver, LZ4 decompressor, HDF5/VCD converter.
+* [routers/agent_results.py](file:///d:/siliconcraft/eval_system/V2/Automate-Eval-System-V2-P3/backend/routers/agent_results.py) — Chunked upload receiver, FST/waveform ingestion, and HDF5 generation.
 * [routers/waveform_sessions.py](file:///d:/siliconcraft/eval_system/V2/Automate-Eval-System-V2-P3/backend/routers/waveform_sessions.py) — REST API for Broadway GTKWave inspection sessions (`/api/v1/waveform/sessions`).
 * [services/broadway_layout_generator.py](file:///d:/siliconcraft/eval_system/V2/Automate-Eval-System-V2-P3/backend/services/broadway_layout_generator.py) — Layout `.gtkw` synthesizer with Analog Step (`@20020`) and Dual Golden scopes.
 * [services/broadway_session_manager.py](file:///d:/siliconcraft/eval_system/V2/Automate-Eval-System-V2-P3/backend/services/broadway_session_manager.py) — Display port pool and 15-minute inactivity watchdog supervisor.
