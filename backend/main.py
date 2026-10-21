@@ -207,6 +207,18 @@ async def health_check():
     return {"status": "ok", "version": "2.0.0"}
 
 
+# ── Surfer WASM static files (/surfer/) ──────────────────────────────────────
+# The Surfer WASM build is downloaded during Docker build (see Dockerfile).
+# Path inside container: /app/surfer_wasm/  → served at  /surfer/
+SURFER_WASM_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "surfer_wasm")
+if os.path.isdir(SURFER_WASM_DIR):
+    app.mount("/surfer", StaticFiles(directory=SURFER_WASM_DIR, html=True), name="surfer")
+    print(f"[STARTUP] Surfer WASM served at /surfer/ from {SURFER_WASM_DIR}")
+else:
+    print(f"[STARTUP] Surfer WASM dir not found ({SURFER_WASM_DIR}); /surfer/ will be unavailable. "
+          f"Run: make download-surfer  or rebuild the Docker image.")
+
+# ── Frontend SPA static files ─────────────────────────────────────────────────
 # Serve frontend static files (in production, built by Vite → /app/frontend)
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend")
 INDEX_HTML = os.path.join(FRONTEND_DIR, "index.html")

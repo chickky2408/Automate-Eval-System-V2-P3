@@ -1,5 +1,5 @@
 # Eval System — quick commands (see .env.example for prod DB / APP_PORT)
-.PHONY: help dev-local up down compose logs db prod-up prod-down prod-logs prod-build prod-tunnel-up prod-tunnel-logs prod-tunnel-url db-cleanup-default-profiles db-cleanup-default-profiles-dry
+.PHONY: help dev-local up down compose logs db prod-up prod-down prod-logs prod-build prod-tunnel-up prod-tunnel-logs prod-tunnel-url db-cleanup-default-profiles db-cleanup-default-profiles-dry download-surfer
 
 help:
 	@echo "One command local dev (DB in Docker + backend + frontend):"
@@ -29,6 +29,9 @@ help:
 	@echo "Database housekeeping:"
 	@echo "  make db-cleanup-default-profiles-dry   preview deleting profiles named Default*"
 	@echo "  make db-cleanup-default-profiles       delete those profiles + sync normalized TC tables"
+	@echo ""
+	@echo "Surfer WASM (local dev only — Docker build handles this automatically):"
+	@echo "  make download-surfer   download Surfer WASM to backend/surfer_wasm/ for local dev"
 
 up:
 	docker compose up -d
@@ -78,3 +81,18 @@ db-cleanup-default-profiles-dry:
 
 db-cleanup-default-profiles:
 	cd backend && pipenv run python scripts/cleanup_default_profiles.py
+
+## Download Surfer WASM build for local dev (Docker handles this automatically in CI)
+download-surfer:
+	@echo "[Surfer] Downloading WASM build from GitLab CI artifacts..."
+	@mkdir -p backend/surfer_wasm
+	@curl -L --fail --retry 3 \
+		--output /tmp/surfer_web.zip \
+		"https://gitlab.com/surfer-project/surfer/-/jobs/artifacts/main/download?job=pages" \
+		&& unzip -q -o /tmp/surfer_web.zip -d /tmp/surfer_extracted \
+		&& ([ -d /tmp/surfer_extracted/public ] \
+		    && cp -r /tmp/surfer_extracted/public/. backend/surfer_wasm/ \
+		    || cp -r /tmp/surfer_extracted/. backend/surfer_wasm/) \
+		&& rm -rf /tmp/surfer_web.zip /tmp/surfer_extracted \
+		&& echo "[Surfer] Done — files in backend/surfer_wasm/" \
+		|| echo "[Surfer] Download failed — check network / GitLab availability"
